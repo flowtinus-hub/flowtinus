@@ -9,7 +9,9 @@ import { median, spread } from '#perf/stats';
  * status, and a summary at the end. Plain text only, so it can be piped or pasted.
  */
 
+/** as the report page's "noisy": a spread of the engine time over the last NOISE_WINDOW executions above this share of its median */
 const NOISE_LIMIT = 0.1;
+const NOISE_WINDOW = 3;
 
 export { formatMetric };
 
@@ -29,9 +31,24 @@ function table(rows: string[][], indent = '  '): string {
 
 const counted = (line: ResultLine) => line.samples.filter(s => s.record.status !== 'failed');
 
-/** (max − min) ÷ median of the engine's time over the counted runs */
-export function noise(samples: Sample[]): number | undefined {
-    const times = samples.map(s => s.record.durationMs);
+const engineTime = (line: ResultLine) => {
+    const runs = counted(line);
+    return (
+        line.rulers.find(r => r.metric === 'durationMs')?.median ?? (runs.length ? median(runs.map(s => s.record.durationMs)) : undefined)
+    );
+};
+
+/**
+ * How much the engine time varied between the last NOISE_WINDOW executions of a scenario (`history`: its complete
+ * executions at one size on this machine, oldest first, whatever their commit): (max − min) ÷ median of their engine
+ * times, as the report page's "noisy". None with fewer than 2 executions.
+ */
+export function noise(history: ResultLine[]): number | undefined {
+    const times = history
+        .filter(l => !l.partial)
+        .slice(-NOISE_WINDOW)
+        .map(engineTime)
+        .filter((t): t is number => t !== undefined);
     if (times.length < 2) {
         return undefined;
     }
@@ -66,7 +83,8 @@ export function printRun(sample: Sample, runs: number) {
     console.log(`  ${what}: ${sample.record.status} in ${ms(sample.record.durationMs)}${error}`);
 }
 
-export function printScenario(line: ResultLine, elapsedMs: number) {
+/** `history`: the scenario's complete executions at this size on this machine, oldest first, this one last */
+export function printScenario(line: ResultLine, elapsedMs: number, history: ResultLine[] = [line]) {
     const runs = counted(line);
     const failed = line.samples.length - runs.length;
     console.log(
@@ -133,10 +151,11 @@ export function printScenario(line: ResultLine, elapsedMs: number) {
         console.log(`  memory samples per run: ${Math.min(...memory)} to ${Math.max(...memory)}`);
     }
 
-    const spreadOfTime = noise(runs);
+    const spreadOfTime = noise(history);
     if (spreadOfTime !== undefined && spreadOfTime > NOISE_LIMIT) {
+        const last = Math.min(history.filter(l => !l.partial).length, NOISE_WINDOW);
         console.log(
-            `  high noise: the engine's time varies ${Math.round(spreadOfTime * 100)} % of its median between runs (run more, or on a quieter machine, before reading small changes)`,
+            `  noisy: the engine time varied ${Math.round(spreadOfTime * 100)} % of its median over the last ${last} executions (run again, or on a quieter machine, before reading small changes)`,
         );
     }
 

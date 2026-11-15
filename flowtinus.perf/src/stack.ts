@@ -5,7 +5,9 @@ import type { ServiceName } from '#perf/scenario';
 /*
  * The scenarios' services: the databases in their own compose project (docker-compose.perf.yml) and the fake API as a
  * local process. Checks Docker before anything starts, starts only what a scenario lists, and says how to fix what is
- * wrong (a PerfError, exit code 2). The constants here are the only place the ports, images and limits are written in
+ * wrong (a PerfError, exit code 2). Docker needs memory for the scenario that needs most, not for every database at
+ * once: when the next scenario's databases do not fit beside the ones still running, those are stopped first (their
+ * data stays in their volumes). The constants here are the only place the ports, images and limits are written in
  * code; the compose file repeats them and tests/stack.test.ts checks that both agree.
  */
 
@@ -38,6 +40,9 @@ export class PerfError extends Error {
 
 export const dockerServices = (services: ServiceName[]): DockerService[] => services.filter((s): s is DockerService => s in SERVICE_LIMITS);
 
+/** the memory the databases of these services may take together: the sum of their limits */
+export const memoryOf = (services: ServiceName[]) => dockerServices(services).reduce((sum, s) => sum + SERVICE_LIMITS[s].memoryBytes, 0);
+
 async function run(cmd: string[], inherit = false) {
     const child = Bun.spawn(cmd, {
         stdin: 'ignore',
@@ -52,7 +57,8 @@ async function run(cmd: string[], inherit = false) {
     return { code, stdout, stderr };
 }
 
-export async function checkDocker(services: ServiceName[]): Promise<DockerInfo> {
+/** `scenarios`: the services of each scenario about to run; Docker must hold the databases of the one that needs most */
+export async function checkDocker(scenarios: ServiceName[][]): Promise<DockerInfo> {
     let result: Awaited<ReturnType<typeof run>>;
     try {
         result = await run(['docker', 'info', '--format', 'json']);
@@ -80,22 +86,32 @@ export async function checkDocker(services: ServiceName[]): Promise<DockerInfo> 
         );
     }
 
-    const needed = dockerServices(services).reduce((sum, s) => sum + SERVICE_LIMITS[s].memoryBytes, 0);
+    const needed = Math.max(0, ...scenarios.map(memoryOf));
     const total = info.MemTotal ?? 0;
     if (needed > total) {
         const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1);
         throw new PerfError(
-            `Docker has ${gb(total)} GB of memory and these scenarios need ${gb(needed)} GB: raise it in Docker Desktop (Settings → Resources), or on Windows in .wslconfig (memory=), then restart Docker.`,
+            `Docker has ${gb(total)} GB of memory and a scenario here needs ${gb(needed)} GB for its databases: raise it in Docker Desktop (Settings → Resources), or on Windows in .wslconfig (memory=), then restart Docker.`,
         );
     }
 
     return { memTotalBytes: total, arch: info.Architecture ?? '', version: info.ServerVersion };
 }
 
-export async function ensureServices(services: ServiceName[]): Promise<void> {
+/** starts a scenario's databases; `memTotalBytes`: Docker's memory, to stop the running ones that do not fit beside them */
+export async function ensureServices(services: ServiceName[], memTotalBytes = Infinity): Promise<void> {
     const wanted = dockerServices(services);
     if (wanted.length === 0) {
         return;
+    }
+
+    const ps = await run(['docker', 'compose', '-f', COMPOSE_FILE, 'ps', '--services', '--status', 'running']);
+    const others = (ps.code === 0 ? ps.stdout.split('\n') : [])
+        .map(name => name.trim())
+        .filter((name): name is DockerService => name in SERVICE_LIMITS && !wanted.includes(name as DockerService));
+    if (others.length && memoryOf([...wanted, ...others]) > memTotalBytes) {
+        console.log(`  stopping ${others.join(', ')}: Docker has no memory for them beside ${wanted.join(', ')} (their data stays)`);
+        await run(['docker', 'compose', '-f', COMPOSE_FILE, 'stop', ...others], true);
     }
 
     const { code } = await run(['docker', 'compose', '-f', COMPOSE_FILE, 'up', '-d', '--wait', '--wait-timeout', '180', ...wanted], true);

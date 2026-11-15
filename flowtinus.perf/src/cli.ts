@@ -5,7 +5,7 @@ import { gitInfo, machineInfo } from '#perf/machine';
 import { currentChild, measureOnce } from '#perf/measure';
 import { printPlan, printRun, printScenario, printSummary } from '#perf/report';
 import { buildReport, serveReport } from '#perf/report-site';
-import { appendResult, lastResult, SCHEMA_VERSION, type ResultLine } from '#perf/results';
+import { appendResult, historyOf, lastResult, readResults, SCHEMA_VERSION, type ResultLine } from '#perf/results';
 import type { Sample, Scenario } from '#perf/scenario';
 import { SCENARIOS, scenarioById } from '#perf/scenarios';
 import { checkDocker, dockerServices, ensureServices, IMAGES, killTree, PERF_PORTS, PerfError, startFakeApi, warnIfEmulated, type DockerInfo } from '#perf/stack';
@@ -128,7 +128,7 @@ let docker: DockerInfo | undefined;
 let dockerProblem: string | undefined;
 if (needsDocker.length) {
     try {
-        docker = await checkDocker([...new Set(needsDocker)]);
+        docker = await checkDocker(selected.map(s => s.services));
     } catch (e) {
         dockerProblem = e instanceof Error ? e.message : String(e);
     }
@@ -211,7 +211,7 @@ for (const scenario of selected) {
         }
 
         warnIfEmulated(docker, scenario.services);
-        await ensureServices(scenario.services);
+        await ensureServices(scenario.services, docker?.memTotalBytes);
         if (scenario.services.includes('fake-api')) {
             state.fakeApi = await startFakeApi();
         }
@@ -251,7 +251,7 @@ for (const scenario of selected) {
         const line = resultLine(state, false);
         appendResult(line);
         lines.push(line);
-        printScenario(line, performance.now() - t0);
+        printScenario(line, performance.now() - t0, historyOf(readResults(machine.hostname), line.scenario.id, line.scenario.size));
         if (line.samples.some(s => s.record.status === 'failed')) {
             exitCode = Math.max(exitCode, 1);
         }

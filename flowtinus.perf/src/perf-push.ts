@@ -2,7 +2,8 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import os from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { RESULTS_DIR, resultsPath, type ResultLine } from '#perf/results';
-import { checkDocker, PACKAGE_ROOT, PerfError, SERVICE_LIMITS, type DockerService } from '#perf/stack';
+import { SCENARIOS } from '#perf/scenarios';
+import { checkDocker, PACKAGE_ROOT, PerfError } from '#perf/stack';
 
 /*
  * `git perf-push <git push arguments>`: a git push that measures what it pushes. The alias (set by `bun install`, see
@@ -205,7 +206,7 @@ const readLines = (dir: string): ResultLine[] =>
 
 async function measure(target: Target): Promise<ResultLine[]> {
     try {
-        await checkDocker(Object.keys(SERVICE_LIMITS) as DockerService[]);
+        await checkDocker(SCENARIOS.map(s => s.services));
     } catch (e) {
         throw new Refusal(`${e instanceof PerfError ? e.message : String(e)}\nNothing was measured or pushed.`, 2);
     }
