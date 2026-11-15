@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 522" width="1000" height="522" role="img" aria-label="Test run · draft · tag default · step 5 of 5">
+<title>Test run · draft · tag default · step 5 of 5</title>
+<defs>
+<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#43484e"/></pattern>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#5a6068"/></marker>
+<clipPath id="frame"><rect x="0" y="0" width="1000" height="522" rx="14"/></clipPath>
+</defs>
+<g clip-path="url(#frame)">
+<rect x="0" y="0" width="1000" height="522" fill="#171717"/>
+<rect x="0" y="44" width="1000" height="430" fill="#23272b"/>
+<rect x="0" y="44" width="1000" height="430" fill="url(#dots)"/>
+<path d="M0 44 H1000 M0 474 H1000" stroke="rgba(255,255,255,0.10)"/>
+<circle cx="22" cy="22" r="4.5" fill="#f2a93b"><animate attributeName="opacity" dur="1s" repeatCount="indefinite" values="1;0.35;1"/></circle>
+<text x="36" y="26.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">Test run · draft · tag default · step 5 of 5</text>
+<text x="982" y="26.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#a1a1a1" text-anchor="end">flowtinus.core · engine</text>
+<g transform="translate(0 44)">
+<path d="M70 110 L235 110 L405 110 L575 110 L652.5 110 L682.5 55 L760 55 L930 55" fill="none" stroke="#5a6068" stroke-width="2" stroke-linejoin="round"/>
+<path d="M575 110 L652.5 110 L682.5 170 L760 170" fill="none" stroke="#5a6068" stroke-width="2" stroke-linejoin="round"/>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.1129"/><animateMotion dur="7.75s" repeatCount="indefinite" calcMode="linear" path="M235 110 L405 110 L575 110 L652.5 110 L682.5 55 L760 55 L930 55" keyPoints="0;0.2336;0.4673;0.5738;0.6599;0.7664;1;1" keyTimes="0;0;0;0;0;0;0.0968;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#f2a93b" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g></g>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.2435"/><animateMotion dur="7.75s" repeatCount="indefinite" calcMode="linear" path="M235 110 L405 110 L575 110 L652.5 110 L682.5 55 L760 55 L930 55" keyPoints="0;0.2336;0.4673;0.5738;0.6599;0.7664;1;1" keyTimes="0;0;0;0;0;0;0.2274;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#f2a93b" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g></g>
+
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.4677"/><animateMotion dur="7.75s" repeatCount="indefinite" calcMode="linear" path="M235 110 L405 110 L575 110 L652.5 110 L682.5 55 L760 55 L930 55" keyPoints="0;0.2336;0.4673;0.5738;0.6599;0.7664;1;1" keyTimes="0;0;0;0;0;0.2104;0.4516;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#f2a93b" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g></g>
+<rect x="30" y="88" width="80" height="44" rx="10" fill="#edd5a3" stroke="none" stroke-width="1.2"/>
+<circle cx="44" cy="110" r="4.5" fill="#111111"/>
+<text x="56" y="114.5" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#111111" text-anchor="start">Start</text>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="70" y="150" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">1</text></g>
+<rect x="150.6" y="88" width="168.8" height="44" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
+<circle cx="164.6" cy="110" r="4.5" fill="#f2af48"/>
+<text x="176.6" y="114.5" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">SQL Server Query</text>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="235" y="150" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">1,248</text></g>
+<rect x="339" y="88" width="132" height="44" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
+<circle cx="353" cy="110" r="4.5" fill="#36baeb"/>
+<text x="365" y="114.5" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">Mapper</text>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="405" y="150" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">1,248</text></g>
+<rect x="509" y="88" width="132" height="44" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
+<circle cx="523" cy="110" r="4.5" fill="#36baeb"/>
+<text x="535" y="114.5" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">Router</text>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="575" y="150" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">1,248</text></g>
+<rect x="691.2" y="33" width="137.6" height="44" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
+<circle cx="705.2" cy="55" r="4.5" fill="#5bc99e"/>
+<text x="717.2" y="59.5" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">HTTP Request</text>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.2104"/><text x="760" y="95" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">988</text></g><g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.2104"/><text x="760" y="95" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">1,040</text></g>
+<rect x="694" y="148" width="132" height="44" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
+<circle cx="708" cy="170" r="4.5" fill="#d3d8de"/>
+<text x="720" y="174.5" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">Discard</text>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="760" y="210" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">208</text></g>
+<rect x="890" y="33" width="80" height="44" rx="10" fill="#edd5a3" stroke="none" stroke-width="1.2"/>
+<circle cx="904" cy="55" r="4.5" fill="#111111"/>
+<text x="916" y="59.5" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#111111" text-anchor="start">End</text>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.0968"/><text x="930" y="95" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">884</text></g><g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.0968;0.2274"/><text x="930" y="95" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">936</text></g><g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.2274;0.4516"/><text x="930" y="95" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">988</text></g><g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.4516"/><text x="930" y="95" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">1,040</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.4839"/><text x="24" y="26" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="600" fill="#f2a93b" text-anchor="start">● Running</text></g><g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.4839"/><text x="24" y="26" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="600" fill="#f2a93b" text-anchor="start">● Succeeded · 11.2 s</text></g>
+<rect x="24" y="240" width="300" height="176" rx="10" fill="#0a0a0a" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<text x="38" y="262" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#a1a1a1" text-anchor="start">an envelope (Mapper, out)</text>
+<path d="M24 272 H324" stroke="rgba(255,255,255,0.10)"/>
+<text x="38" y="292" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">{</text>
+<text x="38" y="309" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">  FLOW_CURRENT_RUN: { id, mode, flow… },</text>
+<text x="38" y="326" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">  PARAMETERS: { since: "2026-11-14" },</text>
+<text x="38" y="343" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">  DATA: { id: 88213, customer_id: "c_1029",</text>
+<text x="38" y="360" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">          amount: 14990, currency: "USD" }</text>
+<text x="38" y="377" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">}</text>
+<rect x="340" y="240" width="316" height="176" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<text x="354" y="262" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#a1a1a1" text-anchor="start">Channel · Router → HTTP Request</text>
+<path d="M340 272 H656" stroke="rgba(255,255,255,0.10)"/>
+<text x="354" y="296" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#fafafa" text-anchor="start">a bounded queue: 64 envelopes</text>
+<rect x="354" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="372" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="390" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="408" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="426" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="444" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="462" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="480" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="498" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="516" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="534" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="552" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="570" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="588" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="606" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<rect x="624" y="312" width="14" height="22" rx="3" fill="none" stroke="rgba(255,255,255,0.18)"/>
+
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="354" y="360" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#a1a1a1" text-anchor="start">room again</text></g>
+<text x="354" y="396" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#a1a1a1" text-anchor="start">only a few envelopes in memory, whatever the input</text>
+<rect x="672" y="240" width="304" height="176" rx="10" fill="#0a0a0a" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<text x="686" y="262" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#a1a1a1" text-anchor="start">a component: an async generator</text>
+<path d="M672 272 H976" stroke="rgba(255,255,255,0.10)"/>
+<text x="686" y="292" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">async *execute(inputs, config, ctx) {</text>
+<text x="686" y="309" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">  for await (const doc of inputs['in-0'])</text>
+<text x="686" y="326" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">    yield {</text>
+<text x="686" y="343" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">      port: hasCustomer ? 'out-0' : 'else',</text>
+<text x="686" y="360" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">      doc,</text>
+<text x="686" y="377" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">    };</text>
+<text x="686" y="394" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">}</text>
+</g>
+
+
+
+
+<g opacity="0"><animate attributeName="opacity" dur="7.75s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><rect x="18" y="489" width="22" height="20" rx="10" fill="#f2a93b"/><text x="29" y="503.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="700" fill="#111111" text-anchor="middle">5</text><text x="50" y="503" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#fafafa" text-anchor="start">When its inputs close a component ends and closes its outputs; the record keeps counts, samples, times</text></g>
+<rect x="0" y="474" width="0" height="2" fill="#f2a93b"><animate attributeName="width" dur="7.75s" repeatCount="indefinite" values="0;1000" keyTimes="0;1"/></rect>
+</g>
+<rect x="0.5" y="0.5" width="999" height="521" rx="14" fill="none" stroke="rgba(255,255,255,0.10)"/>
+</svg>

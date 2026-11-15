@@ -1,0 +1,48 @@
+{
+  "name": "flowtinus",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Visual data flows: core (TS engine), server (Bun: api, supervisor, workers) and perf (engine performance scenarios, bun run perf).",
+  "type": "module",
+  "engines": {
+    "node": ">=26",
+    "bun": ">=1.4.4"
+  },
+  "workspaces": [
+    "flowtinus.core",
+    "flowtinus.server",
+    "flowtinus.editor",
+    "flowtinus.perf"
+  ],
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "start": "bun scripts/dev.ts",
+    "editor": "bun run --cwd=flowtinus.editor dev",
+    "test": "bun scripts/test.ts",
+    "test:all": "bun scripts/test.ts --all",
+    "typecheck": "bun run --cwd=flowtinus.core typecheck && bun run --cwd=flowtinus.server typecheck && bun run --cwd=flowtinus.editor typecheck && bun run --cwd=flowtinus.perf typecheck",
+    "perf": "bun flowtinus.perf/src/cli.ts",
+    "migrate": "bun run --cwd=flowtinus.server migrate",
+    "docs": "bun docs/components/generate.ts",
+    "docs:check": "bun docs/components/generate.ts --check",
+    "lint": "oxlint --disable-nested-config -c .oxlintrc.curly.json . && prettier --check . && bun run docs:check",
+    "build": "bun run typecheck && bun run --cwd=flowtinus.editor build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky && bun flowtinus.perf/src/perf-push-alias.ts"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}": [
+      "oxlint --disable-nested-config -c .oxlintrc.curly.json --fix",
+      "prettier --write --ignore-unknown"
+    ],
+    "*.{json,css,md,yml,yaml,html}": "prettier --write --ignore-unknown",
+    "flowtinus.core/src/**/*.ts": "bun run docs:check"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "oxlint": "^1.91.0",
+    "prettier": "^3.9.10"
+  }
+}

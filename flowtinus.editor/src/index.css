@@ -1,0 +1,425 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/geist';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    /* the flow editor's canvas and its grid dots */
+    --canvas: oklch(0.937 0 0);
+    /* the line around a component on the canvas: none in light (white on the gray canvas), a soft one in dark */
+    --node-outline: transparent;
+    /* the Start and End cards: a honey of the brand gold's family (lighter than the gold), their name dark, so the
+       flow's ends stand out from its components */
+    --node-fixed: oklch(0.839 0 0);
+    --node-fixed-foreground: oklch(0.178 0 0);
+    /* component categories (palette, cards), as in the PoC */
+    --category-database: oklch(0.68 0.15 65);
+    --category-api: oklch(0.58 0.12 165);
+    --category-code: oklch(0.55 0.18 300);
+    --category-transformation: oklch(0.55 0.15 235);
+    --category-flow: oklch(0.42 0.02 250);
+    --grid: oklch(0.8 0.008 250);
+    --background: #f5f5f5;
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    /* Ouro Flowtinus (#F2A93B), the brand gold, in both themes; dark text on it (docs/visual/cores.md) */
+    --primary: oklch(0.787 0.147 73);
+    --primary-foreground: oklch(0.178 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.787 0.147 73);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.787 0.147 73);
+    --sidebar-primary-foreground: oklch(0.178 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.787 0.147 73);
+}
+
+.dark {
+    --canvas: oklch(0.27 0.01 250);
+    --node-outline: oklch(1 0 0 / 14%);
+    /* the inverse of light: a pale sand gold, the name dark */
+    --node-fixed: oklch(0.345 0 0);
+    --node-fixed-foreground: oklch(0.985 0 0);
+    --category-database: oklch(0.8 0.14 75);
+    --category-api: oklch(0.76 0.12 165);
+    --category-code: oklch(0.74 0.15 300);
+    --category-transformation: oklch(0.74 0.13 228);
+    --category-flow: oklch(0.88 0.01 250);
+    --grid: oklch(0.4 0.012 250);
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    /* Ouro Flowtinus (#F2A93B), the brand gold, in both themes; dark text on it (docs/visual/cores.md) */
+    --primary: oklch(0.787 0.147 73);
+    --primary-foreground: oklch(0.178 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.787 0.147 73);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.787 0.147 73);
+    --sidebar-primary-foreground: oklch(0.178 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.787 0.147 73);
+}
+
+/* React Flow's own background follows the canvas color */
+.react-flow {
+    --xy-background-color: var(--canvas);
+    /* the box drawn while selecting with the mouse, and around a selection of several (as in the PoC) */
+    --xy-selection-background-color: color-mix(in oklch, var(--primary) 10%, transparent);
+    --xy-selection-border: 1px dashed var(--primary);
+}
+
+/*
+ * The project's calls graph (project-flows/graph-view.tsx): solid arrows (dashed only where it says so), and React
+ * Flow's zoom buttons and edge labels in the theme's colors (they are white otherwise, in dark too)
+ */
+.calls-graph .react-flow {
+    --xy-controls-button-background-color: var(--card);
+    --xy-controls-button-background-color-hover: var(--accent);
+    --xy-controls-button-color: var(--foreground);
+    --xy-controls-button-color-hover: var(--foreground);
+    --xy-controls-button-border-color: var(--border);
+    --xy-controls-box-shadow: none;
+    --xy-edge-label-background-color: var(--background);
+    --xy-edge-label-color: var(--muted-foreground);
+}
+
+.calls-graph .react-flow__controls {
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    overflow: hidden;
+}
+
+.calls-graph .react-flow__edge .react-flow__edge-path {
+    stroke-dasharray: none;
+}
+
+/* while a flow loads (flow-canvas.tsx): the grid and the tools, not the flow nor its minimap */
+[data-flow-loading] .react-flow__viewport,
+[data-flow-loading] .react-flow__minimap svg {
+    visibility: hidden;
+}
+
+/*
+ * A group (group-node.tsx) draws its own rectangle: React Flow's default look for a 'group' node (dark border, padding,
+ * background, the selection shadow) goes. Two classes, as its stylesheet loads after this one.
+ */
+.react-flow .react-flow__node-group,
+.react-flow .react-flow__node-group.selected,
+.react-flow .react-flow__node-group.selectable:hover,
+.react-flow .react-flow__node-group.selectable.selected,
+.react-flow .react-flow__node-group:focus,
+.react-flow .react-flow__node-group:focus-visible {
+    padding: 0;
+    border: none;
+    border-radius: 0.75rem;
+    background: transparent;
+    box-shadow: none;
+    outline: none;
+}
+
+/* On error = Divert: the error port, a red bump hanging under the card (component-node.tsx); its edges in the
+   default color (red dashed is an edge that crosses a Loop's region) */
+.react-flow__handle.node-port.node-port-error {
+    top: auto;
+    bottom: -16px;
+    left: 50%;
+    right: auto;
+    width: 32px;
+    height: 16px;
+    border-radius: 0 0 999px 999px;
+    transform: translateX(-50%);
+}
+
+.react-flow__handle.node-port.node-port-error .node-port-dot {
+    margin: 0 0 3px;
+    background: color-mix(in oklch, var(--destructive) 60%, transparent);
+}
+
+.react-flow__handle.node-port.node-port-error.is-connected .node-port-dot,
+.react-flow__handle.node-port.node-port-error:hover .node-port-dot {
+    background: var(--destructive);
+}
+
+/* the Loop's ports (loop-node.tsx): round dots in the Flow color, filled when connected */
+.react-flow__handle.loop-port {
+    width: 12px;
+    height: 12px;
+    min-width: 0;
+    min-height: 0;
+    border: 2px solid var(--category-flow);
+    background: var(--card);
+}
+
+.react-flow__handle.loop-port.is-connected,
+.react-flow__handle.loop-port:hover {
+    background: var(--category-flow);
+}
+
+/* a Continue or Break outside every Loop: it means nothing there */
+.react-flow__handle.loop-port.loop-port-error {
+    border-color: var(--destructive);
+}
+
+.react-flow__handle.loop-port.loop-port-error.is-connected,
+.react-flow__handle.loop-port.loop-port-error:hover {
+    background: var(--destructive);
+}
+
+/* an edge that crosses a Loop's region (between a component inside it and one outside): not allowed, dashed red */
+.react-flow__edge.is-invalid-edge .react-flow__edge-path {
+    stroke: var(--destructive);
+    stroke-dasharray: 10 5;
+    stroke-width: 2;
+}
+
+/* the edge a dragged component would go into (drop on an edge, edge-splice.ts): thicker, in the selected blue */
+.react-flow__edge.is-splice-target .react-flow__edge-path {
+    stroke: var(--xy-edge-stroke-selected);
+    stroke-width: 3;
+}
+
+/* the edges between ports, as in the PoC: a dashed curve; selected (or focused) and while running, in the primary color */
+.react-flow__edge .react-flow__edge-path {
+    stroke: var(--muted-foreground);
+    stroke-dasharray: 6 4;
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+    stroke: var(--primary);
+}
+
+/*
+ * selected (or focused): blue, the pinned pin's blue (Tailwind blue-600, blue-400 in dark). Through React Flow's own
+ * variable: its stylesheet loads after this one, so a rule of the same weight here would lose.
+ */
+.react-flow {
+    --xy-edge-stroke-selected: oklch(0.546 0.245 262.881);
+}
+
+.dark .react-flow {
+    --xy-edge-stroke-selected: oklch(0.707 0.165 254.624);
+}
+
+/*
+ * A component's ports (component-node.tsx), as in the PoC: the hole bitten into the card (input) and the bump out of it
+ * (output) are the card's own shape; the handle is that area, with a dot. The dot is gray, hollow on an optional output
+ * not connected, and grows in the category's color on hover or while an edge is dragged to it (red if not allowed).
+ */
+.react-flow__handle.node-port {
+    width: 16px;
+    height: 32px;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 0 999px 999px 0;
+    transform: translateY(-50%);
+}
+
+/*
+ * The input's handle is a thin line at the back of the hole (React Flow ends the edge at the handle's left side, so
+ * the dashed line reaches into the hole and touches the card); ::before keeps the whole hole as the area to drop on.
+ */
+.react-flow__handle.node-port-in {
+    left: 13px;
+    width: 2px;
+}
+
+.react-flow__handle.node-port-in::before {
+    content: '';
+    position: absolute;
+    inset: 0 -2px 0 -14px;
+}
+
+.react-flow__handle.node-port-in .node-port-dot {
+    margin-right: 0;
+    flex-shrink: 0;
+    translate: -6px 0;
+}
+
+.react-flow__handle.node-port-out {
+    right: -16px;
+    left: auto;
+}
+
+.node-port-dot {
+    width: 8px;
+    height: 8px;
+    margin-right: 3px;
+    border-radius: 999px;
+    background: var(--muted-foreground);
+    pointer-events: none;
+    transition: transform 75ms;
+}
+
+.node-port.is-optional:not(.is-connected) .node-port-dot {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--muted-foreground);
+}
+
+.react-flow__handle.node-port:hover .node-port-dot,
+.react-flow__handle.node-port.connectingto .node-port-dot {
+    transform: scale(1.5);
+    background: var(--category);
+    box-shadow: none;
+}
+
+/* an input is only the hole, without a dot: the bump of a card snapped right before it fits in without overlapping.
+   The dot shows while the pointer is on it or an edge is dragged to it. */
+.react-flow__handle.node-port-in .node-port-dot {
+    opacity: 0;
+}
+
+.react-flow__handle.node-port-in:hover .node-port-dot,
+.react-flow__handle.node-port-in.connectingto .node-port-dot {
+    opacity: 1;
+}
+
+.react-flow__handle.node-port.connectingto:not(.valid) .node-port-dot {
+    background: var(--destructive);
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+    body {
+        @apply bg-background text-foreground;
+    }
+    html {
+        @apply font-sans;
+        /* the browser's own parts (scrollbars, inputs) follow the theme: dark scrollbars in dark */
+        color-scheme: light;
+    }
+    html.dark {
+        color-scheme: dark;
+    }
+    /* a native select's list: the select itself is transparent, so its options get the theme's own colors (else a
+     white list with the dark theme's light text) */
+    select option,
+    select optgroup {
+        background-color: var(--popover);
+        color: var(--popover-foreground);
+    }
+    /* what can be clicked shows the hand (Tailwind 4 leaves buttons with the default cursor); a utility such as
+     cursor-help still wins (utilities come after base) */
+    button:not(:disabled),
+    [role='button']:not([aria-disabled='true']),
+    [role='tab'],
+    [role='radio'],
+    [role='checkbox'],
+    [role='menuitem'],
+    [role='menuitemradio'],
+    [role='menuitemcheckbox'],
+    [role='option'],
+    a[href],
+    summary,
+    select:not(:disabled),
+    input[type='checkbox']:not(:disabled),
+    input[type='radio']:not(:disabled),
+    label[for] {
+        cursor: pointer;
+    }
+    /* thin, discreet scrollbars in both themes */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent) transparent;
+    }
+}
+
+/* the canvas: the normal arrow on its empty space (React Flow shows a hand there while a left drag selects); a hand only
+   over what is clicked or dragged (components, edges), and the closed hand while panning */
+.react-flow .react-flow__pane.selection {
+    cursor: default;
+}
+.react-flow .react-flow__pane.dragging {
+    cursor: grabbing;
+}

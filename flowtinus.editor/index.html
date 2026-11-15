@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Flowtinus :: App Editor</title>
+        <script>
+            // the theme before React loads, so a dark page never flashes light (same rule as src/theme/theme.ts)
+            try {
+                const stored = localStorage.getItem('flowtinus.theme');
+                const theme = stored === 'light' || stored === 'dark' ? stored : 'system';
+                const dark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.classList.toggle('dark', dark);
+            } catch {}
+        </script>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script type="module" src="/src/main.tsx"></script>
+    </body>
+</html>

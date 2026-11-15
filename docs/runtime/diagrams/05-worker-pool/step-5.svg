@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 524" width="1000" height="524" role="img" aria-label="The worker pool · step 5 of 7" xmlns:c2pa="http://c2pa.org/manifest">
+<title>The worker pool · step 5 of 7</title>
+<defs>
+<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#43484e"/></pattern>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#5a6068"/></marker>
+<clipPath id="frame"><rect x="0" y="0" width="1000" height="524" rx="14"/></clipPath>
+</defs>
+<g clip-path="url(#frame)">
+<rect x="0" y="0" width="1000" height="524" fill="#171717"/>
+<rect x="0" y="44" width="1000" height="432" fill="#23272b"/>
+<rect x="0" y="44" width="1000" height="432" fill="url(#dots)"/>
+<path d="M0 44 H1000 M0 476 H1000" stroke="rgba(255,255,255,0.10)"/>
+<circle cx="22" cy="22" r="4.5" fill="#f2a93b"><animate attributeName="opacity" dur="1s" repeatCount="indefinite" values="1;0.35;1"/></circle>
+<text x="36" y="26.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">The worker pool · step 5 of 7</text>
+<text x="982" y="26.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#a1a1a1" text-anchor="end">processPool · WORKERS = 3 · IPC (JSON)</text>
+<g transform="translate(0 44)">
+<rect x="24" y="16" width="190" height="400" rx="10" fill="rgba(54,186,235,0.05)" stroke="#36baeb" stroke-width="1.2"></rect>
+<circle cx="42" cy="38" r="4.5" fill="#36baeb"/>
+<text x="54" y="43" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Postgres</text>
+<text x="200" y="43" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="end">runs</text>
+<rect x="36" y="62" width="166" height="28" rx="5" stroke-width="1.2"><animate attributeName="fill" dur="7s" repeatCount="indefinite" calcMode="discrete" values="rgba(242,169,59,0.14);rgba(91,201,158,0.14)" keyTimes="0;0.4286"/><animate attributeName="stroke" dur="7s" repeatCount="indefinite" calcMode="discrete" values="#f2a93b;#5bc99e" keyTimes="0;0.4286"/></rect><g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.4286"/><text x="46" y="80" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#f2a93b" text-anchor="start">R1 · running · 4/6</text></g><g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.4286"/><text x="46" y="80" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#5bc99e" text-anchor="start">R1 · completed</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><rect x="36" y="98" width="166" height="28" rx="5" stroke-width="1.2"><animate attributeName="fill" dur="7s" repeatCount="indefinite" calcMode="discrete" values="rgba(54,186,235,0.12)" keyTimes="0"/><animate attributeName="stroke" dur="7s" repeatCount="indefinite" calcMode="discrete" values="#36baeb" keyTimes="0"/></rect><g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="46" y="116" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#36baeb" text-anchor="start">R2 · queued · child</text></g></g>
+
+
+<text x="36" y="252" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#a1a1a1" text-anchor="start">NOTIFY</text>
+<rect x="36" y="260" width="84" height="20" rx="10" fill="rgba(186,147,251,0.14)" stroke="#ba93fb" stroke-width="1"/><text x="45" y="274" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#ba93fb" text-anchor="start">run_events</text>
+<rect x="36" y="284" width="90.6" height="20" rx="10" fill="rgba(186,147,251,0.14)" stroke="#ba93fb" stroke-width="1"/><text x="45" y="298" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#ba93fb" text-anchor="start">runs_queued</text>
+<rect x="36" y="308" width="84" height="20" rx="10" fill="rgba(186,147,251,0.14)" stroke="#ba93fb" stroke-width="1"/><text x="45" y="322" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#ba93fb" text-anchor="start">run_cancel</text>
+<rect x="290" y="16" width="280" height="400" rx="10" fill="#171717" stroke="#5bc99e" stroke-width="1.2"></rect>
+<circle cx="308" cy="38" r="4.5" fill="#5bc99e"/>
+<text x="320" y="43" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Supervisor</text>
+<text x="556" y="43" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="end">processPool</text>
+<rect x="306" y="58" width="248" height="32" rx="6" fill="#0a0a0a" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.25"/><text x="318" y="78.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#f2a93b" text-anchor="start">waiting for worker 1</text></g><g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.25"/><text x="318" y="78.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#f2a93b" text-anchor="start">finishRun + NOTIFY run_events</text></g>
+<rect x="306" y="104" width="248" height="134" rx="10" fill="#0a0a0a" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<text x="320" y="126" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#a1a1a1" text-anchor="start">PoolOptions</text>
+<path d="M306 136 H554" stroke="rgba(255,255,255,0.10)"/>
+<text x="320" y="156" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#fafafa" text-anchor="start">size: 3 // WORKERS</text>
+<text x="320" y="173" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#fafafa" text-anchor="start">maxRunsPerWorker: 100</text>
+<text x="320" y="190" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#fafafa" text-anchor="start">maxRssBytes: 1 GiB</text>
+<text x="320" y="207" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#fafafa" text-anchor="start">cancelGraceMs: 5 s</text>
+<text x="320" y="224" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#fafafa" text-anchor="start">hardTimeoutMs: 11 min</text>
+<rect x="306" y="252" width="248" height="82" rx="8" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<text x="320" y="272" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#a1a1a1" text-anchor="start">OAuth 2.0 tokens · in memory</text>
+
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><rect x="320" y="288" width="123.6" height="20" rx="10" fill="rgba(237,213,163,0.12)" stroke="#edd5a3" stroke-width="1"/><text x="329" y="302" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#edd5a3" text-anchor="start">crm-api · cached</text></g>
+<text x="320" y="324" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="400" fill="#a1a1a1" text-anchor="start">one per connection, for all workers</text>
+<text x="306" y="368" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">A worker never touches the database:</text>
+<text x="306" y="386" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">it asks the supervisor, over IPC.</text>
+<path d="M214 76 L290 76" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="2" stroke-linejoin="round" stroke-dasharray="5 5"/>
+<path d="M570 76 L660 76" fill="none" stroke="#5a6068" stroke-width="2" stroke-linejoin="round"/>
+<path d="M214 212 L290 212" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="2" stroke-linejoin="round" stroke-dasharray="5 5"/>
+<path d="M570 212 L660 212" fill="none" stroke="#5a6068" stroke-width="2" stroke-linejoin="round"/>
+<path d="M214 348 L290 348" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="2" stroke-linejoin="round" stroke-dasharray="5 5"/>
+<path d="M570 348 L660 348" fill="none" stroke="#5a6068" stroke-width="2" stroke-linejoin="round"/>
+<text x="252" y="150" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="400" fill="#6b7178" text-anchor="middle">SQL</text>
+<text x="615" y="150" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="400" fill="#6b7178" text-anchor="middle">IPC</text>
+<rect x="660" y="16" width="316" height="120" rx="10" stroke-width="1.2"><animate attributeName="stroke" dur="7s" repeatCount="indefinite" calcMode="discrete" values="#f2a93b;rgba(255,255,255,0.18)" keyTimes="0;0.25"/><animate attributeName="fill" dur="7s" repeatCount="indefinite" calcMode="discrete" values="rgba(242,169,59,0.14);#171717" keyTimes="0;0.25"/><animate attributeName="stroke-dasharray" dur="7s" repeatCount="indefinite" calcMode="discrete" values="none;none" keyTimes="0;0.25"/></rect>
+<circle cx="678" cy="38" r="4.5"><animate attributeName="fill" dur="7s" repeatCount="indefinite" calcMode="discrete" values="#f2a93b;#5bc99e" keyTimes="0;0.25"/></circle>
+<text x="690" y="43" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Worker 1</text>
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="962" y="43" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="end">pid 4211</text></g>
+
+
+
+
+
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.25"/><text x="674" y="74" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="600" fill="#f2a93b" text-anchor="start">running R1 · runJob</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.25"/><text x="674" y="74" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="600" fill="#a1a1a1" text-anchor="start">idle · takes the next run</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="674" y="100" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">runs 1 / 100 · rss 140 MB</text></g>
+<rect x="660" y="152" width="316" height="120" rx="10" stroke-width="1.2"><animate attributeName="stroke" dur="7s" repeatCount="indefinite" calcMode="discrete" values="rgba(255,255,255,0.18)" keyTimes="0"/><animate attributeName="fill" dur="7s" repeatCount="indefinite" calcMode="discrete" values="#171717" keyTimes="0"/><animate attributeName="stroke-dasharray" dur="7s" repeatCount="indefinite" calcMode="discrete" values="none" keyTimes="0"/></rect>
+<circle cx="678" cy="174" r="4.5"><animate attributeName="fill" dur="7s" repeatCount="indefinite" calcMode="discrete" values="#5bc99e" keyTimes="0"/></circle>
+<text x="690" y="179" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Worker 2</text>
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="962" y="179" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="end">pid 4212</text></g>
+
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="674" y="210" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="600" fill="#5bc99e" text-anchor="start">ready · idle</text></g>
+
+
+
+
+
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="674" y="236" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">runs 0 / 100 · rss 60 MB</text></g>
+<rect x="660" y="288" width="316" height="120" rx="10" stroke-width="1.2"><animate attributeName="stroke" dur="7s" repeatCount="indefinite" calcMode="discrete" values="rgba(255,255,255,0.18)" keyTimes="0"/><animate attributeName="fill" dur="7s" repeatCount="indefinite" calcMode="discrete" values="#171717" keyTimes="0"/><animate attributeName="stroke-dasharray" dur="7s" repeatCount="indefinite" calcMode="discrete" values="none" keyTimes="0"/></rect>
+<circle cx="678" cy="310" r="4.5"><animate attributeName="fill" dur="7s" repeatCount="indefinite" calcMode="discrete" values="#5bc99e" keyTimes="0"/></circle>
+<text x="690" y="315" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Worker 3</text>
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="962" y="315" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="end">pid 4213</text></g>
+
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="674" y="346" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="600" fill="#5bc99e" text-anchor="start">ready · idle</text></g>
+
+
+
+
+
+
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="674" y="372" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">runs 0 / 100 · rss 60 MB</text></g>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.0714;0.2679"/><animateMotion dur="7s" repeatCount="indefinite" calcMode="linear" path="M660 76 L570 76" keyPoints="0;0;1;1" keyTimes="0;0.0714;0.25;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#5bc99e" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g><text x="0" y="-12" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#5bc99e" text-anchor="middle" stroke="#23272b" stroke-width="4" stroke-linejoin="round" paint-order="stroke">{ type: done }</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.2679;0.4464"/><animateMotion dur="7s" repeatCount="indefinite" calcMode="linear" path="M290 76 L214 76" keyPoints="0;0;1;1" keyTimes="0;0.2679;0.4286;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#5bc99e" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g><text x="0" y="22" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#5bc99e" text-anchor="middle" stroke="#23272b" stroke-width="4" stroke-linejoin="round" paint-order="stroke">finishRun</text></g>
+<circle cx="78" cy="270" r="0" fill="none" stroke="#ba93fb" stroke-width="2.5" opacity="0"><animate attributeName="r" dur="7s" repeatCount="indefinite" values="0;0;30;30" keyTimes="0;0.4286;0.6786;1"/><animate attributeName="opacity" dur="7s" repeatCount="indefinite" values="0;0.9;0;0" keyTimes="0;0.4286;0.6786;1"/></circle>
+
+
+
+
+
+
+
+
+
+
+
+
+
+</g>
+
+
+
+
+<g opacity="0"><animate attributeName="opacity" dur="7s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><rect x="18" y="491" width="22" height="20" rx="10" fill="#f2a93b"/><text x="29" y="505.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="700" fill="#111111" text-anchor="middle">5</text><text x="50" y="505" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#fafafa" text-anchor="start">{ type: done } brings the record and usage: finishRun stores them, and the worker is free again</text></g>
+
+
+<rect x="0" y="476" width="0" height="2" fill="#f2a93b"><animate attributeName="width" dur="7s" repeatCount="indefinite" values="0;1000" keyTimes="0;1"/></rect>
+</g>
+<rect x="0.5" y="0.5" width="999" height="523" rx="14" fill="none" stroke="rgba(255,255,255,0.10)"/>
+<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpmMjg0MjY4ZS1kOThkLTRiMTgtOTJlMS02Zjc4Yzk4ODU4ZjcAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaLIWwE3NVWs/W1hcGv8OHDMAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDoxNWMwZmVjYi0zNTNiLTQwNzgtYTdiMi1lYTRiNDA3YzFjNjZscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoVwJXEmF931o1uB4sRhUk9QAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggxg2mUgDdMTlAeJ6ocFvf4/OYI0OdAbO8iUJSI+AaYD6kZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaJ+ONErVShtdgvaLP+dzVTIAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIPICijxohPFVkQyO3WmYLN6ipGq6V9aEQe51wHptcuQpZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GU7cZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmYyODQyNjhlLWQ5OGQtNGIxOC05MmUxLTZmNzhjOTg4NThmNy9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjVjMTRiOWIwLTc3MDQtNDAwZi1iZDA3LWY4MmUwYmE0NjZkOXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCDGDaZSAN0xOUB4nqhwW9/j85gjQ50Bs7yJQlIj4BpgPqJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggMagyz09DA7pJDxre1w+9kelkiTOUAlyRscAwVkXMpa2iY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggsXbk5cg1pPBVxpCTJL235ozOtPUXpNhJNNeKR1qzZLd0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQOk2Nurr6u/2FGwiE15MYWLLJpc+AdsG1PQLgt5WKSTkdnTj2WwHDpcnBCnvt26gAnXO+nC5j6VFsegnsrUbGIU=</c2pa:manifest></metadata></svg>

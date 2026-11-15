@@ -1,0 +1,2 @@
+# Every text file is LF, in the index and in the working copy (Prettier writes LF; Windows checkouts stay LF too)
+* text=auto eol=lf

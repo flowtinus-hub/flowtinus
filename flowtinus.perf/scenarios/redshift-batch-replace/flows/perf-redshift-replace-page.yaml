@@ -1,0 +1,276 @@
+version: 1
+id: perf-redshift-replace-page
+name: 'perf: Redshift replace one page'
+nodes:
+  - id: start
+    type: start
+    label: Start
+    position:
+      x: 0
+      y: 200
+    config:
+      acceptsInput: true
+  - id: prepare
+    type: typescript
+    label: Keys and rows
+    override: true
+    position:
+      x: 260
+      y: 200
+    config:
+      code: |
+        async function process($input: Data) {
+          // one token per call: the staging rows of this page, and only them, go into the swap
+          const token: string = crypto.randomUUID();
+          const snapshots = $input.snapshots as { id: number; items: { no: number; name: string; payload: string }[] }[];
+          return {
+            token,
+            page: $input.page,
+            keys: snapshots.map(s => ({ token, snapshot_id: s.id })),
+            rows: snapshots.flatMap(s => s.items.map(i => ({ token, snapshot_id: s.id, item_no: i.no, name: i.name, payload: i.payload }))),
+          };
+        }
+  - id: has-rows
+    type: router
+    label: Has rows
+    position:
+      x: 520
+      y: 200
+    config:
+      cases:
+        - label: rows
+          condition: $rows.length > 0
+  - id: split-keys
+    type: split
+    label: Split keys
+    position:
+      x: 780
+      y: 0
+    config:
+      list: $keys
+  - id: insert-keys
+    type: redshift-insert
+    label: Insert keys
+    position:
+      x: 1040
+      y: 0
+    config:
+      connection: perf-redshift
+      table:
+        value: perf.replace_item__stage_keys
+        expression: false
+      columns:
+        - column: token
+          value: $token
+          expression: true
+        - column: snapshot_id
+          value: $snapshot_id
+          expression: true
+      batchSize: 1000
+      timeoutS: 300
+      onError: divert
+  - id: split-rows
+    type: split
+    label: Split rows
+    position:
+      x: 780
+      y: 200
+    config:
+      list: $rows
+  - id: insert-rows
+    type: redshift-insert
+    label: Insert rows
+    position:
+      x: 1040
+      y: 200
+    config:
+      connection: perf-redshift
+      table:
+        value: perf.replace_item__stage_rows
+        expression: false
+      columns:
+        - column: token
+          value: $token
+          expression: true
+        - column: snapshot_id
+          value: $snapshot_id
+          expression: true
+        - column: item_no
+          value: $item_no
+          expression: true
+        - column: name
+          value: $name
+          expression: true
+        - column: payload
+          value: $payload
+          expression: true
+      batchSize: 1000
+      timeoutS: 300
+      onError: divert
+  - id: wait
+    type: wait
+    label: Staged
+    position:
+      x: 1300
+      y: 400
+    config: {}
+  - id: status
+    type: router
+    label: Status
+    position:
+      x: 1560
+      y: 400
+    config:
+      cases:
+        - label: success
+          condition: $wait.status === 'success'
+  - id: swap
+    type: redshift-execute
+    label: Swap
+    position:
+      x: 1820
+      y: 300
+    config:
+      connection: perf-redshift
+      sql: |-
+        LOCK {{schema}}.{{table}}, {{schema}}.{{keys}}, {{schema}}.{{rows}};
+        DELETE FROM {{schema}}.{{table}} USING {{schema}}.{{keys}} k
+         WHERE k.token = @token AND {{table}}.snapshot_id = k.snapshot_id
+           AND EXISTS (SELECT 1 FROM {{schema}}.{{rows}} r WHERE r.token = @token);
+        INSERT INTO {{schema}}.{{table}} (snapshot_id, item_no, name, payload)
+         SELECT snapshot_id, item_no, name, payload FROM {{schema}}.{{rows}} WHERE token = @token;
+        DELETE FROM {{schema}}.{{keys}} WHERE token = @token;
+        DELETE FROM {{schema}}.{{rows}} WHERE token = @token;
+      parameters:
+        - name: schema
+          value: perf
+          expression: false
+        - name: table
+          value: replace_item
+          expression: false
+        - name: keys
+          value: replace_item__stage_keys
+          expression: false
+        - name: rows
+          value: replace_item__stage_rows
+          expression: false
+        - name: token
+          value: $token
+          expression: true
+      atEnd: commit
+      timeoutS: 300
+      onError: divert
+  - id: cleanup
+    type: redshift-execute
+    label: Clean staging
+    position:
+      x: 2080
+      y: 500
+    config:
+      connection: perf-redshift
+      sql: |-
+        DELETE FROM {{schema}}.{{keys}} WHERE token = @token;
+        DELETE FROM {{schema}}.{{rows}} WHERE token = @token;
+      parameters:
+        - name: schema
+          value: perf
+          expression: false
+        - name: keys
+          value: replace_item__stage_keys
+          expression: false
+        - name: rows
+          value: replace_item__stage_rows
+          expression: false
+        - name: token
+          value: $token
+          expression: true
+      atEnd: commit
+      timeoutS: 300
+  - id: fail
+    type: typescript
+    label: Fail the run
+    position:
+      x: 2340
+      y: 500
+    config:
+      code: |
+        async function process($input: Data) {
+          const reason = $input.wait?.firstError?.message ?? $input.errors?.[0]?.message ?? 'the swap failed';
+          throw new Error(`page ${$input.page} was not replaced: ${reason}`);
+        }
+  - id: end
+    type: end
+    label: End
+    position:
+      x: 2080
+      y: 300
+    config: {}
+edges:
+  - source: start
+    sourcePort: out-0
+    target: prepare
+    targetPort: in-0
+  - source: prepare
+    sourcePort: out-0
+    target: has-rows
+    targetPort: in-0
+  - source: has-rows
+    sourcePort: out-0
+    target: split-keys
+    targetPort: in-0
+  - source: has-rows
+    sourcePort: out-0
+    target: split-rows
+    targetPort: in-0
+  - source: has-rows
+    sourcePort: out-0
+    target: wait
+    targetPort: in-0
+  - source: split-keys
+    sourcePort: out-0
+    target: insert-keys
+    targetPort: in-0
+  - source: split-rows
+    sourcePort: out-0
+    target: insert-rows
+    targetPort: in-0
+  - source: insert-keys
+    sourcePort: out-0
+    target: wait
+    targetPort: in-1
+  - source: insert-keys
+    sourcePort: error
+    target: wait
+    targetPort: in-1
+  - source: insert-rows
+    sourcePort: out-0
+    target: wait
+    targetPort: in-1
+  - source: insert-rows
+    sourcePort: error
+    target: wait
+    targetPort: in-1
+  - source: wait
+    sourcePort: out-0
+    target: status
+    targetPort: in-0
+  - source: status
+    sourcePort: out-0
+    target: swap
+    targetPort: in-0
+  - source: status
+    sourcePort: out-1
+    target: cleanup
+    targetPort: in-0
+  - source: swap
+    sourcePort: out-0
+    target: end
+    targetPort: in-0
+  - source: swap
+    sourcePort: error
+    target: cleanup
+    targetPort: in-0
+  - source: cleanup
+    sourcePort: out-0
+    target: fail
+    targetPort: in-0

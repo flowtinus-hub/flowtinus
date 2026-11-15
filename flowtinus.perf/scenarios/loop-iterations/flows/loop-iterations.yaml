@@ -1,0 +1,77 @@
+version: 1
+id: loop-iterations
+name: 'perf: loop iterations'
+nodes:
+  - id: start
+    type: start
+    label: Start
+    position:
+      x: 0
+      y: 0
+    config:
+      acceptsInput: true
+  - id: loop
+    type: loop
+    label: Loop
+    position:
+      x: 260
+      y: -60
+    size:
+      width: 420
+      height: 220
+    config:
+      maxIterations: 100000
+      stopCondition: $_loopIndex >= $iterations
+      checkTiming: before
+      parallel: false
+  - id: page
+    type: mapper
+    label: Page
+    loop: loop
+    position:
+      x: 380
+      y: 0
+    config:
+      fields:
+        - target: page
+          value: $page + 1
+          expression: true
+        - target: total
+          value: $total + $_loopIndex
+          expression: true
+  - id: next
+    type: continue
+    label: Next page
+    loop: loop
+    position:
+      x: 540
+      y: 80
+    config: {}
+  - id: end
+    type: end
+    label: End
+    position:
+      x: 780
+      y: 0
+    config: {}
+edges:
+  - source: start
+    sourcePort: out-0
+    target: loop
+    targetPort: in-0
+  - source: loop
+    sourcePort: iteration-start
+    target: page
+    targetPort: in-0
+  - source: page
+    sourcePort: out-0
+    target: loop
+    targetPort: iteration-end
+  - source: page
+    sourcePort: out-0
+    target: next
+    targetPort: in-0
+  - source: loop
+    sourcePort: out-0
+    target: end
+    targetPort: in-0

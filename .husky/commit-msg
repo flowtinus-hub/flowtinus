@@ -1,0 +1,5 @@
+# Commits carry no AI attribution: the repository is public and only people are its contributors.
+if grep -qiE 'co-authored-by:.*(claude|anthropic)|noreply@anthropic\.com|generated with \[?claude' "$1"; then
+    echo "commit-msg: remove the AI attribution line (Co-Authored-By: Claude, noreply@anthropic.com, Generated with Claude Code)." >&2
+    exit 1
+fi

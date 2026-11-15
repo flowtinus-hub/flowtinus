@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 512" width="1000" height="512" role="img" aria-label="Heartbeats and lost runs · step 1 of 4">
+<title>Heartbeats and lost runs · step 1 of 4</title>
+<defs>
+<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#43484e"/></pattern>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#5a6068"/></marker>
+<clipPath id="frame"><rect x="0" y="0" width="1000" height="512" rx="14"/></clipPath>
+</defs>
+<g clip-path="url(#frame)">
+<rect x="0" y="0" width="1000" height="512" fill="#171717"/>
+<rect x="0" y="44" width="1000" height="420" fill="#23272b"/>
+<rect x="0" y="44" width="1000" height="420" fill="url(#dots)"/>
+<path d="M0 44 H1000 M0 464 H1000" stroke="rgba(255,255,255,0.10)"/>
+<circle cx="22" cy="22" r="4.5" fill="#f2a93b"><animate attributeName="opacity" dur="1s" repeatCount="indefinite" values="1;0.35;1"/></circle>
+<text x="36" y="26.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">Heartbeats and lost runs · step 1 of 4</text>
+<text x="982" y="26.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#a1a1a1" text-anchor="end">register · heartbeat · reap</text>
+<g transform="translate(0 44)">
+<rect x="24" y="40" width="236" height="110" rx="10" fill="#171717" stroke="#5bc99e" stroke-width="1.2"></rect>
+<circle cx="42" cy="62" r="4.5" fill="#5bc99e"/>
+<text x="54" y="67" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Supervisor A</text>
+<text x="38" y="86" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">every 5 s: heartbeat + register</text>
+<text x="38" y="104" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">every 5 s: poll → reap + fill</text>
+<rect x="24" y="230" width="236" height="110" rx="10" stroke-width="1.2"><animate attributeName="fill" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="#171717" keyTimes="0"/><animate attributeName="stroke" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="#5bc99e" keyTimes="0"/></rect>
+<circle cx="42" cy="252" r="4.5"><animate attributeName="fill" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="#5bc99e" keyTimes="0"/></circle>
+<text x="54" y="257" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Supervisor B</text>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="38" y="280" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">running R7 on worker 1</text></g>
+
+
+<rect x="330" y="20" width="646" height="330" rx="10" fill="rgba(54,186,235,0.05)" stroke="#36baeb" stroke-width="1.2"></rect>
+<circle cx="348" cy="42" r="4.5" fill="#36baeb"/>
+<text x="360" y="47" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Postgres</text>
+<text x="350" y="76" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="600" fill="#fafafa" text-anchor="start">supervisors</text>
+<rect x="350" y="86" width="606" height="30" rx="6" fill="#171717" stroke="rgba(255,255,255,0.18)"/>
+<text x="362" y="106" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">A · tags {default} · workers 2 · last_seen = now()</text>
+<g><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><rect x="350" y="122" width="606" height="30" rx="5" stroke-width="1.2"><animate attributeName="fill" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="#171717" keyTimes="0"/><animate attributeName="stroke" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="rgba(255,255,255,0.18)" keyTimes="0"/></rect><g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="362" y="142" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">B · tags {default} · workers 1 · last_seen = now()</text></g></g>
+
+<text x="350" y="184" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="600" fill="#fafafa" text-anchor="start">runs</text>
+<rect x="350" y="194" width="606" height="30" rx="5" stroke-width="1.2"><animate attributeName="fill" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="rgba(242,169,59,0.14)" keyTimes="0"/><animate attributeName="stroke" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="#f2a93b" keyTimes="0"/></rect>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><text x="362" y="214" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#fafafa" text-anchor="start">R7 · running · worker_id B · heartbeat_at</text></g>
+
+<text x="350" y="263" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#fafafa" text-anchor="start">B silent for</text>
+<rect x="450" y="251" width="486" height="16" rx="8" fill="#171717" stroke="rgba(255,255,255,0.18)"/>
+<rect x="450" y="251" width="0" height="16" rx="8" fill="#ff6467" opacity="0.8"><animate attributeName="width" dur="11.5s" repeatCount="indefinite" values="0;0;486;486" keyTimes="0;0.8696;0.8696;1"/></rect>
+<text x="450" y="286" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">0 s</text>
+<text x="936" y="286" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#ff6467" text-anchor="end">60 s: lost</text>
+<path d="M531 248 L531 270" stroke="#a1a1a1" stroke-dasharray="2 2"/>
+<text x="537" y="286" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">10 s: same host, pid gone</text>
+<text x="350" y="326" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">SUPERVISOR_LOST_AFTER_MS = STALE_AFTER_MS = 60 s · heartbeat every 5 s</text>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.0652;0.1848"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 90 L350 101" keyPoints="0;0;1;1" keyTimes="0;0.0652;0.1739;1"/><circle r="4.5" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.3261;0.4457"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 90 L350 101" keyPoints="0;0;1;1" keyTimes="0;0.3261;0.4348;1"/><circle r="4.5" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.587;0.7065"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 90 L350 101" keyPoints="0;0;1;1" keyTimes="0;0.587;0.6957;1"/><circle r="4.5" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.8478"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 90 L350 101" keyPoints="0;0;1;1" keyTimes="0;0.8478;0.8696;1"/><circle r="4.5" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+
+
+
+
+
+
+
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.1957;0.337"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 270 L350 137" keyPoints="0;0;1;1" keyTimes="0;0.1957;0.3261;1"/><circle r="4.5" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.1957;0.337"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 275 L350 209" keyPoints="0;0;1;1" keyTimes="0;0.1957;0.3261;1"/><circle r="4" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.4565;0.5978"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 270 L350 137" keyPoints="0;0;1;1" keyTimes="0;0.4565;0.587;1"/><circle r="4.5" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.4565;0.5978"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 275 L350 209" keyPoints="0;0;1;1" keyTimes="0;0.4565;0.587;1"/><circle r="4" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.7174;0.8587"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 270 L350 137" keyPoints="0;0;1;1" keyTimes="0;0.7174;0.8478;1"/><circle r="4.5" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.7174;0.8587"/><animateMotion dur="11.5s" repeatCount="indefinite" calcMode="linear" path="M260 275 L350 209" keyPoints="0;0;1;1" keyTimes="0;0.7174;0.8478;1"/><circle r="4" fill="#5bc99e" stroke="#111" stroke-width="1.5"/></g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.0652"/><text x="300" y="186" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="700" fill="#5bc99e" text-anchor="middle" stroke="#23272b" stroke-width="4" stroke-linejoin="round" paint-order="stroke">heartbeat</text></g>
+
+
+</g>
+<g opacity="0"><animate attributeName="opacity" dur="11.5s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><rect x="18" y="479" width="22" height="20" rx="10" fill="#f2a93b"/><text x="29" y="493.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="700" fill="#111111" text-anchor="middle">1</text><text x="50" y="493" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#fafafa" text-anchor="start">Every 5 s each supervisor bumps its last_seen and the heartbeat_at of the runs it has</text></g>
+
+
+
+<rect x="0" y="464" width="0" height="2" fill="#f2a93b"><animate attributeName="width" dur="11.5s" repeatCount="indefinite" values="0;1000" keyTimes="0;1"/></rect>
+</g>
+<rect x="0.5" y="0.5" width="999" height="511" rx="14" fill="none" stroke="rgba(255,255,255,0.10)"/>
+</svg>

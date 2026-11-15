@@ -1,0 +1,123 @@
+import { Cron } from 'croner';
+import cronstrue from 'cronstrue';
+
+/*
+ * A flow's schedules: when its deployed version runs by itself. A cron expression of 5 fields (minute hour day month
+ * weekday) or 6 (with the second first: `30 * * * * *` runs at second 30 of every minute), in a time zone. Only a
+ * deployed flow runs on a schedule. The server computes the times with the same library (croner), so the editor shows
+ * what will happen (schedules-api.ts loads and changes them).
+ */
+
+/**
+ * A time missed while nothing could run (the server was down), as Hangfire does: `relaxed` runs once for all of them
+ * as soon as it can, `strict` runs each one missed, `ignorable` skips them and waits for the next time.
+ */
+export type MisfireMode = 'relaxed' | 'strict' | 'ignorable';
+
+export const MISFIRE_MODES: { mode: MisfireMode; label: string }[] = [
+    { mode: 'relaxed', label: 'Run once' },
+    { mode: 'strict', label: 'Run each one missed' },
+    { mode: 'ignorable', label: 'Skip them' },
+];
+
+/** how the last time it was due went: a run, or skipped because its previous run was still going */
+export type LastFire = {
+    at: Date;
+    runId: string;
+    status: 'queued' | 'running' | 'completed' | 'with-warnings' | 'with-errors' | 'failed' | 'cancelled' | 'skipped';
+};
+
+export type Schedule = {
+    id: string;
+    flowId: string;
+    cron: string;
+    /** IANA name, e.g. America/Sao_Paulo */
+    timezone: string;
+    enabled: boolean;
+    misfire: MisfireMode;
+    /** the Start's parameters for its runs (the others take their default) */
+    parameters: Record<string, string>;
+    /** the flow's input for its runs (a flow whose Start accepts one); none: the Start's default input */
+    input?: unknown;
+    /** null while disabled */
+    nextFireAt: Date | null;
+    last: LastFire | null;
+    /** why the last time it was due queued no run (the flow not deployed...) */
+    lastError?: string | null;
+    createdAt: Date;
+    updatedBy: string;
+    updatedByName?: string;
+};
+
+export type ScheduleFields = Pick<Schedule, 'cron' | 'timezone' | 'enabled' | 'misfire' | 'parameters' | 'input'>;
+
+/** the time zones the browser knows (IANA), the viewer's first */
+export function timeZones(): string[] {
+    const own = browserTimeZone();
+    const all = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : ['UTC'];
+    return [own, ...all.filter(zone => zone !== own)];
+}
+
+export const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+const fields = (cron: string) => cron.trim().split(/\s+/).filter(Boolean);
+
+/** why the expression or the time zone cannot be scheduled; undefined when they can */
+export function cronError(cron: string, timezone: string): string | undefined {
+    const count = fields(cron).length;
+    if (count !== 5 && count !== 6) {
+        return 'Use 5 fields (minute hour day month weekday) or 6 (second first).';
+    }
+
+    try {
+        const job = new Cron(cron.trim(), { timezone, paused: true });
+        if (job.nextRun() === null) {
+            return 'It never runs (no such date).';
+        }
+    } catch (e) {
+        const message = (e as Error).message;
+        return /timezone/i.test(message) ? `Unknown time zone: ${timezone}.` : message.replace(/^CronPattern: /, '');
+    }
+
+    return undefined;
+}
+
+/** the next `count` times it runs after `from`, or none when it cannot be scheduled */
+export function nextTimes(cron: string, timezone: string, count = 5, from = new Date()): Date[] {
+    if (cronError(cron, timezone)) {
+        return [];
+    }
+
+    return new Cron(cron.trim(), { timezone, paused: true }).nextRuns(count, from);
+}
+
+/** the expression in words ("At 09:00, Monday through Friday"), or undefined when it is not valid */
+export function describeCron(cron: string): string | undefined {
+    try {
+        return cronstrue.toString(cron.trim(), { use24HourTimeFormat: true, verbose: false });
+    } catch {
+        return undefined;
+    }
+}
+
+/** the shortcuts of the form: each one a cron expression */
+export type CronPreset = {
+    id: string;
+    label: string;
+    cron: (value: number, time: string) => string;
+    value?: 'seconds' | 'minutes' | 'time';
+};
+
+const hm = (time: string) => {
+    const [h = '0', m = '0'] = time.split(':');
+    return { h: String(Number(h)), m: String(Number(m)) };
+};
+
+export const CRON_PRESETS: CronPreset[] = [
+    { id: 'seconds', label: 'Every N seconds', value: 'seconds', cron: n => `*/${n} * * * * *` },
+    { id: 'minutes', label: 'Every N minutes', value: 'minutes', cron: n => `*/${n} * * * *` },
+    { id: 'hourly', label: 'Every hour', cron: () => '0 * * * *' },
+    { id: 'daily', label: 'Every day at', value: 'time', cron: (_, time) => `${hm(time).m} ${hm(time).h} * * *` },
+    { id: 'weekdays', label: 'Weekdays at', value: 'time', cron: (_, time) => `${hm(time).m} ${hm(time).h} * * 1-5` },
+    { id: 'custom', label: 'Custom', cron: () => '' },
+];
