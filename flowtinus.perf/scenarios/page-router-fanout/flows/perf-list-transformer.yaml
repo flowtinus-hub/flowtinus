@@ -1,0 +1,98 @@
+version: 1
+id: perf-list-transformer
+name: 'perf: list transformer'
+nodes:
+  - id: start
+    type: start
+    label: Start
+    position:
+      x: 0
+      y: 0
+    config:
+      acceptsInput: true
+      parameters:
+        - name: targetSchema
+          type: text
+          default: perf
+          required: true
+        - name: etlContextId
+          type: text
+          default: perf-router
+          required: true
+        - name: field
+          type: text
+          default: Entities
+          required: true
+  - id: transform
+    type: typescript
+    label: Prepare list rows
+    override: true
+    position:
+      x: 260
+      y: 0
+    config:
+      code: |
+        import { mapListRows } from '@myproject/scripts/Shared/ListRows';
+        async function process($input: Data) {
+          if (!$PARAMETERS.targetSchema) throw new Error('targetSchema is required');
+          return mapListRows($input, $PARAMETERS.field, $PARAMETERS.etlContextId);
+        }
+  - id: write
+    type: redshift-execute
+    label: Replace list rows
+    position:
+      x: 520
+      y: 0
+    config:
+      connection: perf-redshift
+      sql: |-
+        DELETE FROM {{schema}}.{{table}} WHERE project_id = @project_id;
+        INSERT INTO {{schema}}.{{table}} (id, project_id, value, ingestion_timestamp, etl_timestamp, etl_context_id)
+        WITH RECURSIVE parsed(token, remaining) AS (
+          SELECT split_part(@rows, ',', 1), substring(@rows from position(',' in @rows) + 1)
+          UNION ALL
+          SELECT split_part(remaining, ',', 1), substring(remaining from position(',' in remaining) + 1) FROM parsed WHERE remaining <> ''
+        )
+        SELECT split_part(token, ':', 1), @project_id, CAST(split_part(token, ':', 2) AS integer), CAST(@ingestion_timestamp AS timestamp), CAST(@etl_timestamp AS timestamp), @etl_context_id FROM parsed;
+      parameters:
+        - name: schema
+          value: $PARAMETERS.targetSchema
+          expression: true
+        - name: table
+          value: "'page_' + $PARAMETERS.field.toLowerCase()"
+          expression: true
+        - name: project_id
+          value: $project_id
+          expression: true
+        - name: rows
+          value: $rows
+          expression: true
+        - name: ingestion_timestamp
+          value: $ingestion_timestamp
+          expression: true
+        - name: etl_timestamp
+          value: $etl_timestamp
+          expression: true
+        - name: etl_context_id
+          value: $etl_context_id
+          expression: true
+  - id: end
+    type: end
+    label: End
+    position:
+      x: 780
+      y: 0
+    config: {}
+edges:
+  - source: start
+    sourcePort: out-0
+    target: transform
+    targetPort: in-0
+  - source: transform
+    sourcePort: out-0
+    target: write
+    targetPort: in-0
+  - source: write
+    sourcePort: out-0
+    target: end
+    targetPort: in-0

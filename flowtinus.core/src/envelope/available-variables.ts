@@ -1,0 +1,64 @@
+import type { AvailableVariable } from '#types/available-variable.type';
+import type { EnvelopeData } from '#types/envelope-data.type';
+
+const MAX_DEPTH = 3;
+const MAX_EXAMPLE = 40;
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+export function mergeSamples(samples: EnvelopeData[]): EnvelopeData {
+    const merged: EnvelopeData = {};
+    for (const sample of samples) {
+        for (const [key, value] of Object.entries(sample)) {
+            const previous = merged[key];
+            if (previous === undefined || previous === null) {
+                merged[key] = value;
+            } else if (isObject(previous) && isObject(value)) {
+                merged[key] = mergeSamples([previous, value]);
+            }
+        }
+    }
+    return merged;
+}
+
+function typeOf(value: unknown): string {
+    if (value === null) {
+        return 'null';
+    }
+    if (Array.isArray(value)) {
+        return 'array';
+    }
+    return typeof value;
+}
+
+function example(value: unknown): string | undefined {
+    if (value === undefined || isObject(value)) {
+        return undefined;
+    }
+    let text: string;
+    try {
+        text = JSON.stringify(value) ?? String(value);
+    } catch {
+        text = String(value);
+    }
+    return text.length > MAX_EXAMPLE ? `${text.slice(0, MAX_EXAMPLE - 1)}…` : text;
+}
+
+/**
+ * `base` then its member `key` as an expression reads it: `.key` for a name JavaScript accepts there, `['key']`
+ * otherwise (a hyphen, a space: `$VARIABLES.my-url` would be a subtraction)
+ */
+export const memberPath = (base: string, key: string) =>
+    /^[A-Za-z_$][\w$]*$/.test(key) ? `${base}.${key}` : `${base}['${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}']`;
+
+export function variablesOf(path: string, value: unknown, depth = 1): AvailableVariable[] {
+    const variable: AvailableVariable = { path, type: typeOf(value), example: example(value) };
+    if (!isObject(value) || depth >= MAX_DEPTH) {
+        return [variable];
+    }
+    return [variable, ...Object.entries(value).flatMap(([key, inner]) => variablesOf(memberPath(path, key), inner, depth + 1))];
+}
+
+export function dataVariables(shape: EnvelopeData): AvailableVariable[] {
+    return Object.entries(shape).flatMap(([key, value]) => variablesOf(`$${key}`, value));
+}

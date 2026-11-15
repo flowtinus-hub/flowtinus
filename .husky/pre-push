@@ -1,0 +1,23 @@
+# A reminder, never a block: when the commits being pushed change the engine (flowtinus.core/src), suggest measuring
+# them with `git perf-push` (flowtinus.perf/README.md). git perf-push sets FLOWTINUS_PERF_PUSH, so it stays quiet there.
+[ -n "$FLOWTINUS_PERF_PUSH" ] && exit 0
+
+zero=0000000000000000000000000000000000000000
+changed=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue
+    if [ "$remote_sha" = "$zero" ]; then
+        base=$(git merge-base origin/main "$local_sha" 2>/dev/null) || continue
+    else
+        base=$remote_sha
+    fi
+    files=$(git diff --name-only "$base" "$local_sha" -- flowtinus.core/src 2>/dev/null)
+    [ -n "$files" ] && changed="$changed$files
+"
+done
+
+if [ -n "$changed" ]; then
+    count=$(printf '%s' "$changed" | sort -u | grep -c .)
+    echo "pre-push: this push changes the engine ($count file(s) in flowtinus.core/src). Measure it: use git perf-push instead of git push." >&2
+fi
+exit 0

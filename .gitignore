@@ -1,0 +1,13 @@
+node_modules
+dist
+*.tsbuildinfo
+.idea
+.vscode
+.mcp-local.json
+.env
+.tmp/
+
+flowtinus.server/data.local*
+flowtinus.perf/results/*
+!flowtinus.perf/results/.gitkeep
+.claude/

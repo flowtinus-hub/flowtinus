@@ -1,0 +1,19 @@
+# what the server's image never takes (flowtinus.server/Dockerfile, built from the repository root)
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/dist
+**/*.tsbuildinfo
+**/tests
+**/data.local*
+.git
+.idea
+.vscode
+POC_v0
+flowtinus.editor/*
+!flowtinus.editor/package.json
+# only the manifest: bun install --frozen-lockfile needs every workspace's package.json
+flowtinus.perf/*
+!flowtinus.perf/package.json
+docker-compose.yml

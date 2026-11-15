@@ -1,0 +1,11 @@
+node_modules
+dist
+bun.lock
+POC_v0
+flowtinus.perf/results
+flowtinus.server/data.local*
+*.local.json
+# third-party skills, copied as they are (npx skills update)
+.agents/skills
+.claude/skills
+skills-lock.json

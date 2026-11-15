@@ -1,0 +1,573 @@
+import type { Edge } from '@xyflow/react';
+import { CARD_HEIGHT, CARD_WIDTH, cardWidth, END, ERROR_PORT, inputPorts, LOOP_BREAK, LOOP_CONTINUE_WITH, LOOP_NEXT, outputPorts, PORT_GAP, STACK_GAP } from '@flowtinus/core';
+
+/*
+ * Arrange, as in the PoC but only left to right, and with the cards glued: each card goes in the column right after
+ * what feeds it (one card width away, the output's bump in its input's hole) and at the height where its input meets
+ * that output, so a straight line of cards reads like one piece. A branch (Filter's false, a Router's case...)
+ * goes a row down; a row is a card and the gap (PORT_GAP), so ports always line up. Cards that would land on another
+ * go down to the next free row. Each flow that starts on its own (a card with no input edge) starts below the others.
+ * A group is resized around the cards that were inside it (fitGroups), and groups never overlap: a group on top of
+ * another (or closer than GROUP_GAP) moves right just past it or up, with all it holds (separate). Edges between groups
+ * may get longer then.
+ */
+
+type Placed = { id: string; type?: string; position: { x: number; y: number }; data: object };
+
+/**
+ * A component's type and config (only components are arranged). A block that stands for something bigger than a card (none
+ * today: a Loop is two cards, loop.ts) says its size: `rows` it covers, `width` in px, and `entry`, the row of its edges in and out
+ * (counted from its top row): what feeds it lines up there, and the rows above it are kept for it too.
+ */
+const component = (n: Placed) =>
+    n.data as { type: string; config?: Record<string, unknown>; rows?: number; width?: number; entry?: number };
+
+/** how wide a card is laid out: a card's grid width (the Start's and the End's, narrower), or a block's own */
+const widthOf = (n: Placed) => component(n).width ?? cardWidth(component(n).type);
+
+const portIndex = (handle?: string | null) => Number(handle?.match(/(\d+)$/)?.[1] ?? 0);
+
+/** the nodes with the components in their new places (from the top left of where they are now); the rest as they are */
+export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
+    const components = nodes.filter(n => n.type === 'component' && component(n).type);
+    if (components.length === 0) {
+        return nodes;
+    }
+
+    const ids = new Set(components.map(c => c.id));
+    const links = edges.filter(e => ids.has(e.source) && ids.has(e.target) && e.source !== e.target);
+    const incoming = (id: string) => links.filter(e => e.target === id);
+    const outgoing = (id: string) => links.filter(e => e.source === id);
+    const byId = new Map(components.map(c => [c.id, c]));
+
+    const span = (c: T) =>
+        component(c).rows ??
+        Math.max(1, inputPorts(component(c).type, component(c).config).length, outputPorts(component(c).type, component(c).config).length);
+    const tree = groupTree(nodes, components, span);
+
+    // column: the longest way from a card with no input edge (a cycle stops at the cards already counted). Groups add no
+    // column of their own: when two boxes (or a box and a loose card) would overlap, the pass after (separate) moves the
+    // later one away, so the cards inside a group stay glued.
+    const column = new Map<string, number>();
+    const columnOf = (id: string, seen = new Set<string>()): number => {
+        const known = column.get(id);
+        if (known !== undefined) {
+            return known;
+        }
+
+        if (seen.has(id)) {
+            return 0;
+        }
+
+        seen.add(id);
+        const value = Math.max(0, ...incoming(id).map(e => columnOf(e.source, seen) + 1));
+        column.set(id, value);
+        return value;
+    };
+    components.forEach(c => columnOf(c.id));
+
+    // rows taken in each column; a card with several ports on a side takes as many rows (its strip goes down)
+    const taken = new Map<number, Set<number>>();
+    const free = (col: number, row: number, rows: number) =>
+        Array.from({ length: rows }, (_, i) => !taken.get(col)?.has(row + i)).every(Boolean);
+    const take = (col: number, row: number, rows: number) => {
+        const set = taken.get(col) ?? new Set<number>();
+        Array.from({ length: rows }, (_, i) => set.add(row + i));
+        taken.set(col, set);
+    };
+    const lowest = () => Math.max(-1, ...[...taken.values()].flatMap(rows => [...rows]));
+
+    const row = new Map<string, number>();
+    // the columns a card and what follows it (not placed yet) use: a branch is placed in one piece
+    const branchColumns = (id: string, seen = new Set<string>()): Set<number> => {
+        if (seen.has(id) || row.has(id)) {
+            return new Set();
+        }
+
+        seen.add(id);
+        const columns = new Set([column.get(id)!]);
+        for (const e of outgoing(id)) {
+            branchColumns(e.target, seen).forEach(c => columns.add(c));
+        }
+
+        return columns;
+    };
+    // how many rows above its edges a block in a card's branch (not placed yet) keeps: the branch goes down that much more
+    const branchLift = (id: string, seen = new Set<string>()): number => {
+        if (seen.has(id) || row.has(id)) {
+            return 0;
+        }
+
+        seen.add(id);
+        return Math.max(component(byId.get(id)!).entry ?? 0, ...outgoing(id).map(e => branchLift(e.target, seen)));
+    };
+    // blocks: the main path of a flow, and each branch that had to make way for another (it is placed after, below it,
+    // then the blocks of the flow go above its main path: what goes below a card is its error port's)
+    const blockOf = new Map<string, number>();
+    let blocks = 0;
+    let mainBlock = 0;
+    let block = 0;
+    const place = (c: T, wanted: number) => {
+        const col = column.get(c.id)!;
+        // below what the branches placed before took in these columns: the branch keeps its own ports lined up (a Lookup's
+        // input level with what feeds it), instead of one card pushed down alone by a card of another branch. With a block
+        // in the branch, the rows it keeps above its edges count too. A block itself may go above the first row: its edges
+        // stay level with what feeds it
+        const isBlock = component(c).rows !== undefined;
+        // (a block is placed by its top row: its own rows above its edges are in `wanted` already)
+        const lift = isBlock
+            ? Math.max(0, ...outgoing(c.id).map(e => branchLift(e.target, new Set([c.id])) - (component(c).entry ?? 0)))
+            : branchLift(c.id);
+        const before = [...branchColumns(c.id)].flatMap(bc => [...(taken.get(bc) ?? [])]).filter(r => r >= wanted - lift);
+        const below = before.length ? Math.max(...before) + 1 + lift : isBlock ? wanted : 0;
+        let r = isBlock ? Math.max(wanted, below) : Math.max(0, wanted, below);
+        while (!free(col, r, span(c))) {
+            r++;
+        }
+
+        take(col, r, span(c));
+        row.set(c.id, r);
+        blockOf.set(c.id, block);
+    };
+
+    // depth first from each start, in the order they are on screen (top to bottom): a whole branch before the next
+    // the row an edge leaves from, counted from its card's top row: its output's; the error port's is under the card, so
+    // what handles the errors goes below the path that works
+    const outRow = (edge: Edge) => (edge.sourceHandle === ERROR_PORT ? span(byId.get(edge.source)!) : portIndex(edge.sourceHandle));
+
+    // what a card leads to, without the sinks (the End, a Discard: every path may end in one) and the error edges (what
+    // handles errors is shared): two branches that meet before that go together
+    const sink = (id: string) => {
+        const data = component(byId.get(id)!);
+        return data.type === END || outputPorts(data.type, data.config).length === 0;
+    };
+    const reach = (id: string, seen = new Set<string>()): Set<string> => {
+        if (seen.has(id) || sink(id)) {
+            return seen;
+        }
+
+        seen.add(id);
+        outgoing(id)
+            .filter(e => e.sourceHandle !== ERROR_PORT)
+            .forEach(e => reach(e.target, seen));
+        return seen;
+    };
+    // how many cards the longest way from a card goes (a cycle stops at the cards already counted)
+    const depth = (id: string, seen = new Set<string>()): number => {
+        if (seen.has(id)) {
+            return 0;
+        }
+
+        seen.add(id);
+        return 1 + Math.max(0, ...outgoing(id).map(e => depth(e.target, new Set(seen))));
+    };
+
+    // a card's branches: those that meet again before the End go together (one under the other, in port order, so a
+    // Lookup's ports line up with what feeds them); of the separate ones the longest is the main path, the others go
+    // above it (each a block of its own on the flow's main path, below inside a block)
+    const branches = (c: T): Edge[][] => {
+        const edges = [...outgoing(c.id)].sort(
+            (a, b) => outRow(a) - outRow(b) || byId.get(a.target)!.position.y - byId.get(b.target)!.position.y,
+        );
+        const sets: { edges: Edge[]; reach: Set<string> }[] = [];
+        for (const edge of edges) {
+            const reached = reach(edge.target);
+            const meets = sets.filter(set => [...reached].some(id => set.reach.has(id)));
+            const merged = {
+                edges: [...meets.flatMap(m => m.edges), edge],
+                reach: new Set([...meets.flatMap(m => [...m.reach]), ...reached]),
+            };
+            sets.splice(0, sets.length, ...sets.filter(set => !meets.includes(set)), merged);
+        }
+
+        if (sets.length === 0) {
+            return [];
+        }
+
+        // the error port's branch stays where it goes (below its card): never the main path, never above
+        const longest = (set: (typeof sets)[number]) => Math.max(...set.edges.map(e => depth(e.target)));
+        const candidates = sets.filter(set => set.edges.some(e => e.sourceHandle !== ERROR_PORT));
+        const main = [...(candidates.length ? candidates : sets)].sort((a, b) => longest(b) - longest(a))[0]!;
+        return [main, ...sets.filter(set => set !== main)].map(set => set.edges.sort((a, b) => edges.indexOf(a) - edges.indexOf(b)));
+    };
+    const visit = (c: T) => {
+        const outer = block;
+        const [main = [], ...others] = branches(c);
+        for (const [index, group] of [main, ...[...others].reverse()].entries()) {
+            // a separate branch on the flow's main path: a block of its own, moved above it at the end
+            // (only a fan-out from the main path's own port: another output, like Filter's false, has its row already)
+            const raised =
+                index > 0 &&
+                outer === mainBlock &&
+                group.some(e => e.sourceHandle !== ERROR_PORT && main.some(m => m.sourceHandle === e.sourceHandle));
+            block = raised ? ++blocks : outer;
+            // a shortcut (an edge to a card the group's other branch leads to as well, Wait's hold beside what it waits for)
+            // runs straight along its row to that card's first input: that row is kept clear in the columns it crosses, so
+            // the longer branch goes below it instead of under the line
+            for (const edge of group) {
+                const target = edge.target;
+                const firstIn = [...incoming(target)].sort((a, b) => portIndex(a.targetHandle) - portIndex(b.targetHandle))[0];
+                const shortcut =
+                    !row.has(target) &&
+                    firstIn === edge &&
+                    column.get(target)! > column.get(c.id)! + 1 &&
+                    group.some(other => other.target !== target && reach(other.target).has(target));
+                if (shortcut) {
+                    for (let col = column.get(c.id)! + 1; col < column.get(target)!; col++) {
+                        take(col, row.get(c.id)! + outRow(edge), 1);
+                    }
+                }
+            }
+            for (const edge of group) {
+                const next = byId.get(edge.target)!;
+                if (row.has(next.id)) {
+                    continue;
+                }
+
+                // wait for every card that feeds it (several edges in, Lookup's two inputs), then line up with the one on its first input
+                const feeders = incoming(next.id);
+                if (feeders.some(f => !row.has(f.source))) {
+                    continue;
+                }
+
+                const first = [...feeders].sort((a, b) => portIndex(a.targetHandle) - portIndex(b.targetHandle))[0]!;
+                // a card goes with what feeds its first input (an End fed by the main path stays on it, whichever branch came last)
+                const branchBlock = block;
+                block = blockOf.get(first.source) === mainBlock && block !== mainBlock && !raised ? blockOf.get(first.source)! : block;
+                place(next, row.get(first.source)! + outRow(first) - portIndex(first.targetHandle));
+                visit(next);
+                block = branchBlock;
+            }
+        }
+
+        block = outer;
+    };
+
+    // a flow's blocks above its main path, in the order they were made: each one as a box, right above what is already in
+    // the columns it covers (from the one before its first card), cards and the edges that run across them, not above the
+    // whole flow: blocks far apart do not stack (a feeder further left, Wait's hold, gets a longer edge). A row apart from
+    // a card of another group, or an edge inside one (its title and padding; a group's box that is still in the way is
+    // moved after, fitAndSeparate); then the whole flow below the flows before it
+    const settle = (flow: string[], main: number, previousBottom: number) => {
+        const inBlock = (b: number) => flow.filter(id => blockOf.get(id) === b);
+        const settled = new Set(inBlock(main));
+        const made = [...new Set(flow.map(id => blockOf.get(id)!))].filter(b => b !== main).sort((a, b) => a - b);
+        for (const b of made) {
+            const ids = inBlock(b);
+            const cols = ids.map(id => column.get(id)!);
+            const [first, last] = [Math.min(...cols) - 1, Math.max(...cols)];
+            const groups = new Set(ids.map(id => tree.cardParent.get(id)));
+            const gapTo = (id: string) => (groups.size === 1 && groups.has(tree.cardParent.get(id)) ? 0 : 1);
+            const cards = [...settled].filter(id => column.get(id)! >= first && column.get(id)! <= last);
+            const across = links.filter(
+                e =>
+                    settled.has(e.source) &&
+                    settled.has(e.target) &&
+                    cols.some(col => col > column.get(e.source)! && col < column.get(e.target)!),
+            );
+            const limits = [
+                ...cards.map(id => row.get(id)! - 1 - gapTo(id)),
+                ...across.map(e => {
+                    const top = Math.min(row.get(e.source)! + outRow(e), row.get(e.target)! + portIndex(e.targetHandle));
+                    const inside = tree.cardParent.get(e.source) === tree.cardParent.get(e.target);
+                    return top - 1 - (inside ? gapTo(e.source) : 0);
+                }),
+            ];
+            // nothing in its columns (a block past the main path's end): above what feeds it (or, fed by none, the flow)
+            const feeders = links.filter(e => settled.has(e.source) && ids.includes(e.target)).map(e => e.source);
+            const below = limits.length ? limits : feeders.map(id => row.get(id)! - 1 - gapTo(id));
+            const limit = below.length ? Math.min(...below) : Math.min(...[...settled].map(id => row.get(id)!)) - 1;
+            const hi = Math.max(...ids.map(id => row.get(id)! + span(byId.get(id)!) - 1));
+            ids.forEach(id => row.set(id, row.get(id)! + limit - hi));
+            ids.forEach(id => settled.add(id));
+        }
+
+        // blocks moved above may reach the flows before: then the whole flow goes down below them
+        const raised = flow.filter(id => blockOf.get(id) !== main);
+        const down = raised.length ? previousBottom + 1 - Math.min(...raised.map(id => row.get(id)!)) : 0;
+        if (down > 0) {
+            flow.forEach(id => row.set(id, row.get(id)! + down));
+        }
+
+        // the rows taken again, as they are now
+        taken.clear();
+        for (const [id, r] of row) {
+            take(column.get(id)!, r, span(byId.get(id)!));
+        }
+    };
+
+    const starts = components
+        .filter(c => incoming(c.id).length === 0)
+        .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x);
+    for (const start of starts) {
+        const bottom = lowest();
+        const before = new Set(row.keys());
+        mainBlock = block = ++blocks;
+        place(start, bottom + 1);
+        visit(start);
+        settle(
+            [...row.keys()].filter(id => !before.has(id)),
+            mainBlock,
+            bottom,
+        );
+    }
+
+    // what is left (only in a cycle, or fed by a card left out): below everything, in its column
+    for (const c of components.filter(c => !row.has(c.id))) {
+        place(c, lowest() + 1);
+        visit(c);
+    }
+
+    // on the grid: a card dragged after the arrange snaps to it, so it can line up again with the others
+    const left = snap(Math.min(...components.map(c => c.position.x)));
+    const top = snap(Math.min(...components.map(c => c.position.y)));
+    // where each card starts: glued to what feeds it, unless an edge leaves from a port with a name (Distinct's unique)
+    // or with several edges (its 2x, 3x), or it has input names (Lookup's): then room for that text, so it shows between
+    // the cards. Each card on its own: the room one needs does not push the others of its column (another row). The
+    // columns give the order, left to right; a card never starts on another one of its rows.
+    const xOf = new Map<string, number>();
+    const rowEnd = new Map<number, number>();
+    const byColumn = [...components].sort((a, b) => column.get(a.id)! - column.get(b.id)!);
+    for (const c of byColumn) {
+        const needs = links
+            .filter(e => e.target === c.id && xOf.has(e.source))
+            .map(
+                e =>
+                    xOf.get(e.source)! +
+                    widthOf(byId.get(e.source)!) +
+                    Math.max(portTextRoom(byId.get(e.source)!, e.sourceHandle, links) + inputTextRoom(c), controlRoom(c)),
+            );
+        const rows = Array.from({ length: span(c) }, (_, i) => row.get(c.id)! + i);
+        const x = Math.max(0, ...needs, ...rows.map(r => rowEnd.get(r) ?? 0));
+        xOf.set(c.id, x);
+        rows.forEach(r => rowEnd.set(r, x + widthOf(c)));
+    }
+
+    const moved = new Map(components.map(c => [c.id, { x: left + xOf.get(c.id)!, y: top + row.get(c.id)! * PORT_GAP }]));
+
+    const groups = fitAndSeparate(tree, components, moved);
+    return nodes.map(n => {
+        const position = moved.get(n.id);
+        const group = groups.get(n.id);
+        return position ? { ...n, position } : group ? { ...n, position: { x: group.x, y: group.y }, width: group.w, height: group.h } : n;
+    });
+}
+
+/** about the width of a character of a port's name or count (10px monospace), and the room around that text */
+const TEXT_CHAR = 6.5;
+const TEXT_ROOM = 24;
+
+/**
+ * Extra room (px, whole grid steps) after a card for what its output shows past the bump: the port's name (Distinct's
+ * unique / duplicates: the longest of the card's names) or how many edges leave it (2x). 0 when there is nothing.
+ */
+function portTextRoom(card: Placed, handle: string | null | undefined, links: Edge[]): number {
+    const data = card.data as { type: string; config?: Record<string, unknown> };
+    const ports = outputPorts(data.type, data.config);
+    const port = ports.find(p => p.id === handle);
+    const count = links.filter(e => e.source === card.id && e.sourceHandle === handle).length;
+    const named = port?.label ? Math.max(...ports.map(p => p.label?.length ?? 0)) : 0;
+    const text = Math.max(named, count > 1 ? `${count}x`.length : 0);
+    return text === 0 ? 0 : Math.ceil((text * TEXT_CHAR + TEXT_ROOM) / 16) * 16;
+}
+
+/**
+ * Room (px, whole grid steps) before a Continue with, Next or Break: they have no hole for the bump that feeds them, so
+ * glued it would sit on their border; a short edge shows instead. 0 for any other card.
+ */
+const CONTROL_ROOM = 32;
+const LOOP_CONTROLS = new Set<string>([LOOP_CONTINUE_WITH, LOOP_NEXT, LOOP_BREAK]);
+const controlRoom = (card: Placed) => (LOOP_CONTROLS.has(component(card).type) ? CONTROL_ROOM : 0);
+
+/**
+ * Extra room (px, whole grid steps) before a card for its inputs' names, shown left of it (Lookup's input / lookup):
+ * the longest name. 0 when its inputs have none.
+ */
+function inputTextRoom(card: Placed): number {
+    const data = card.data as { type: string; config?: Record<string, unknown> };
+    const longest = Math.max(0, ...inputPorts(data.type, data.config).map(p => p.label?.length ?? 0));
+    return longest === 0 ? 0 : Math.ceil((longest * TEXT_CHAR + TEXT_ROOM) / 16) * 16;
+}
+
+type Box = { x: number; y: number; w: number; h: number };
+
+/** room inside a group around its cards: the title on top, the output bump on the right */
+const GROUP_PADDING = { top: 48, right: 32, bottom: 32, left: 32 };
+/** between the boxes of two groups (or a group and a card outside it) after the arrange */
+const GROUP_GAP = 32;
+
+const inside = (a: Box, b: Box) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+const overlap = (a: Box, b: Box, gap: number) =>
+    a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+const area = (b: Box) => b.w * b.h;
+const snap = (value: number, step = 16) => Math.round(value / step) * step;
+const snapUp = (value: number, step = 16) => Math.ceil(value / step) * step;
+
+type Tree = {
+    groups: Placed[];
+    /** the smallest group around each card / each group, from where they are before the arrange */
+    cardParent: Map<string, string | undefined>;
+    groupParent: Map<string, string | undefined>;
+    /** the outermost group a card is in (undefined: in none) */
+    top: (cardId: string) => string | undefined;
+    cardBox: (c: Placed, at: { x: number; y: number }) => Box;
+};
+
+/** which group each card is in (as in the PoC: the smallest group around it entirely) */
+function groupTree<T extends Placed>(nodes: T[], components: T[], span: (c: T) => number): Tree {
+    const sized = (n: Placed) => n as Placed & { width?: number; height?: number; measured?: { width?: number; height?: number } };
+    const groups = nodes.filter(n => n.type === 'group');
+    const groupBox = (g: Placed): Box => ({
+        x: g.position.x,
+        y: g.position.y,
+        w: sized(g).measured?.width ?? sized(g).width ?? 0,
+        h: sized(g).measured?.height ?? sized(g).height ?? 0,
+    });
+    const cardBox = (c: Placed, at: { x: number; y: number }): Box => ({
+        x: at.x,
+        y: at.y,
+        w: widthOf(c),
+        h: CARD_HEIGHT + (span(c as T) - 1) * PORT_GAP,
+    });
+
+    const parentOf = (box: Box, self?: string) =>
+        groups
+            .filter(g => g.id !== self && inside(box, groupBox(g)) && area(groupBox(g)) > area(box))
+            .sort((a, b) => area(groupBox(a)) - area(groupBox(b)))[0]?.id;
+    const cardParent = new Map(components.map(c => [c.id, parentOf(cardBox(c, c.position))]));
+    const groupParent = new Map(groups.map(g => [g.id, parentOf(groupBox(g), g.id)]));
+    const outermost = (group: string | undefined): string | undefined => {
+        for (let g = group, depth = 0; g && depth < groups.length; depth++) {
+            const parent = groupParent.get(g);
+            if (!parent) {
+                return g;
+            }
+
+            g = parent;
+        }
+
+        return group;
+    };
+
+    return { groups, cardParent, groupParent, top: id => outermost(cardParent.get(id)), cardBox };
+}
+
+/**
+ * As in the PoC, a group goes with the cards that were entirely inside it: after the arrange it is resized to wrap
+ * them (and the groups inside it), with room for its title; a group without cards stays as it is. And no group
+ * overlaps another: from the innermost level out, the blocks side by side in the same place (the groups and the loose
+ * cards directly inside a group, or on the canvas) are pulled apart (separate), then that group is fitted again around
+ * them. Inside a block nothing moves.
+ */
+function fitAndSeparate(tree: Tree, components: Placed[], moved: Map<string, { x: number; y: number }>) {
+    const fitted = new Map<string, Box>();
+    const depth = (g: string) => {
+        let d = 0;
+        for (let p = tree.groupParent.get(g); p && d < tree.groups.length; p = tree.groupParent.get(p)) {
+            d++;
+        }
+
+        return d;
+    };
+
+    // what each group holds, all levels down (to move it as one), and its direct cards / groups (to fit it)
+    const holds = (outer: string, g: string | undefined): boolean => {
+        for (let p = g, d = 0; p && d <= tree.groups.length; p = tree.groupParent.get(p), d++) {
+            if (p === outer) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+    const hasCards = (g: string) => components.some(c => holds(g, tree.cardParent.get(c.id)));
+    const directCards = (container: string | undefined) => components.filter(c => tree.cardParent.get(c.id) === container);
+    const directGroups = (container: string | undefined) =>
+        tree.groups.filter(g => tree.groupParent.get(g.id) === container && hasCards(g.id)).map(g => g.id);
+
+    const fit = (g: string) => {
+        const boxes = [...directCards(g).map(c => tree.cardBox(c, moved.get(c.id)!)), ...directGroups(g).map(inner => fitted.get(inner)!)];
+        const x = snap(Math.min(...boxes.map(b => b.x)) - GROUP_PADDING.left);
+        const y = snap(Math.min(...boxes.map(b => b.y)) - GROUP_PADDING.top);
+        const right = Math.max(...boxes.map(b => b.x + b.w)) + GROUP_PADDING.right;
+        const bottom = Math.max(...boxes.map(b => b.y + b.h)) + GROUP_PADDING.bottom;
+        fitted.set(g, { x, y, w: snap(right - x), h: snap(bottom - y) });
+    };
+
+    type Block = { cards: Placed[]; groups: string[]; isGroup: boolean; box: () => Box };
+    const blocksIn = (container: string | undefined): Block[] => [
+        ...directGroups(container).map(g => ({
+            cards: components.filter(c => holds(g, tree.cardParent.get(c.id))),
+            groups: [...fitted.keys()].filter(inner => holds(g, inner)),
+            isGroup: true,
+            box: () => fitted.get(g)!,
+        })),
+        ...directCards(container).map(c => ({ cards: [c], groups: [], isGroup: false, box: () => tree.cardBox(c, moved.get(c.id)!) })),
+    ];
+
+    const shift = (block: Block, dx: number, dy: number) => {
+        block.cards.forEach(c => {
+            const p = moved.get(c.id)!;
+            moved.set(c.id, { x: p.x + dx, y: p.y + dy });
+        });
+        block.groups.forEach(g => {
+            const b = fitted.get(g)!;
+            fitted.set(g, { ...b, x: b.x + dx, y: b.y + dy });
+        });
+    };
+
+    // while two blocks overlap (with a group: closer than GROUP_GAP; two loose cards: on top of each other, which the
+    // arrange itself never does but moving a group may cause), the later one (to the right, then below) moves away the
+    // shorter way: up, above it (alone), by whole rows (its ports stay level with the rows); or right, taking along every
+    // block that starts at or past it, so what comes after it in the flow stays after it and does not get covered: with
+    // a group just GROUP_GAP past it (grid steps, the groups stay close), a loose card a whole column (never glued to a
+    // card it is not fed by)
+    const separate = (blocks: Block[]) => {
+        for (let round = 0; round < blocks.length * blocks.length + 10; round++) {
+            const order = [...blocks].sort((a, b) => a.box().x - b.box().x || a.box().y - b.box().y);
+            let clash: [Block, Block] | undefined;
+            for (let i = 0; i < order.length && !clash; i++) {
+                for (let j = i + 1; j < order.length && !clash; j++) {
+                    const withGroup = order[i]!.isGroup || order[j]!.isGroup;
+                    if (overlap(order[i]!.box(), order[j]!.box(), withGroup ? GROUP_GAP : -1)) {
+                        clash = [order[i]!, order[j]!];
+                    }
+                }
+            }
+
+            if (!clash) {
+                return;
+            }
+
+            const [first, later] = clash;
+            const a = first.box();
+            const b = later.box();
+            // two loose cards: the next row or column is enough; with a group, its gap too
+            const gap = first.isGroup || later.isGroup ? GROUP_GAP : 0;
+            // up, above the other one (preferred to down: the flow grows upwards), or right
+            const up = snapUp(b.y + b.h + Math.max(gap, STACK_GAP) - a.y, PORT_GAP);
+            const right = snapUp(a.x + a.w + gap - b.x, gap ? 16 : CARD_WIDTH);
+            // the later one starts where the first one's cards end (the End glued after a group's last card, a group fed by
+            // the one before it): the flow reads on to the right, so it goes right, its row kept (a straight edge). One
+            // between the cards of a group (going out of it and back in) goes up instead: right would open a gap in it
+            const after = b.x + (later.isGroup ? GROUP_PADDING.left : 0) >= a.x + a.w - (first.isGroup ? GROUP_PADDING.right : 0);
+            if (!after && (b.y >= a.y + a.h / 2 || up < right)) {
+                shift(later, 0, -up);
+            } else {
+                for (const block of blocks.filter(other => other !== first && other.box().x >= b.x)) {
+                    shift(block, right, 0);
+                }
+            }
+        }
+    };
+
+    // innermost groups first: pull apart what is inside, then fit the group around it; the canvas level last
+    const withCards = tree.groups.map(g => g.id).filter(hasCards);
+    for (const g of [...withCards].sort((a, b) => depth(b) - depth(a))) {
+        separate(blocksIn(g));
+        fit(g);
+    }
+
+    separate(blocksIn(undefined));
+    return fitted;
+}

@@ -1,0 +1,120 @@
+version: 1
+id: perf-item-transformer
+name: 'perf: item transformer'
+nodes:
+  - id: start
+    type: start
+    label: Start
+    position:
+      x: 0
+      y: 0
+    config:
+      acceptsInput: true
+      parameters:
+        - name: etlContextId
+          type: text
+          default: perf-etl
+          required: true
+        - name: targetSchema
+          type: text
+          default: perf
+          required: true
+  - id: transform
+    type: typescript
+    label: Map item fields
+    outputKey: row
+    position:
+      x: 260
+      y: 0
+    config:
+      code: |
+        import { mapItemEntity } from '@myproject/scripts/Shared/ItemEntity';
+        async function process($input: Data) {
+          return mapItemEntity($input, $PARAMETERS.etlContextId);
+        }
+  - id: write
+    type: redshift-upsert
+    label: Upsert warehouse items
+    position:
+      x: 520
+      y: 0
+    config:
+      connection: perf-redshift
+      table:
+        value: $PARAMETERS.targetSchema + '.etl_items'
+        expression: true
+      match:
+        - id
+      batchSize: 100
+      columns:
+        - column: id
+          value: $row.id
+          expression: true
+        - column: title
+          value: $row.title
+          expression: true
+        - column: code
+          value: $row.code
+          expression: true
+        - column: client_id
+          value: $row.client_id
+          expression: true
+        - column: location_id
+          value: $row.location_id
+          expression: true
+        - column: is_draft
+          value: $row.is_draft
+          expression: true
+        - column: state_id
+          value: $row.state_id
+          expression: true
+        - column: parent_id
+          value: $row.parent_id
+          expression: true
+        - column: created_on
+          value: $row.created_on
+          expression: true
+        - column: modified_on
+          value: $row.modified_on
+          expression: true
+        - column: deleted_on
+          value: $row.deleted_on
+          expression: true
+        - column: is_deleted
+          value: $row.is_deleted
+          expression: true
+        - column: tag_count
+          value: $row.tag_count
+          expression: true
+        - column: notes
+          value: $row.notes
+          expression: true
+        - column: ingestion_timestamp
+          value: $row.ingestion_timestamp
+          expression: true
+        - column: etl_timestamp
+          value: $row.etl_timestamp
+          expression: true
+        - column: etl_context_id
+          value: $row.etl_context_id
+          expression: true
+  - id: end
+    type: end
+    label: End
+    position:
+      x: 780
+      y: 0
+    config: {}
+edges:
+  - source: start
+    sourcePort: out-0
+    target: transform
+    targetPort: in-0
+  - source: transform
+    sourcePort: out-0
+    target: write
+    targetPort: in-0
+  - source: write
+    sourcePort: out-0
+    target: end
+    targetPort: in-0

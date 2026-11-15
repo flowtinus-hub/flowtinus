@@ -1,0 +1,182 @@
+import { Cron } from 'croner';
+import type { Database } from '#shared/database/database';
+import { pgJson } from '#shared/database/jsonb';
+import { withUpdatedByName } from '#features/users/user-names';
+
+/*
+ * A deployed flow's schedules (flow_schedules): a cron expression of 5 fields (minute hour day month
+ * weekday) or 6 (with the second first), in an IANA time zone, computed with croner (the editor shows the same times).
+ * next_fire_at is the next time it is due, null while it is off. The supervisors fire them (fire-schedules.ts).
+ */
+
+export type MisfireMode = 'relaxed' | 'strict' | 'ignorable';
+export const MISFIRE_MODES: MisfireMode[] = ['relaxed', 'strict', 'ignorable'];
+
+export const SCHEDULES_CHANNEL = 'schedules_changed';
+
+export function cronError(cron: string, timezone: string): string | undefined {
+    const count = cron.trim().split(/\s+/).filter(Boolean).length;
+    if (count !== 5 && count !== 6) {
+        return 'Use 5 fields (minute hour day month weekday) or 6 (second first).';
+    }
+
+    try {
+        if (new Cron(cron.trim(), { timezone, paused: true }).nextRun() === null) {
+            return 'It never runs (no such date).';
+        }
+    } catch (e) {
+        const message = (e as Error).message;
+        return /timezone/i.test(message) ? `Unknown time zone: ${timezone}.` : message.replace(/^CronPattern: /, '');
+    }
+
+    return undefined;
+}
+
+export function nextTime(cron: string, timezone: string, after: Date): Date | null {
+    return new Cron(cron.trim(), { timezone, paused: true }).nextRun(after);
+}
+
+export function dueTimes(cron: string, timezone: string, first: Date, until: Date, limit: number): Date[] {
+    const times = [first];
+    while (times.length < limit) {
+        const next = nextTime(cron, timezone, times[times.length - 1]!);
+        if (!next || next > until) {
+            break;
+        }
+
+        times.push(next);
+    }
+
+    return times;
+}
+
+export type LastFire = { at: Date; runId: string; status: string };
+
+export type ScheduleView = {
+    id: string;
+    flowId: string;
+    cron: string;
+    timezone: string;
+    enabled: boolean;
+    misfire: MisfireMode;
+    parameters: Record<string, string>;
+    input?: unknown;
+    nextFireAt: Date | null;
+    last: LastFire | null;
+    lastError: string | null;
+    createdAt: Date;
+    updatedBy: string | null;
+    updatedByName?: string;
+};
+
+type Row = {
+    id: string;
+    flow_id: string;
+    cron: string;
+    timezone: string;
+    enabled: boolean;
+    misfire: MisfireMode;
+    parameters: Record<string, string>;
+    input: unknown;
+    next_fire_at: Date | null;
+    last_fired_at: Date | null;
+    last_run_id: string | null;
+    last_status: string | null;
+    last_error: string | null;
+    created_at: Date;
+    updated_by: string | null;
+};
+
+const SELECT = `SELECT s.id, s.flow_id, s.cron, s.timezone, s.enabled, s.misfire, s.parameters, s.input, s.next_fire_at, s.last_fired_at,
+       s.last_run_id, r.status AS last_status, s.last_error, s.created_at, s.updated_by
+  FROM flow_schedules s LEFT JOIN runs r ON r.id = s.last_run_id`;
+
+const toView = (row: Row): ScheduleView => ({
+    id: row.id,
+    flowId: row.flow_id,
+    cron: row.cron,
+    timezone: row.timezone,
+    enabled: row.enabled,
+    misfire: row.misfire,
+    parameters: row.parameters ?? {},
+    ...(row.input !== null && row.input !== undefined ? { input: row.input } : {}),
+    nextFireAt: row.next_fire_at ? new Date(row.next_fire_at) : null,
+    last:
+        row.last_fired_at && row.last_run_id
+            ? { at: new Date(row.last_fired_at), runId: row.last_run_id, status: row.last_status ?? 'queued' }
+            : null,
+    lastError: row.last_error,
+    createdAt: new Date(row.created_at),
+    updatedBy: row.updated_by,
+});
+
+export async function listFlowSchedules(db: Database, workspaceId: string, flowId: string): Promise<ScheduleView[]> {
+    const rows = await db.query<Row>(`${SELECT} WHERE s.workspace_id = $1 AND s.flow_id = $2 ORDER BY s.created_at, s.id`, [
+        workspaceId,
+        flowId,
+    ]);
+    return withUpdatedByName(db, rows.map(toView));
+}
+
+export async function findSchedule(db: Database, workspaceId: string, id: string): Promise<(ScheduleView & { projectId: string }) | null> {
+    const [row] = await db.query<Row & { project_id: string }>(
+        `${SELECT.replace('SELECT s.id', 'SELECT s.project_id, s.id')} WHERE s.workspace_id = $1 AND s.id = $2`,
+        [workspaceId, id],
+    );
+    return row ? { ...toView(row), projectId: row.project_id } : null;
+}
+
+export type ScheduleFields = Pick<ScheduleView, 'cron' | 'timezone' | 'enabled' | 'misfire' | 'parameters' | 'input'>;
+
+export async function saveSchedule(
+    db: Database,
+    ctx: { workspaceId: string; userId: string },
+    target: { id: string; projectId: string; flowId: string; isNew: boolean },
+    fields: ScheduleFields,
+): Promise<void> {
+    const next = fields.enabled ? nextTime(fields.cron, fields.timezone, new Date()) : null;
+    const values = [
+        target.id,
+        ctx.workspaceId,
+        target.projectId,
+        target.flowId,
+        fields.cron.trim(),
+        fields.timezone,
+        fields.enabled,
+        fields.misfire,
+        pgJson(fields.parameters),
+        fields.input === undefined ? null : pgJson(fields.input),
+        next,
+        ctx.userId,
+    ];
+    if (target.isNew) {
+        await db.query(
+            `INSERT INTO flow_schedules (id, workspace_id, project_id, flow_id, cron, timezone, enabled, misfire, parameters, input, next_fire_at,
+         created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb, $10::text::jsonb, $11, $12, $12)`,
+            values,
+        );
+    } else {
+        await db.query(
+            `UPDATE flow_schedules SET cron = $5, timezone = $6, enabled = $7, misfire = $8, parameters = $9::text::jsonb,
+         input = $10::text::jsonb, next_fire_at = $11, updated_by = $12, updated_at = now(), last_error = NULL
+       WHERE id = $1 AND workspace_id = $2 AND project_id = $3 AND flow_id = $4`,
+            values,
+        );
+    }
+
+    await db.notify(SCHEDULES_CHANNEL, target.flowId);
+}
+
+export async function scheduleCounts(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+): Promise<Map<string, { total: number; on: number }>> {
+    const rows = await db.query<{ flow_id: string; total: number | string; on: number | string }>(
+        `SELECT flow_id, count(*) AS total, count(*) FILTER (WHERE enabled) AS "on" FROM flow_schedules
+     WHERE workspace_id = $1 AND project_id = $2 GROUP BY flow_id`,
+        [workspaceId, projectId],
+    );
+    return new Map(rows.map(r => [r.flow_id, { total: Number(r.total), on: Number(r.on) }]));
+}

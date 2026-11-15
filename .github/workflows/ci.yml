@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # a stuck test fails the job instead of holding it for GitHub's 6 hours
+    timeout-minutes: 15
+    # the storage tests also run against a real Postgres (TEST_DATABASE_URL), besides PGlite
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: flowtinus
+          POSTGRES_PASSWORD: flowtinus
+          POSTGRES_DB: flowtinus
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      # everything, Testcontainers included (bun run test leaves them out)
+      - run: bun run test:all
+        env:
+          TEST_DATABASE_URL: postgres://flowtinus:flowtinus@localhost:5432/flowtinus
+      - run: bun run build

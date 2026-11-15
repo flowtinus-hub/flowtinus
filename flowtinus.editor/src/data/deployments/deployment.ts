@@ -1,0 +1,91 @@
+import { deployContent, type FlowFile } from '@flowtinus/core';
+
+/*
+ * A flow's deploys in this environment (not a promotion to another one): the draft is what the editor edits, saves and
+ * runs (Run, Run for real); a deploy freezes it as a new immutable version and makes it the deployed one, the one the
+ * triggers (schedules and webhooks) run, and what their Flow Invokers call. Scripts and connection
+ * profiles are not frozen: they are the project's, a change applies to every deployed flow.
+ */
+
+export type FlowVersion = {
+    id: string;
+    flowId: string;
+    /** 1, 2, 3… per flow */
+    number: number;
+    /** the draft as it was deployed (never changes) */
+    definition: FlowFile;
+    createdAt: Date;
+    createdBy: string | null;
+    createdByName?: string;
+};
+
+export type DeploymentAction = 'deploy' | 'promote' | 'rollback' | 'undeploy';
+
+/** one change of what is deployed */
+export type DeploymentEvent = {
+    action: DeploymentAction;
+    /** what was deployed before (null: nothing) */
+    fromNumber: number | null;
+    /** what is deployed after (null: undeployed) */
+    toNumber: number | null;
+    at: Date;
+    by: string | null;
+    byName?: string;
+};
+
+export type FlowDeployments = {
+    /** newest first */
+    versions: FlowVersion[];
+    /** the deployed version, or null (never deployed, or undeployed) */
+    deployed: { versionId: string; deployedAt: Date; deployedBy: string | null; deployedByName?: string } | null;
+    /** newest first */
+    history: DeploymentEvent[];
+    /** what deploying the saved draft now would leave broken (a flow it calls that is not deployed); not a refusal */
+    warnings?: string[];
+};
+
+export const NO_DEPLOYMENTS: FlowDeployments = { versions: [], deployed: null, history: [] };
+
+/** what the top bar's Deploy says: nothing deployed, or the deployed version and whether the draft differs from it */
+export type DeployState =
+    { kind: 'not-deployed'; lastNumber: number | null } | { kind: 'deployed'; version: FlowVersion; changed: boolean };
+
+export const deployedVersion = (deployments: FlowDeployments): FlowVersion | undefined =>
+    deployments.deployed ? deployments.versions.find(v => v.id === deployments.deployed!.versionId) : undefined;
+
+/** the same flow for a deploy (core's deployContent): moving components, groups or pins is not a change */
+export const sameFlow = (a: FlowFile, b: FlowFile) => deployContent(a) === deployContent(b);
+
+/** the draft against what is deployed: only what the flow does counts (see sameFlow) */
+export function deployState(deployments: FlowDeployments, draft: FlowFile | null): DeployState {
+    const version = deployedVersion(deployments);
+    if (!version) {
+        return { kind: 'not-deployed', lastNumber: deployments.versions[0]?.number ?? null };
+    }
+
+    return { kind: 'deployed', version, changed: draft !== null && !sameFlow(draft, version.definition) };
+}
+
+/** the number the next deploy gets */
+export const nextNumber = (deployments: FlowDeployments) => (deployments.versions[0]?.number ?? 0) + 1;
+
+/** making a version the deployed one: back to an older one is a rollback, to a newer one (after a rollback) a deploy */
+export const switchAction = (deployments: FlowDeployments, to: FlowVersion): 'deploy' | 'rollback' => {
+    const current = deployedVersion(deployments);
+    return current && to.number < current.number ? 'rollback' : 'deploy';
+};
+
+/** one change of what is deployed, as the Versions window lists it */
+export function eventText(event: DeploymentEvent): string {
+    const was = event.fromNumber !== null ? ` (was v${event.fromNumber})` : '';
+    switch (event.action) {
+        case 'undeploy':
+            return `Undeployed v${event.fromNumber}`;
+        case 'rollback':
+            return `Rolled back to v${event.toNumber}${was}`;
+        case 'promote':
+            return `Promoted v${event.toNumber}${was}`;
+        default:
+            return `Deployed v${event.toNumber}${was}`;
+    }
+}

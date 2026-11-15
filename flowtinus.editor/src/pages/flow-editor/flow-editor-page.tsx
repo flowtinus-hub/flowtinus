@@ -1,0 +1,495 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flowFileName, flowToYaml, type FlowCall } from '@flowtinus/core';
+import { canvasToFlowFile, saveFile } from '@/editor/flow-file';
+import { useParams } from 'react-router';
+import type { Flow, Folder } from '@/data/flows/flow';
+import { getFlow, getProjectContents, restoreFlow } from '@/data/flows/flows-api';
+import { folderPath } from '@/data/flows/project-tree';
+import { useProject } from '@/data/projects/use-project';
+import { ConnectionStatus } from '@/layout/connection-status';
+import { ThemeToggle } from '@/layout/theme-toggle';
+import { ProjectBreadcrumb } from '@/pages/project-flows/project-breadcrumb';
+import { ServerGate } from '@/components/server-gate';
+import { FlowActions } from './flow-actions';
+import { FlowCallsButton } from './flow-calls';
+import { SaveStatus } from './save-status';
+import { WorkerTagMenu } from './worker-tag-menu';
+import { DeployMenu } from './deploy-menu';
+import { SchedulesMenu } from './schedules-menu';
+import { WebhooksMenu } from './webhooks-menu';
+import type { FlowVersion } from '@/data/deployments/deployment';
+import { useServerConnection } from '@/lib/server-connection';
+import type { DraftSave } from '@/editor/flow-save';
+import { shortcutsBusy } from '@/editor/history';
+import { FlowCanvas, type CanvasHandle } from './flow-canvas';
+import { RunPanel } from './run-panel';
+import { portLabel } from '@/editor/run/port-label';
+import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
+import { cancelRun, getLastRun, getRun, startRun, type RunUsage } from '@/data/flows/flows-api';
+import { followRun } from '@/data/flows/run-events';
+import { knownVariablesAfter, writingComponents, type KnownVariables } from '@flowtinus/core';
+import { inputSamplesAfter, readInputSamples, readKnownVariables, rememberInputSamples, rememberKnownVariables, type InputSamples } from '@/editor/expression-variables';
+import type { ApiResult } from '@/lib/api';
+import { pinnedOutput, runMarks, shownComponents } from '@/editor/run/run-marks';
+import { componentInfo } from '@/editor/catalog';
+import type { RunProgress, RunRecord } from '@flowtinus/core';
+
+type Loaded = { for: string; flow: Flow | null; folders: Folder[] };
+
+/**
+ * A flow (/projects/:projectId/flows/:flowId), on the whole screen: no sidebar, the breadcrumb (project, folders, flow) in the
+ * top bar, and the canvas below. Outside the AppShell (see router.tsx).
+ */
+export function FlowEditorPage() {
+    const { projectId = '', flowId = '' } = useParams();
+    const project = useProject(projectId);
+    const [loaded, setLoaded] = useState<Loaded | null>(null);
+    // read again: after a restore, or when a save says the flow is no longer there (archived or removed)
+    const [readAgain, setReadAgain] = useState(0);
+    // the draft's save state, from the canvas (shown in the top bar)
+    const [save, setSave] = useState<DraftSave | null>(null);
+    // a save answered not found: the flow is read again (archived: it turns read-only, with Restore)
+    const gone = save?.state.status === 'gone';
+
+    useEffect(() => {
+        let current = true;
+        void Promise.all([getFlow(flowId), getProjectContents(projectId)]).then(([flow, contents]) => {
+            if (current) {
+                const found = flow.ok ? flow.value : null;
+                const folders = found && contents.ok ? folderPath(contents.value.folders, found.folderId) : [];
+                setLoaded({ for: flowId, flow: found, folders });
+            }
+        });
+
+        return () => {
+            current = false;
+        };
+    }, [flowId, projectId, readAgain, gone]);
+
+    const current = loaded?.for === flowId ? loaded : null;
+    const flowName = current ? (current.flow?.name ?? 'Flow not found') : '';
+    // an archived flow opens read-only (nothing saved, nothing run), with Restore
+    const archived = Boolean(current?.flow?.archivedAt);
+    const [restoring, setRestoring] = useState<{ busy: boolean; error?: string }>({ busy: false });
+    // Download: the canvas as it is now, as the core's YAML flow file
+    const canvas = useRef<CanvasHandle | null>(null);
+    const restore = async () => {
+        setRestoring({ busy: true });
+        const result = await restoreFlow(flowId);
+        if (!result.ok) {
+            setRestoring({ busy: false, error: result.error.message });
+            return;
+        }
+
+        // back in its folder (or the root): read again, and the draft saves again (what changed here goes now)
+        setLoaded(previous => (previous?.flow ? { ...previous, flow: result.value } : previous));
+        setReadAgain(n => n + 1);
+        setRestoring({ busy: false });
+        await save?.resume();
+    };
+    // the canvas as it is now, as the core's flow file (Deploy compares it with the deployed version)
+    const flowNow = current?.flow;
+    const draftNow = useCallback(() => {
+        const now = canvas.current?.snapshot();
+        return now && flowNow ? canvasToFlowFile({ id: flowNow.id, name: flowNow.name }, now.nodes, now.edges) : null;
+    }, [flowNow]);
+    const connection = useServerConnection();
+    // the flow's deployed version (Deploy says it): Schedules run it
+    const [deployedVersion, setDeployedVersion] = useState<FlowVersion | null>(null);
+    // the canvas's Flow Invoker calls, as they change (the top bar's Calls)
+    const [ownCalls, setOwnCalls] = useState<FlowCall[] | null>(null);
+    const download = () => {
+        const now = canvas.current?.snapshot();
+        if (!now || !current?.flow) {
+            return;
+        }
+
+        const file = canvasToFlowFile({ id: current.flow.id, name: current.flow.name }, now.nodes, now.edges);
+        saveFile(flowFileName(file.name), flowToYaml(file), 'application/yaml');
+    };
+
+    // a run on the server, of the saved draft (what is pending is saved first), followed until it ends
+    const [running, setRunning] = useState<'test' | 'real' | null>(null);
+    // the run going on (Stop), and whether Stop was asked
+    const [runId, setRunId] = useState<string | null>(null);
+    const [stopping, setStopping] = useState(false);
+    // the run's record: as it goes (RunProgress) while it runs, then the final one
+    const [record, setRecord] = useState<RunRecord | RunProgress | null>(null);
+    // the last full test run (not a Run from here): Run from here is offered by what reached each component there
+    const [fullRun, setFullRun] = useState<RunRecord | null>(null);
+    // what the run's worker process used, once it ended
+    const [usage, setUsage] = useState<RunUsage | null>(null);
+    // what the runs of this flow saw at each port: the expression fields suggest it
+    const [known, setKnown] = useState<{ flowId: string; variables: KnownVariables }>(() => ({
+        flowId,
+        variables: readKnownVariables(flowId),
+    }));
+    const knownNow = known.flowId === flowId ? known.variables : readKnownVariables(flowId);
+    const [samples, setSamples] = useState<{ flowId: string; samples: InputSamples }>(() => ({
+        flowId,
+        samples: readInputSamples(flowId),
+    }));
+    const samplesNow = samples.flowId === flowId ? samples.samples : readInputSamples(flowId);
+    const [runError, setRunError] = useState('');
+    const [panelOpen, setPanelOpen] = useState(false);
+    const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
+    // a port's count clicked on the canvas: the panel shows it
+    const [show, setShow] = useState<{ nodeId: string; port: string; at: number } | null>(null);
+    // the flow opened (or another one): its latest run that ended and the full test run, from the server, until one
+    // runs here (a reload keeps what the components did last; the panel stays closed)
+    const [runsOf, setRunsOf] = useState(flowId);
+    if (runsOf !== flowId) {
+        // another flow: the runs shown were the other one's
+        setRunsOf(flowId);
+        setRecord(null);
+        setFullRun(null);
+        setUsage(null);
+    }
+
+    useEffect(() => {
+        let gone = false;
+        void getLastRun(flowId).then(answer => {
+            if (gone || !answer.ok) {
+                return;
+            }
+
+            const { last, full } = answer.value;
+            setRecord(previous => previous ?? last?.record ?? null);
+            setUsage(previous => previous ?? last?.usage ?? null);
+            setFullRun(previous => previous ?? full);
+        });
+        return () => {
+            gone = true;
+        };
+    }, [flowId]);
+    // fromNodeId: Run from here (that component and what follows it, from what reached it in the last run)
+    const execute = async (kind: 'test' | 'real', fromNodeId?: string): Promise<ApiResult<unknown>> => {
+        if (!current?.flow || running) {
+            return { ok: true, value: null };
+        }
+
+        setRunning(kind);
+        setRunId(null);
+        setStopping(false);
+        setRunError('');
+        setShow(null);
+        setPanelOpen(true);
+        const fail = (message: string): ApiResult<unknown> => {
+            setRunError(message);
+            setRunning(null);
+            return { ok: true, value: null };
+        };
+        const flushed = save ? await save.flush() : 'saved';
+        if (flushed !== 'saved') {
+            return fail(
+                flushed === 'not-saved'
+                    ? 'The flow could not be saved, so it did not run.'
+                    : 'This flow was archived or removed, so it did not run.',
+            );
+        }
+
+        // Run from here: the component's name as the canvas shows it (the record and its first log line say it)
+        const fromNode = fromNodeId ? canvas.current?.snapshot().nodes.find(n => n.id === fromNodeId) : undefined;
+        const fromData = fromNode?.data as { type?: string; label?: string } | undefined;
+        const from = fromNodeId
+            ? { nodeId: fromNodeId, label: fromData?.label?.trim() || componentInfo(fromData?.type ?? '')?.label || fromNodeId }
+            : undefined;
+        const started = await startRun(current.flow.id, kind === 'real' ? 'execution' : 'validation', from);
+        if (!started.ok) {
+            return fail(started.error.message);
+        }
+
+        setRunId(started.value.id);
+        // the run so far as it goes (SSE), each component as it ends; if the stream fails, asked every half second
+        const ended = (final: RunRecord, used: RunUsage | null) => {
+            setRecord(final);
+            // a full test run is what Run from here starts from (the server keeps it beside the Run from here)
+            if (final.run.mode === 'validation' && !final.from) {
+                setFullRun(final);
+            }
+
+            setUsage(used);
+            const variables = knownVariablesAfter(knownNow, final);
+            rememberKnownVariables(flowId, variables);
+            setKnown({ flowId, variables });
+            const seen = inputSamplesAfter(samplesNow, final);
+            rememberInputSamples(flowId, seen);
+            setSamples({ flowId, samples: seen });
+            setRunning(null);
+            return { ok: true, value: null } as const;
+        };
+        setRecord(null);
+        setUsage(null);
+        // a new run's iterations are not the last one's: each Loop shows its first again
+        setIterations(new Map());
+        const followed = await followRun(started.value.id, setRecord);
+        if (followed) {
+            return ended(followed.record, followed.usage);
+        }
+
+        for (;;) {
+            const run = await getRun(started.value.id);
+            if (!run.ok) {
+                return fail(run.error.message);
+            }
+
+            if (run.value.status !== 'queued' && run.value.status !== 'running') {
+                if (run.value.record && run.value.record.status !== 'running') {
+                    return ended(run.value.record, run.value.usage);
+                }
+
+                setRunning(null);
+                return { ok: true, value: null };
+            }
+
+            if (run.value.record) {
+                setRecord(run.value.record);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    };
+    // Run for real lists what is going to write outside the flow and asks first (a test run writes nothing)
+    const run = (kind: 'test' | 'real') => {
+        const now = canvas.current?.snapshot();
+        if (!now || !current?.flow || running) {
+            return;
+        }
+
+        if (kind === 'test') {
+            void execute('test');
+            return;
+        }
+
+        const writers = writingComponents(canvasToFlowFile({ id: current.flow.id, name: current.flow.name }, now.nodes, now.edges));
+        setConfirm({
+            title: 'Run for real?',
+            description: writers.length
+                ? `These components write outside the flow: ${writers.map(n => n.label || n.type).join(', ')}.`
+                : 'No component writes outside the flow.',
+            confirmLabel: 'Run for real',
+            busyLabel: 'Starting…',
+            destructive: writers.length > 0,
+            onConfirm: async () => {
+                setConfirm(null);
+                void execute('real');
+                return { ok: true, value: null };
+            },
+        });
+    };
+    const stop = async () => {
+        if (!runId || stopping) {
+            return;
+        }
+
+        setStopping(true);
+        const result = await cancelRun(runId);
+        if (!result.ok) {
+            setStopping(false);
+        }
+    };
+    // the canvas' Run from here calls the latest execute; the callback stays the same, so the marks do too
+    const executeRef = useRef(execute);
+    useEffect(() => {
+        executeRef.current = execute;
+    });
+    const runFrom = useCallback((nodeId: string) => void executeRef.current('test', nodeId), []);
+    // Ctrl+Enter (Cmd on a Mac): a test run, as the top bar's Run, when Run can be clicked; not while typing in a field or in
+    // a window or dialog
+    const canRun = Boolean(current?.flow && !archived && !gone && connection.state === 'online');
+    const testRun = useRef(() => {});
+    useEffect(() => {
+        testRun.current = () => canRun && run('test');
+    });
+    useEffect(() => {
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) {
+                return;
+            }
+
+            if (event.repeat || shortcutsBusy(document.activeElement)) {
+                return;
+            }
+
+            event.preventDefault();
+            testRun.current();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
+    const [pinned, setPinned] = useState<string[]>([]);
+    // the iteration each Loop shows inside its box (its index among the iterations the run kept): the first by default
+    const [iterations, setIterations] = useState<ReadonlyMap<string, number>>(() => new Map());
+    const pickIteration = useCallback(
+        (loopId: string, iteration: number) => setIterations(previous => new Map(previous).set(loopId, iteration)),
+        [],
+    );
+    // what the canvas shows of the run (the same object while nothing changes: every component reads it)
+    const marks = useMemo(
+        () =>
+            // with the panel closed too: the components keep what they did in the last run (a count opens the panel)
+            runMarks(
+                record,
+                running !== null,
+                (nodeId, port) => {
+                    setPanelOpen(true);
+                    setShow(previous => ({ nodeId, port, at: (previous?.at ?? 0) + 1 }));
+                },
+                fullRun,
+                { of: loopId => iterations.get(loopId) ?? 0, pick: pickIteration },
+            ),
+        [record, running, fullRun, iterations, pickIteration],
+    );
+
+    return (
+        <div className="flex h-svh flex-col">
+            {/* the browser tab says which flow it is (React puts it in the head; leaving the page gives the app's back) */}
+            {current?.flow && <title>{`Flow :: ${current.flow.name}`}</title>}
+            {/* same height and border as the app's top bar */}
+            <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
+                <ProjectBreadcrumb
+                    project={project.status === 'ready' ? project.project : null}
+                    folders={current?.folders}
+                    flowName={flowName}
+                />
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                    <SaveStatus
+                        save={save}
+                        archived={
+                            archived
+                                ? {
+                                      onRestore: () => void restore(),
+                                      restoring: restoring.busy,
+                                      ...(restoring.error ? { error: restoring.error } : {}),
+                                  }
+                                : undefined
+                        }
+                    />
+                    <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+                    {current?.flow && (
+                        // this flow's calls as the canvas has them now
+                        <FlowCallsButton projectId={projectId} flowId={flowId} own={ownCalls} />
+                    )}
+                    <FlowActions
+                        onDownload={current?.flow ? download : undefined}
+                        running={running}
+                        onRun={current?.flow && !archived && !gone ? run : undefined}
+                    />
+                    <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+                    <ConnectionStatus />
+                    <ThemeToggle />
+                </div>
+            </header>
+            <main className="relative flex min-h-0 flex-1 flex-col">
+                {current && !current.flow ? (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Flow not found.</div>
+                ) : (
+                    // the canvas saves as it goes: while the server is away it is blurred and blocked, so nothing is lost
+                    <ServerGate>
+                        {/* the canvas over the run's panel: the panel takes its height from the bottom, the canvas (with its tray,
+                zoom and minimap) the rest */}
+                        <div className="flex h-full flex-col">
+                            <div className="relative min-h-0 flex-1">
+                                <FlowCanvas
+                                    exportRef={canvas}
+                                    readOnly={archived}
+                                    onSave={setSave}
+                                    onRunFrom={runFrom}
+                                    onToggleRunPanel={() => setPanelOpen(open => !open || running !== null)}
+                                    onPinned={setPinned}
+                                    onCalls={setOwnCalls}
+                                    tools={
+                                        current?.flow && (
+                                            // which workers run it, before Arrange
+                                            <WorkerTagMenu
+                                                flow={current.flow}
+                                                readOnly={archived}
+                                                onChanged={flow =>
+                                                    setLoaded(previous => (previous?.flow ? { ...previous, flow } : previous))
+                                                }
+                                            />
+                                        )
+                                    }
+                                    toolsAfter={
+                                        current?.flow && (
+                                            // after Group: Deploy, and the schedules of the deployed version
+                                            <>
+                                                <DeployMenu
+                                                    flowId={flowId}
+                                                    environment={connection.state === 'online' ? connection.environment : ''}
+                                                    disabled={archived || gone || connection.state !== 'online'}
+                                                    draftNow={draftNow}
+                                                    saveMark={save?.state}
+                                                    flush={async () => (save ? save.flush() : 'not-saved')}
+                                                    onDraftReplaced={() => save?.reload()}
+                                                    confirm={setConfirm}
+                                                    onDeployed={setDeployedVersion}
+                                                />
+                                                <SchedulesMenu
+                                                    flowId={flowId}
+                                                    deployed={deployedVersion?.flowId === flowId ? deployedVersion : null}
+                                                    disabled={archived || gone || connection.state !== 'online'}
+                                                    confirm={setConfirm}
+                                                />
+                                                <WebhooksMenu
+                                                    flowId={flowId}
+                                                    deployed={deployedVersion?.flowId === flowId ? deployedVersion : null}
+                                                    disabled={archived || gone || connection.state !== 'online'}
+                                                    confirm={setConfirm}
+                                                />
+                                            </>
+                                        )
+                                    }
+                                    marks={marks}
+                                    known={knownNow}
+                                    inputSamples={samplesNow}
+                                />
+                            </div>
+                            {panelOpen && (
+                                <RunPanel
+                                    record={record}
+                                    usage={usage}
+                                    running={running}
+                                    // until the first progress: waiting for a free worker
+                                    queued={running !== null && record === null}
+                                    onStop={runId ? () => void stop() : undefined}
+                                    stopping={stopping}
+                                    onFocus={id => canvas.current?.focus(id)}
+                                    pinned={new Set(pinned)}
+                                    onPin={(id, on) =>
+                                        canvas.current?.setPinned(
+                                            id,
+                                            // a component inside a Loop: its run in the iteration the canvas shows
+                                            on
+                                                ? pinnedOutput(
+                                                      shownComponents(record?.components ?? [], loopId => iterations.get(loopId) ?? 0).get(
+                                                          id,
+                                                      ),
+                                                  )
+                                                : undefined,
+                                        )
+                                    }
+                                    iterationOf={loopId => iterations.get(loopId) ?? 0}
+                                    onPickIteration={pickIteration}
+                                    onClose={() => setPanelOpen(false)}
+                                    show={show}
+                                    error={runError}
+                                    // a port's name with the node's config (a Router's cases), from the canvas as it is
+                                    portName={(nodeId, type, port) => {
+                                        const node = canvas.current?.snapshot().nodes.find(n => n.id === nodeId);
+                                        return portLabel(
+                                            type,
+                                            node?.type === 'component' ? (node.data as { config: Record<string, unknown> }).config : {},
+                                            port,
+                                        );
+                                    }}
+                                />
+                            )}
+                        </div>
+                    </ServerGate>
+                )}
+            </main>
+            <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
+        </div>
+    );
+}

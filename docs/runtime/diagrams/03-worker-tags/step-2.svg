@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 512" width="1000" height="512" role="img" aria-label="Worker tags · step 2 of 4">
+<title>Worker tags · step 2 of 4</title>
+<defs>
+<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#43484e"/></pattern>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#5a6068"/></marker>
+<clipPath id="frame"><rect x="0" y="0" width="1000" height="512" rx="14"/></clipPath>
+</defs>
+<g clip-path="url(#frame)">
+<rect x="0" y="0" width="1000" height="512" fill="#171717"/>
+<rect x="0" y="44" width="1000" height="420" fill="#23272b"/>
+<rect x="0" y="44" width="1000" height="420" fill="url(#dots)"/>
+<path d="M0 44 H1000 M0 464 H1000" stroke="rgba(255,255,255,0.10)"/>
+<circle cx="22" cy="22" r="4.5" fill="#f2a93b"><animate attributeName="opacity" dur="1s" repeatCount="indefinite" values="1;0.35;1"/></circle>
+<text x="36" y="26.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" font-weight="600" fill="#fafafa" text-anchor="start">Worker tags · step 2 of 4</text>
+<text x="982" y="26.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="400" fill="#a1a1a1" text-anchor="end">which supervisors run a flow</text>
+<g transform="translate(0 44)">
+<rect x="24" y="40" width="196" height="74" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<circle cx="40" cy="62" r="4.5" fill="#d3d8de"/>
+<text x="52" y="67" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#fafafa" text-anchor="start">Import orders</text>
+<rect x="38" y="80" width="90.6" height="20" rx="10" fill="rgba(54,186,235,0.12)" stroke="#36baeb" stroke-width="1"/><text x="47" y="94" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#36baeb" text-anchor="start">tag default</text>
+<rect x="24" y="150" width="196" height="74" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<circle cx="40" cy="172" r="4.5" fill="#d3d8de"/>
+<text x="52" y="177" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#fafafa" text-anchor="start">Resize images</text>
+<rect x="38" y="190" width="77.4" height="20" rx="10" fill="rgba(186,147,251,0.14)" stroke="#ba93fb" stroke-width="1"/><text x="47" y="204" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#ba93fb" text-anchor="start">tag heavy</text>
+<rect x="24" y="260" width="196" height="74" rx="10" fill="#171717" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"></rect>
+<circle cx="40" cy="282" r="4.5" fill="#d3d8de"/>
+<text x="52" y="287" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#fafafa" text-anchor="start">Train model</text>
+<rect x="38" y="300" width="64.2" height="20" rx="10" fill="rgba(211,216,222,0.10)" stroke="#d3d8de" stroke-width="1"/><text x="47" y="314" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#d3d8de" text-anchor="start">tag gpu</text>
+<rect x="268" y="30" width="140" height="320" rx="10" fill="#f2a93b" stroke="none" stroke-width="1.2"></rect>
+<text x="338" y="58" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#111111" text-anchor="middle">API server</text>
+<text x="338" y="76" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="400" fill="#4a3410" text-anchor="middle">hasLiveSupervisor</text>
+<text x="338" y="90" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="400" fill="#4a3410" text-anchor="middle">(tag)</text>
+<rect x="456" y="30" width="180" height="320" rx="10" fill="rgba(54,186,235,0.05)" stroke="#36baeb" stroke-width="1.2"></rect>
+<circle cx="474" cy="52" r="4.5" fill="#36baeb"/>
+<text x="486" y="57" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Postgres</text>
+<text x="470" y="70" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#a1a1a1" text-anchor="start">runs.worker_tag</text>
+<rect x="684" y="30" width="292" height="140" rx="10" fill="#171717" stroke="#5bc99e" stroke-width="1.2"></rect>
+<circle cx="702" cy="52" r="4.5" fill="#5bc99e"/>
+<text x="714" y="57" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Supervisor A · 2 replicas</text>
+<text x="698" y="72" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="400" fill="#a1a1a1" text-anchor="start">WORKER_TAGS=default,reports · WORKERS=4</text>
+<rect x="698" y="100" width="128" height="36" rx="6" fill="#23272b" stroke="rgba(255,255,255,0.18)"/>
+<text x="762" y="123" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#fafafa" text-anchor="middle">supervisor-1</text>
+<rect x="834" y="100" width="128" height="36" rx="6" fill="#23272b" stroke="rgba(255,255,255,0.18)"/>
+<text x="898" y="123" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#fafafa" text-anchor="middle">supervisor-2</text>
+<rect x="684" y="190" width="292" height="130" rx="10" fill="#171717" stroke="#5bc99e" stroke-width="1.2"></rect>
+<circle cx="702" cy="212" r="4.5" fill="#5bc99e"/>
+<text x="714" y="217" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#fafafa" text-anchor="start">Supervisor heavy</text>
+<text x="698" y="232" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="400" fill="#a1a1a1" text-anchor="start">WORKER_TAGS=heavy · WORKERS=2</text>
+<text x="698" y="248" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="400" fill="#ba93fb" text-anchor="start">WORKER_COLOR=violet</text>
+<rect x="698" y="264" width="264" height="36" rx="6" fill="rgba(186,147,251,0.14)" stroke="#ba93fb"/>
+<text x="830" y="287" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#ba93fb" text-anchor="middle">supervisor-heavy-1</text>
+<rect x="684" y="340" width="292" height="40" rx="10" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1.2" stroke-dasharray="5 4"></rect>
+<text x="830" y="365" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#a1a1a1" text-anchor="middle">no supervisor has 'gpu'</text>
+<g opacity="0"><animate attributeName="opacity" dur="4.5s" repeatCount="indefinite" calcMode="discrete" values="0;1;0" keyTimes="0;0.1667;0.5"/><rect x="470" y="110" width="152" height="24" rx="5" fill="rgba(54,186,235,0.12)" stroke="#36baeb"/><text x="546" y="127" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#36baeb" text-anchor="middle">queued · default</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="4.5s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.6111"/><rect x="470" y="190" width="152" height="24" rx="5" fill="rgba(186,147,251,0.14)" stroke="#ba93fb"/><text x="546" y="207" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#ba93fb" text-anchor="middle">queued · heavy</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="4.5s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.1944"/><animateMotion dur="4.5s" repeatCount="indefinite" calcMode="linear" path="M220 77 L268 77 L408 100 L456 122 L530 122" keyPoints="0;0.1516;0.5996;0.7663;1;1" keyTimes="0;0;0;0;0.1667;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#36baeb" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g><text x="0" y="-12" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#36baeb" text-anchor="middle" stroke="#23272b" stroke-width="4" stroke-linejoin="round" paint-order="stroke">default</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="4.5s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.4444"/><animateMotion dur="4.5s" repeatCount="indefinite" calcMode="linear" path="M530 122 L636 122 L762 118" keyPoints="0;0;0.4568;1;1" keyTimes="0;0.4444;0.6667;0.6667;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#36baeb" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g></g>
+<g opacity="0"><animate attributeName="opacity" dur="4.5s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.6389"/><animateMotion dur="4.5s" repeatCount="indefinite" calcMode="linear" path="M220 187 L268 187 L408 202 L456 202 L546 202" keyPoints="0;0.1469;0.5777;0.7246;1;1" keyTimes="0;0;0.2222;0.3889;0.6111;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#ba93fb" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g><text x="0" y="-12" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#ba93fb" text-anchor="middle" stroke="#23272b" stroke-width="4" stroke-linejoin="round" paint-order="stroke">heavy</text></g>
+
+<g opacity="0"><animate attributeName="opacity" dur="4.5s" repeatCount="indefinite" calcMode="discrete" values="1;0" keyTimes="0;0.4722"/><animateMotion dur="4.5s" repeatCount="indefinite" calcMode="linear" path="M220 297 L300 297" keyPoints="0;1;1" keyTimes="0;0.4444;1"/><g transform="scale(1)"><rect x="-8" y="-5.5" width="16" height="11" rx="1.6" fill="#d3d8de" stroke="#111" stroke-width="1"/><path d="M-8 -5 L0 1 L8 -5" fill="none" stroke="#111" stroke-width="1.1"/></g><text x="0" y="-12" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="600" fill="#d3d8de" text-anchor="middle" stroke="#23272b" stroke-width="4" stroke-linejoin="round" paint-order="stroke">gpu</text></g>
+<g opacity="0"><animate attributeName="opacity" dur="4.5s" repeatCount="indefinite" calcMode="discrete" values="0;1" keyTimes="0;0.4444"/><g><circle cx="338" cy="297" r="13" fill="rgba(255,100,103,0.14)" stroke="#ff6467" stroke-width="2"/><path d="M332 291 L344 303 M344 291 L332 303" stroke="#ff6467" stroke-width="2.5"/></g><text x="338" y="330" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="700" fill="#111111" text-anchor="middle">refused (502)</text></g>
+</g>
+
+<g opacity="0"><animate attributeName="opacity" dur="4.5s" repeatCount="indefinite" calcMode="discrete" values="1" keyTimes="0"/><rect x="18" y="479" width="22" height="20" rx="10" fill="#f2a93b"/><text x="29" y="493.5" xml:space="preserve" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="700" fill="#111111" text-anchor="middle">2</text><text x="50" y="493" xml:space="preserve" font-family="Inter, ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#fafafa" text-anchor="start">The API refuses a run whose tag no live supervisor has: it would wait forever</text></g>
+
+
+<rect x="0" y="464" width="0" height="2" fill="#f2a93b"><animate attributeName="width" dur="4.5s" repeatCount="indefinite" values="0;1000" keyTimes="0;1"/></rect>
+</g>
+<rect x="0.5" y="0.5" width="999" height="511" rx="14" fill="none" stroke="rgba(255,255,255,0.10)"/>
+</svg>

@@ -1,0 +1,142 @@
+name: flowtinus
+
+# the json-file logs of the containers, tagged with their Compose service: how the otel-collector knows whose line it reads
+x-logging: &logging
+  driver: json-file
+  options:
+    labels: 'com.docker.compose.project,com.docker.compose.service'
+    max-size: '20m'
+    max-file: '5'
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flowtinus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowtinus}
+      POSTGRES_DB: ${POSTGRES_DB:-flowtinus}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # the api and the supervisor, only with `docker compose --profile server up -d` (then run only the editor locally,
+  # `npm run editor`: `npm run start` would start another api on the same port)
+  server:
+    profiles: ['server']
+    build:
+      context: .
+      dockerfile: flowtinus.server/Dockerfile
+    image: flowtinus-server
+    restart: unless-stopped
+    logging: *logging
+    environment: &server-env # inside the Compose network Postgres is at postgres:5432, whatever port it has on the host
+      DATABASE_URL: postgres://${POSTGRES_USER:-flowtinus}:${POSTGRES_PASSWORD:-flowtinus}@postgres:5432/${POSTGRES_DB:-flowtinus}
+      ENVIRONMENT: ${ENVIRONMENT:-DEV}
+      API_PORT: 5190
+      # empty in DEV: the fixed dev key, as `npm run start` (the secrets stored there still decrypt)
+      SECRETS_KEYS: ${SECRETS_KEYS:-}
+      WORKERS: ${WORKERS:-1}
+      WORKER_TAGS: ${WORKER_TAGS:-default}
+      # the color of its tags on the screens: a name (violet, sky, amber...) or #rrggbb; empty = none
+      WORKER_COLOR: ${WORKER_COLOR:-}
+      # how many runs one Flow Invoker may fire and forget in a run, per worker (default 4: WORKERS 12 = 48)
+      FIRE_AND_FORGET_PER_WORKER: ${FIRE_AND_FORGET_PER_WORKER:-4}
+      # one JSON event per line, its fields searchable in OpenObserve (profile observability); pretty is for a terminal
+      LOG_FORMAT: json
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '5190:5190'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # the slim image has no curl: Bun asks
+      test: ['CMD', 'bun', '-e', "fetch('http://localhost:5190/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # runs what the api queues: the runs of the flows whose tag is in WORKER_TAGS, with WORKERS worker processes inside
+  # its container. More containers of it share the queue (a run goes to one): docker compose --profile server up -d
+  # --scale supervisor=3. Each container is its own supervisor on the Workers page.
+  supervisor: &supervisor
+    profiles: ['server']
+    image: flowtinus-server
+    restart: unless-stopped
+    logging: *logging
+    command: ['bun', 'flowtinus.server/supervisor/main.ts']
+    environment: *server-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # the same image, built by the server's service
+      server:
+        condition: service_started
+
+  # Other tags: one service per set of tags, the supervisor's with its own WORKER_TAGS and WORKERS (and limits), scaled
+  # on its own (--scale supervisor-heavy=2). A flow with a tag no live supervisor has cannot run (the editor says so).
+  # supervisor-heavy:
+  #   <<: *supervisor
+  #   environment:
+  #     <<: *server-env
+  #     WORKERS: ${HEAVY_WORKERS:-2}
+  #     WORKER_TAGS: heavy
+  #   deploy:
+  #     resources:
+  #       limits: { cpus: '4', memory: 8g }
+
+  # logs, metrics and dashboards of postgres, server and supervisor, only with `--profile observability`:
+  # http://localhost:5080 (OPENOBSERVE_USER / OPENOBSERVE_PASSWORD). The otel-collector feeds it.
+  openobserve:
+    profiles: ['observability']
+    image: public.ecr.aws/zinclabs/openobserve:v1.1.2
+    restart: unless-stopped
+    environment:
+      ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_USER:-root@flowtinus.local}
+      ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:-Flowtinus#2026}
+      ZO_DATA_DIR: /data
+      ZO_TELEMETRY: 'false'
+    ports:
+      - '${OPENOBSERVE_PORT:-5080}:5080'
+    volumes:
+      - openobserve:/data
+
+  # reads the containers' log files and the Docker and Postgres stats, sends them to openobserve (observability/otel-collector.yaml)
+  otel-collector:
+    profiles: ['observability']
+    image: otel/opentelemetry-collector-contrib:0.164.0
+    restart: unless-stopped
+    # root: the log files under /var/lib/docker/containers and the Docker socket are root's
+    user: '0:0'
+    command: ['--config=/etc/otelcol/config.yaml']
+    environment:
+      OPENOBSERVE_USER: ${OPENOBSERVE_USER:-root@flowtinus.local}
+      OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:-Flowtinus#2026}
+      POSTGRES_USER: ${POSTGRES_USER:-flowtinus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowtinus}
+      POSTGRES_DB: ${POSTGRES_DB:-flowtinus}
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - otel-collector:/var/lib/otelcol
+    depends_on:
+      # distroless image, no healthcheck: the collector retries the export until openobserve answers
+      openobserve:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres:
+  openobserve:
+  otel-collector:

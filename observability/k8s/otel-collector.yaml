@@ -1,0 +1,230 @@
+# The otel-collector for supervisors in Kubernetes (README: Supervisors in Kubernetes): one per node (DaemonSet), into
+# the same openobserve as docker-compose.yml's. What observability/otel-collector.yaml does for Compose, here for pods:
+#
+#   file_log       the pods' logs of the Flowtinus namespace (FLOWTINUS_NAMESPACE, default "default") on its node; the
+#                  service is the pod's Deployment (supervisor-pink), the instance its pod; the JSON events
+#                  (LOG_FORMAT=json) become fields (runId, flow, status...), as in Compose
+#   kubelet_stats  cpu, memory and network of each pod and container of that namespace
+#
+# openobserve's address and login come from the Secret "openobserve" (README); locally openobserve is Compose's, at
+# host.docker.internal:5080.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: observability
+---
+# k8s_attributes: which Deployment a pod is of; kubelet_stats: the stats of the node it runs on
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector
+rules:
+  - apiGroups: ['']
+    resources: [pods, namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [nodes/stats, nodes/proxy]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [replicasets, deployments]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector
+  namespace: observability
+data:
+  config.yaml: |
+    extensions:
+      basicauth/openobserve:
+        client_auth:
+          username: ${env:OPENOBSERVE_USER}
+          password: ${env:OPENOBSERVE_PASSWORD}
+      # where file_log was in each file, kept across restarts of the collector (a hostPath of the node)
+      file_storage:
+        directory: /var/lib/otelcol
+        create_directory: true
+
+    receivers:
+      file_log:
+        include: ['/var/log/pods/${env:FLOWTINUS_NAMESPACE}_*/*/*.log']
+        include_file_path: true
+        start_at: beginning
+        storage: file_storage
+        operators:
+          # the container runtime's format (CRI), and the namespace, pod and container from the file's path
+          - type: container
+          # the api's and the supervisor's JSON events: their fields as attributes, msg as the body
+          - type: json_parser
+            if: body matches "^\\{\"time\""
+            parse_from: body
+            parse_to: attributes
+            on_error: send_quiet
+            timestamp:
+              parse_from: attributes.time
+              layout_type: gotime
+              layout: '2006-01-02T15:04:05.999Z07:00'
+            severity:
+              parse_from: attributes.level
+          - type: move
+            if: attributes.msg != nil
+            from: attributes.msg
+            to: body
+          - type: remove
+            if: attributes.level != nil
+            field: attributes.level
+          - type: remove
+            if: attributes.service != nil
+            field: attributes.service
+          # which supervisor wrote it: its pod's name (service_instance_id in openobserve, as in Compose)
+          - type: move
+            if: attributes.instance != nil
+            from: attributes.instance
+            to: resource["service.instance.id"]
+          - type: remove
+            if: attributes.time != nil
+            field: attributes.time
+          - type: remove
+            field: attributes["log.file.path"]
+
+      kubelet_stats:
+        auth_type: serviceAccount
+        endpoint: https://${env:K8S_NODE_NAME}:10250
+        insecure_skip_verify: true
+        collection_interval: 15s
+        metric_groups: [pod, container]
+
+    processors:
+      # the pod's Deployment (k8s.deployment.name), from the API; only the pods of this node
+      k8s_attributes:
+        filter:
+          node_from_env_var: K8S_NODE_NAME
+        extract:
+          metadata: [k8s.deployment.name, k8s.pod.name, k8s.namespace.name]
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.name
+              - from: resource_attribute
+                name: k8s.namespace.name
+      # the service is the Deployment (supervisor-pink), as the Compose service is in Compose; the instance, the pod
+      resource/service:
+        attributes:
+          - key: service.name
+            from_attribute: k8s.deployment.name
+            action: upsert
+          - key: service.instance.id
+            from_attribute: k8s.pod.name
+            action: insert
+      filter/flowtinus:
+        error_mode: ignore
+        metrics:
+          datapoint:
+            - resource.attributes["k8s.namespace.name"] != "${env:FLOWTINUS_NAMESPACE}"
+      batch:
+        timeout: 5s
+
+    exporters:
+      otlp_http/openobserve:
+        endpoint: ${env:OPENOBSERVE_URL}
+        auth:
+          authenticator: basicauth/openobserve
+        headers:
+          stream-name: default
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 0
+
+    service:
+      extensions: [basicauth/openobserve, file_storage]
+      pipelines:
+        logs:
+          receivers: [file_log]
+          processors: [k8s_attributes, resource/service, batch]
+          exporters: [otlp_http/openobserve]
+        metrics:
+          receivers: [kubelet_stats]
+          processors: [filter/flowtinus, k8s_attributes, resource/service, batch]
+          exporters: [otlp_http/openobserve]
+      telemetry:
+        logs:
+          level: warn
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.164.0
+          args: ['--config=/etc/otelcol/config.yaml']
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: FLOWTINUS_NAMESPACE
+              value: default
+          # OPENOBSERVE_URL, OPENOBSERVE_USER, OPENOBSERVE_PASSWORD
+          envFrom:
+            - secretRef:
+                name: openobserve
+          # root: the pods' log files on the node are root's
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/otelcol
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+        - name: state
+          hostPath:
+            path: /var/lib/otelcol
+            type: DirectoryOrCreate
