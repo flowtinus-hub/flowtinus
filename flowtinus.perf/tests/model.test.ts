@@ -130,7 +130,34 @@ describe('comparing executions', () => {
         expect(changeOf(1, undefined, 'lower-is-better')).toBeUndefined();
     });
 
-    test('noise is the spread of the engine time over its median', () => {
-        expect(noise(parseResults(jsonl([line('2026-01-01T00:00:00.000Z', 100, { times: [90, 100, 110] })]))[0]!)).toBeCloseTo(0.2);
+    test('noise is the spread of the engine time over the last 3 executions, not between the runs of one', () => {
+        const one = parseResults(jsonl([line('2026-01-01T00:00:00.000Z', 100, { times: [50, 100, 150] })]));
+        expect(noise(one, one[0]!)).toBeUndefined();
+
+        const lines = parseResults(
+            jsonl([
+                { ...line('2026-01-01T00:00:00.000Z', 90), git: { sha: 'first', dirty: false } },
+                { ...line('2026-01-02T00:00:00.000Z', 100), git: { sha: 'second', dirty: true } },
+                line('2026-01-03T00:00:00.000Z', 110),
+                line('2026-01-04T00:00:00.000Z', 200),
+            ]),
+        );
+        expect(noise(lines, lines[0]!)).toBeUndefined();
+        expect(noise(lines, lines[2]!)).toBeCloseTo(0.2);
+        expect(noise(lines, lines[3]!)).toBeCloseTo(100 / 110);
+    });
+
+    test('noise leaves out partial executions, other sizes and other scenarios', () => {
+        const lines = parseResults(
+            jsonl([
+                line('2026-01-01T00:00:00.000Z', 100),
+                line('2026-01-02T00:00:00.000Z', 300, { partial: true }),
+                line('2026-01-03T00:00:00.000Z', 500, { size: 200 }),
+                line('2026-01-04T00:00:00.000Z', 900, { id: 'b' }),
+                line('2026-01-05T00:00:00.000Z', 105),
+            ]),
+        );
+        expect(noise(lines, lines[4]!)).toBeCloseTo(5 / 102.5);
+        expect(noise(lines, lines[1]!)).toBeUndefined();
     });
 });

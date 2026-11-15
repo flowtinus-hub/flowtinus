@@ -1,5 +1,5 @@
 import { formatMetric } from '#perf/format';
-import { changeOf, compareComponents, compareMetrics, commitUrl, counted, defaultSelection, executionsOf, failedRuns, machines, median, NOISE_LIMIT, noise, parseResults, seriesOf, shortCommit, sizesOf, summaries, type Change, type ReportLine, type ScenarioSummary } from './model';
+import { changeOf, compareComponents, compareMetrics, commitUrl, counted, defaultSelection, executionsOf, failedRuns, machines, median, NOISE_LIMIT, NOISE_WINDOW, noise, parseResults, seriesOf, shortCommit, sizesOf, summaries, type Change, type ReportLine, type ScenarioSummary } from './model';
 
 /*
  * The report page: reads the results (results/*.jsonl, served by `bun run perf --serve`, or picked from disk when the
@@ -65,12 +65,13 @@ function scenarioLink(id: string, size?: number, selected?: string[]) {
     return `#/s/${encodeURIComponent(id)}${query ? `?${query}` : ''}`;
 }
 
-const badges = (line: ReportLine) =>
+/** the badges of an execution; `lines` are the executions it is compared with to tell its noise */
+const badges = (line: ReportLine, lines: ReportLine[]) =>
     [
         line.partial ? '<span class="badge warn">partial</span>' : '',
         failedRuns(line) ? `<span class="badge worse">${failedRuns(line)} failed</span>` : '',
-        (noise(line) ?? 0) > NOISE_LIMIT
-            ? `<span class="badge warn" title="the engine's time varied more than ${NOISE_LIMIT * 100} % of its median between runs">noisy</span>`
+        (noise(lines, line) ?? 0) > NOISE_LIMIT
+            ? `<span class="badge warn" title="the engine time varied more than ${NOISE_LIMIT * 100} % of its median over the last ${NOISE_WINDOW} executions">noisy</span>`
             : '',
         line.scenario.quick ? '<span class="badge">quick</span>' : '',
         line.git.dirty ? '<span class="badge" title="uncommitted changes">dirty</span>' : '',
@@ -86,7 +87,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 function overviewStats(rows: ScenarioSummary[], lines: ReportLine[]): string {
     const faster = rows.filter(r => r.change?.kind === 'better').length;
     const slower = rows.filter(r => r.change?.kind === 'worse').length;
-    const noisy = rows.filter(r => (noise(r.latest) ?? 0) > NOISE_LIMIT).length;
+    const noisy = rows.filter(r => (noise(lines, r.latest) ?? 0) > NOISE_LIMIT).length;
     const last = lines.filter(l => !l.partial).at(-1);
     const worst = rows.filter(r => r.change?.kind === 'worse').sort((a, b) => b.change!.ratio - a.change!.ratio);
     const alert = worst.length
@@ -99,7 +100,7 @@ function overviewStats(rows: ScenarioSummary[], lines: ReportLine[]): string {
 ${stat('scenarios', rows.length.toLocaleString('en-US'), `${plural(lines.length, 'execution', 'executions')} on this machine`)}
 ${stat('faster', String(faster), 'vs previous execution', faster ? 'better' : '')}
 ${stat('slower', String(slower), 'vs previous execution', slower ? 'worse' : '')}
-${stat('noisy', String(noisy), `varied more than ${NOISE_LIMIT * 100} % between runs`, noisy ? 'warn' : '')}
+${stat('noisy', String(noisy), `more than ${NOISE_LIMIT * 100} % apart over the last ${NOISE_WINDOW} executions`, noisy ? 'warn' : '')}
 ${stat('last execution', last ? `<span class="stat-text">${esc(when(last.at))}</span>` : '–', last ? `${commit(last)} · ${esc(last.scenario.id)}` : '')}
 </div>
 ${alert}`;
@@ -215,7 +216,7 @@ function overview(lines: ReportLine[]): string {
   <td>${chart('durationMs', history, { width: 140, height: 32 })}</td>
   <td class="num">${s.executions}</td>
   <td class="small">${esc(when(s.latest.at))}<div class="muted">${commit(s.latest)}</div></td>
-  <td>${badges(s.latest)}</td>
+  <td>${badges(s.latest, lines)}</td>
 </tr>`;
         })
         .join('\n');
@@ -230,7 +231,7 @@ ${body}
 </table>`;
 }
 
-function comparison(id: string, size: number, chosen: ReportLine[]): string {
+function comparison(id: string, size: number, chosen: ReportLine[], executions: ReportLine[]): string {
     if (!chosen.length) {
         return '<p class="muted">Pick executions in the table or on a chart to compare them.</p>';
     }
@@ -238,7 +239,7 @@ function comparison(id: string, size: number, chosen: ReportLine[]): string {
     const heads = chosen
         .map(
             (line, i) =>
-                `<th class="num exec">${i === 0 && chosen.length > 1 ? '<span class="muted small">baseline</span><br>' : ''}${esc(when(line.at))}<br><span class="muted small">${commit(line)}</span> ${badges(line)}</th>`,
+                `<th class="num exec">${i === 0 && chosen.length > 1 ? '<span class="muted small">baseline</span><br>' : ''}${esc(when(line.at))}<br><span class="muted small">${commit(line)}</span> ${badges(line, executions)}</th>`,
         )
         .join('');
     const metrics = compareMetrics(chosen)
@@ -354,7 +355,7 @@ function scenario(lines: ReportLine[], route: Extract<Route, { view: 'scenario' 
             return `<tr class="${on ? 'chosen' : ''}">
   <td><a class="check" href="${toggle(line.at)}" aria-label="${on ? 'unselect' : 'select'}">${on ? '☑' : '☐'}</a></td>
   <td class="small">${esc(when(line.at))}<div class="muted">${commit(line)}</div></td>
-  <td>${badges(line)}</td>
+  <td>${badges(line, executions)}</td>
   <td class="num">${counted(line).length}/${line.samples.length}</td>
   ${metrics
       .map(metric => {
@@ -381,7 +382,7 @@ ${breakdown(chosen.at(-1) ?? executions.filter(l => !l.partial).at(-1) ?? latest
 ${rows}
 </tbody>
 </table></div>
-${comparison(route.id, size, chosen)}`;
+${comparison(route.id, size, chosen, executions)}`;
 }
 
 function render() {

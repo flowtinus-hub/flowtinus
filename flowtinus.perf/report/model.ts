@@ -54,8 +54,10 @@ export type Change = { ratio: number; text: string; kind: 'better' | 'worse' | '
 
 /** a change smaller than this reads as no change */
 export const SAME = 0.02;
-/** a spread of the engine's time above this share of its median is noise */
+/** a spread of the engine time over the latest executions above this share of its median is noise */
 export const NOISE_LIMIT = 0.1;
+/** how many of the latest executions the noise looks at */
+export const NOISE_WINDOW = 3;
 
 export function median(values: number[]): number | undefined {
     if (!values.length) {
@@ -108,13 +110,6 @@ export function changeOf(value: number | undefined, baseline: number | undefined
     return { ratio, text: `${ratio > 0 ? '+' : ''}${(ratio * 100).toFixed(1)} %`, kind };
 }
 
-/** (max − min) ÷ median of the engine's time over the counted runs */
-export function noise(line: ReportLine): number | undefined {
-    const times = counted(line).map(s => s.record.durationMs);
-    const middle = median(times);
-    return times.length < 2 || !middle ? undefined : (Math.max(...times) - Math.min(...times)) / middle;
-}
-
 export const executionsOf = (lines: ReportLine[], scenarioId: string, size: number) =>
     lines.filter(l => l.scenario.id === scenarioId && l.scenario.size === size);
 
@@ -140,6 +135,38 @@ export type ScenarioSummary = {
 };
 
 const engineTime = (line: ReportLine) => metricValue(line, 'durationMs') ?? median(counted(line).map(s => s.record.durationMs));
+
+/**
+ * The last NOISE_WINDOW complete executions up to this one (this one included) of the same scenario, at the same size and
+ * on the same machine, whatever their commit.
+ */
+export const latestExecutions = (lines: ReportLine[], line: ReportLine) =>
+    lines
+        .filter(
+            l =>
+                !l.partial &&
+                l.at <= line.at &&
+                l.scenario.id === line.scenario.id &&
+                l.scenario.size === line.scenario.size &&
+                l.machine.hostname === line.machine.hostname,
+        )
+        .slice(-NOISE_WINDOW);
+
+/**
+ * How much the engine time varied between the latest executions (each `bun run perf` or `git perf-push`), whatever their
+ * commit: (max − min) ÷ median of their engine times. None for a partial execution or with fewer than 2 executions.
+ */
+export function noise(lines: ReportLine[], line: ReportLine): number | undefined {
+    if (line.partial) {
+        return undefined;
+    }
+
+    const times = latestExecutions(lines, line)
+        .map(engineTime)
+        .filter((t): t is number => t !== undefined);
+    const middle = median(times);
+    return times.length < 2 || !middle ? undefined : (Math.max(...times) - Math.min(...times)) / middle;
+}
 
 export function summaries(lines: ReportLine[]): ScenarioSummary[] {
     const ids = [...new Set(lines.map(l => l.scenario.id))];

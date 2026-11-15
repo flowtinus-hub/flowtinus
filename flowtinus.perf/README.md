@@ -41,8 +41,9 @@ in the browser; after a run, serve it and open it).
 
 Each scenario runs one warm-up (discarded) and N measured runs, each in a new process. The report shows, for the
 metrics the scenario picks, the median, the minimum, the maximum and the median of the previous result of the same
-scenario and size on this machine. There are no limits and no verdict: you compare. When the engine's time varies more
-than 10 % between runs the report says "high noise": run more, or on a quieter machine, before reading small changes.
+scenario and size on this machine. There are no limits and no verdict: you compare. When the engine time varies more
+than 10 % of its median over the last 3 executions of the scenario at that size (whatever their commit), the terminal
+and the report page say "noisy": run again, or on a quieter machine, before reading small changes.
 
 Besides time, CPU and memory, every run measures what it hands to whoever follows it, as JSON, as a worker sends it to
 its supervisor and the supervisor writes it to the database: `recordBytes` (the final record), and the progress sent
