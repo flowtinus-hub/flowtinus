@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
-import { COMPOSE_FILE, COMPOSE_PROJECT, IMAGES, PERF_PORTS, SA_PASSWORD, SERVICE_LIMITS } from '#perf/stack';
+import { SCENARIOS } from '#perf/scenarios';
+import { COMPOSE_FILE, COMPOSE_PROJECT, IMAGES, memoryOf, PERF_PORTS, SA_PASSWORD, SERVICE_LIMITS } from '#perf/stack';
 
 /* The compose file and the constants of stack.ts must agree, and the perf stack must never touch the dev ports. */
 
@@ -44,5 +45,18 @@ describe('docker-compose.perf.yml', () => {
 
         expect(compose.services.mssql!.environment!.MSSQL_SA_PASSWORD).toBe(SA_PASSWORD);
         expect(compose.services.postgres!.environment!.POSTGRES_PASSWORD).toBe(SA_PASSWORD);
+    });
+});
+
+describe('memory for the databases', () => {
+    test('a scenario needs the limits of its databases together; the fake API takes none', () => {
+        expect(memoryOf(['mssql', 'mongodb', 'fake-api'])).toBe(SERVICE_LIMITS.mssql.memoryBytes + SERVICE_LIMITS.mongodb.memoryBytes);
+        expect(memoryOf([])).toBe(0);
+    });
+
+    test('Docker needs room for the scenario that needs most, not for every database at once', () => {
+        const most = Math.max(...SCENARIOS.map(s => memoryOf(s.services)));
+        expect(most).toBe(memoryOf(['mssql', 'mongodb']));
+        expect(most).toBeLessThan(memoryOf(['mssql', 'mongodb', 'postgres']));
     });
 });

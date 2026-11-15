@@ -104,9 +104,11 @@ Once, on GitHub (Settings of the repository):
 ## What it needs
 
 - `bun install` at the root.
-- For `sqlserver-to-mongodb` and `mongodb-pipeline-aggregate`: Docker Desktop with about 4 GB for containers, and ports
-  14330 (SQL Server) and 27030 (MongoDB) free. The first run downloads the images (a few GB) and loads the data
-  once; the containers keep running between runs.
+- For `sqlserver-to-mongodb` and `mongodb-pipeline-aggregate`: Docker Desktop with at least 3.5 GB of memory (SQL Server
+  2.5 GB and MongoDB 1 GB, together in `sqlserver-to-mongodb`, the scenario that needs most), and ports 14330 (SQL
+  Server) and 27030 (MongoDB) free. The first run downloads the images (a few GB) and loads the data once; the
+  containers keep running between runs, unless the next scenario's databases do not fit beside them in Docker's
+  memory: those are stopped first, and their data stays in their volumes.
 - For `http-slow-api`: port 5195 free (the fake API runs as a local process while the scenario runs).
 - For `redshift-batch-replace`: port 54330 free and about 1 GB for a Postgres container, which stands in for Redshift
   (the Redshift components speak its protocol). The numbers are the engine's and the drivers', not Redshift's, and

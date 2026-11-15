@@ -128,7 +128,7 @@ let docker: DockerInfo | undefined;
 let dockerProblem: string | undefined;
 if (needsDocker.length) {
     try {
-        docker = await checkDocker([...new Set(needsDocker)]);
+        docker = await checkDocker(selected.map(s => s.services));
     } catch (e) {
         dockerProblem = e instanceof Error ? e.message : String(e);
     }
@@ -211,7 +211,7 @@ for (const scenario of selected) {
         }
 
         warnIfEmulated(docker, scenario.services);
-        await ensureServices(scenario.services);
+        await ensureServices(scenario.services, docker?.memTotalBytes);
         if (scenario.services.includes('fake-api')) {
             state.fakeApi = await startFakeApi();
         }
