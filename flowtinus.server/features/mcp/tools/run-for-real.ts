@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { runForRealCheck } from '#features/api-tokens/run-scope';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
 import { StartRunHandler } from '#features/runs/start-run/start-run-handler';
-import { runSummary } from '../run-summary';
+import { runAnswer } from '../run-result';
+import { detailArg } from './get-run';
 import { DEFAULT_TEST_RUN_WAIT_S, MAX_TEST_RUN_WAIT_S, waitForEnd } from './test-run';
 import { defineTool, failed, id, logApproval, ok, userApproval } from './tool';
 
@@ -24,7 +25,7 @@ export const runForReal = defineTool({
         'A standing approval ends when the user withdraws or narrows it ("stop running for real", "only flow X"). A request to test, check, debug or fix the flow is NOT an approval (use test_run), nor is an approval given for one other flow. ' +
         'When the user did not say it explicitly, do not call it: ask the user ("Can I run <flow> for real? It writes to ...") or say that running for real needs their explicit approval. ' +
         "userApproval must then quote the user's message that authorized it (the standing approval when that is the one), word for word; never write it yourself. " +
-        'Waits for the run up to timeoutS and answers a summary per component (with what each database component wrote, per table); if it is still running, answers status running and the runId (continue with get_run; cancel_run stops it).',
+        'Waits for the run up to timeoutS. A clean run (completed, no envelope in error) answers its run result: status, the envelopes at its End and what it wrote per table (writes); otherwise a summary per component (with what each database component wrote); if it is still running, answers status running and the runId (continue with get_run; cancel_run stops it).',
     input: {
         flowId: id('the flow'),
         userApproval: userApproval('running this flow for real (or any flow, for a standing approval)')
@@ -38,10 +39,11 @@ export const runForReal = defineTool({
             .describe("the flow's input (JSON), for a Start that accepts one; without it, the Start's default input"),
         parameters: z.record(z.string(), z.string()).optional().describe("the Start's parameters, as text"),
         timeoutS: z.number().int().min(0).max(MAX_TEST_RUN_WAIT_S).default(DEFAULT_TEST_RUN_WAIT_S).describe('how long to wait for it'),
+        detail: detailArg,
         sample: z.number().int().min(0).max(10).default(3).describe('envelopes per component and port in the answer'),
     },
     annotations: { readOnlyHint: false, destructiveHint: true },
-    run: async ({ flowId, userApproval: approval, input, parameters, timeoutS, sample }, t) => {
+    run: async ({ flowId, userApproval: approval, input, parameters, timeoutS, detail, sample }, t) => {
         // the token's run scope, or the user's words: checked before anything is queued
         const scope = t.options.runScope ?? null;
         const row = await new FlowRepository(t.ctx.db, t.ctx.workspaceId).findById(flowId);
@@ -72,10 +74,15 @@ export const runForReal = defineTool({
         if (!run.ok) {
             return failed(run.error);
         }
-        return ok({
-            ...runSummary(run.value, sample, t.runLink(runId)),
-            ...(approval ? { userApproval: approval } : {}),
-            ...(allowed.byScope ? { approvedBy: "the token's run scope" } : {}),
-        });
+        const answer = runAnswer(run.value, { detail, sample, editorUrl: t.runLink(runId) });
+        return ok(
+            'components' in answer
+                ? {
+                      ...answer,
+                      ...(approval ? { userApproval: approval } : {}),
+                      ...(allowed.byScope ? { approvedBy: "the token's run scope" } : {}),
+                  }
+                : answer,
+        );
     },
 });

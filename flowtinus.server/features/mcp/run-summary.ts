@@ -126,8 +126,10 @@ export function shrinkJson(value: unknown, maxChars: number): { value: unknown; 
     return { value: `…${length} chars of JSON`, shrunk: true };
 }
 
-const atEnd = (record: RunRecord | RunProgress) =>
-    record.components.filter(c => c.type === END).reduce((n, c) => n + Object.values(c.inputs).reduce((a, b) => a + b, 0), 0);
+export const endsOf = (record: RunRecord | RunProgress) => record.components.filter(c => c.type === END);
+
+export const atEnd = (record: RunRecord | RunProgress) =>
+    endsOf(record).reduce((n, c) => n + Object.values(c.inputs).reduce((a, b) => a + b, 0), 0);
 
 function firstErrorOf(record: RunRecord | RunProgress): string | undefined {
     if ('error' in record && record.error) {
@@ -191,7 +193,7 @@ function summarize(c: ComponentRun, sample: number): ComponentSummary {
     };
 }
 
-const sampleSize = (sample: number) => Math.max(0, Math.min(MAX_SAMPLE, Math.floor(sample)));
+export const sampleSize = (sample: number) => Math.max(0, Math.min(MAX_SAMPLE, Math.floor(sample)));
 
 export function runSummary(run: RunView, sample = 5, editorUrl?: string): RunSummary {
     const record = (run.record as RunRecord | RunProgress | null) ?? null;

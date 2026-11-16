@@ -22,9 +22,9 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/ag
 
 `main` takes changes only through a pull request (a GitHub ruleset: no direct push, force push or deletion). Work on a branch and open a PR to `main`.
 
-A spec's tickets each go on `subtask/<issue>`, cut from the spec's `feature/<name>` branch (itself cut from `main`): switch to the ticket's `subtask/<issue>` before committing it.
+Branches are named by issue id only: `feature/<id>` for a spec or a standalone issue, cut from `main`, and `subtask/<id>` for a spec's ticket, cut from its spec's `feature/<id>`. Switch to the ticket's `subtask/<id>` before committing it.
 
-An agent commits on its branch but never pushes, and never opens a PR, unless the maintainer says so for that change: they review the change before it leaves the machine. This holds for every branch, fixes to an open PR included, and above all for changes to the engine (`flowtinus.core`).
+An agent leaves its change uncommitted on its branch: it commits, pushes or opens a PR only when the maintainer says so for that change, whatever a skill's steps say (`/implement` commits). The maintainer reviews the change before it is committed. This holds for every branch, fixes to an open PR included, and above all for changes to the engine (`flowtinus.core`).
 
 Commit messages and PR bodies carry the maintainer as the only author: no co-author trailer or "generated with" line for any AI tool (Claude, Cursor, Gemini, GPT or another), whatever the tool's own default.
 
