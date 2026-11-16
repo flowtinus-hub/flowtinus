@@ -1,0 +1,132 @@
+import { ERROR_PORT, type RunProgress, type RunRecord, type SubRun, type WriteCounts } from '@flowtinus/core';
+import type { RunView } from '#features/runs/get-run/get-run-handler';
+import { atEnd, endsOf, MAX_ENVELOPE_CHARS, runSummary, sampleSize, shrinkJson, subRunSummaryView, type FoundSubRun, type RunSummary, type SubRunView } from './run-summary';
+
+/*
+ * What test_run, run_for_real and get_run answer: the run result, the brief outcome, when the run is clean;
+ * the run summary (run-summary.ts), the detail per component, when it is not. `detail` forces either one.
+ */
+
+export type RunDetail = 'result' | 'summary';
+
+export type RunResult = {
+    runId: string;
+    status: RunView['status'];
+    durationMs?: number;
+    error?: string;
+    /** up to `sample` of the envelopes that reached the End (shrunk when large: get_run_output on the End gives them whole) */
+    output: unknown[];
+    outputCount: number;
+    shrunk?: number;
+    writes?: Record<string, WriteCounts>;
+    logs?: string[];
+};
+
+/** a run's record, or its progress while it runs */
+type RunRecordSoFar = RunRecord | RunProgress;
+
+const pending = (status: SubRun['status']) => status === 'queued' || status === 'running';
+
+/**
+ * No envelope in error in any component or call: none let through (onError: continue, the engine's error line), none
+ * diverted (onError: divert), no call that failed or has an envelope in error. A fire-and-forget call still going is
+ * not waited for: it is not part of the outcome.
+ */
+function noErrorIn(record: RunRecordSoFar): boolean {
+    return record.components.every(
+        c =>
+            !c.logs.some(l => l.level === 'error' && !l.byComponent) &&
+            !c.outputs[ERROR_PORT] &&
+            (c.subRuns ?? []).every(
+                sub =>
+                    (sub.fireAndForget && pending(sub.status)) ||
+                    ((sub.status === 'completed' || sub.status === 'with-warnings') && (!sub.record || noErrorIn(sub.record))),
+            ),
+    );
+}
+
+const isClean = (status: string, record: RunRecordSoFar | null) => status === 'completed' && (!record || noErrorIn(record));
+
+const MAX_RESULT_LOGS = 10;
+
+/** the record and the records of its calls (a call of a call...), each with the path of flows that leads to it */
+function* recordsIn(record: RunRecordSoFar, flows: string[] = []): Generator<{ record: RunRecordSoFar; flows: string[] }> {
+    yield { record, flows };
+    for (const sub of record.components.flatMap(c => c.subRuns ?? [])) {
+        if (sub.record) {
+            yield* recordsIn(sub.record, [...flows, sub.flow]);
+        }
+    }
+}
+
+/** what the whole run wrote outside (a real run; nothing in a test run), per table, summed over components and calls */
+function writesOf(record: RunRecordSoFar): Record<string, WriteCounts> {
+    const total: Record<string, WriteCounts> = {};
+    for (const { record: r } of recordsIn(record)) {
+        for (const [table, counts] of r.components.flatMap(c => Object.entries(c.writes ?? {}))) {
+            const sum = (total[table] ??= { inserted: 0, updated: 0, deleted: 0, affected: 0, batches: 0, failed: 0 });
+            for (const key of Object.keys(sum) as (keyof WriteCounts)[]) {
+                sum[key] += counts[key] ?? 0;
+            }
+        }
+    }
+    return total;
+}
+
+/** the warnings and errors components wrote themselves (a Log, a script's console.warn); never the engine's lines */
+function userLogsOf(record: RunRecordSoFar): string[] {
+    const lines = [...recordsIn(record)].flatMap(({ record: r, flows }) =>
+        r.components.flatMap(c =>
+            c.logs
+                .filter(l => l.byComponent && (l.level === 'warning' || l.level === 'error'))
+                .map(l => `${l.level} (${[...flows, c.label].join(' › ')}): ${l.message}`),
+        ),
+    );
+    return lines.length > MAX_RESULT_LOGS ? [...lines.slice(0, MAX_RESULT_LOGS), `…+${lines.length - MAX_RESULT_LOGS} logs`] : lines;
+}
+
+function runResult(runId: string, status: RunView['status'], record: RunRecordSoFar | null, sample: number): RunResult {
+    const reached = record ? endsOf(record) : [];
+    let shrunk = 0;
+    const output = reached
+        .flatMap(c => c.inputSample)
+        .slice(0, sampleSize(sample))
+        .map(data => {
+            const fit = shrinkJson(data, MAX_ENVELOPE_CHARS);
+            shrunk += fit.shrunk ? 1 : 0;
+            return fit.value;
+        });
+    const error = record && 'error' in record ? record.error : undefined;
+    const writes = record ? writesOf(record) : {};
+    const logs = record ? userLogsOf(record) : [];
+    return {
+        runId,
+        status,
+        ...(record?.durationMs !== undefined ? { durationMs: record.durationMs } : {}),
+        ...(error ? { error } : {}),
+        output,
+        outputCount: record ? atEnd(record) : 0,
+        ...(shrunk ? { shrunk } : {}),
+        ...(Object.keys(writes).length ? { writes } : {}),
+        ...(logs.length ? { logs } : {}),
+    };
+}
+
+export function runAnswer(run: RunView, options: { detail?: RunDetail; sample: number; editorUrl?: string }): RunResult | RunSummary {
+    const record = (run.record as RunRecordSoFar | null) ?? null;
+    const detail = options.detail ?? (isClean(run.status, record) ? 'result' : 'summary');
+    return detail === 'summary'
+        ? runSummary(run, options.sample, options.editorUrl)
+        : runResult(run.id, run.status, record, options.sample);
+}
+
+/** a flow the run called (get_run with subRunId), read from the record its caller keeps: the same contract */
+export function subRunAnswer(run: RunView, found: FoundSubRun, options: { detail?: RunDetail; sample: number }): RunResult | SubRunView {
+    const { sub, record } = found;
+    const detail = options.detail ?? (isClean(sub.status, record) ? 'result' : 'summary');
+    if (detail === 'summary') {
+        return subRunSummaryView(run, found, options.sample);
+    }
+    const result = runResult(run.id, sub.status, record, options.sample);
+    return { ...result, durationMs: sub.durationMs, ...(sub.error && !result.error ? { error: sub.error } : {}) };
+}

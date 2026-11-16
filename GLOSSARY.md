@@ -1,6 +1,6 @@
 # Flowtinus
 
-Visual data flows: an engine that runs them, a server that schedules them and an editor that draws them. This glossary covers the vocabulary of the performance benchmarks (`flowtinus.perf`) and how their history is kept and read.
+Visual data flows: an engine that runs them, a server that schedules them and an editor that draws them. This glossary covers the vocabulary of the performance benchmarks (`flowtinus.perf`) and how their history is kept and read, loops, flow calls and how an agent reads a run.
 
 ## Language
 
@@ -77,3 +77,17 @@ _Avoid_: Inline call, inline child
 **Fire and forget**:
 A Flow Invoker's call that sends its envelopes on at once and starts runs of their own with batches of them. Those runs outlive the caller (stopped one by one or with Stop below); a batch not yet started when the caller ends early (Stop, timeout, a failure, or a Next ending its iteration) is dropped.
 _Avoid_: Async call, background run
+
+### Runs through the MCP
+
+**Clean run**:
+A run that ended `completed` with no envelope in error in any component or call it waited for: none let through (`onError: continue`), none diverted (`onError: divert`), no call that failed.
+_Avoid_: Successful run, green run (a run `with-warnings` is not clean)
+
+**Run result**:
+The brief outcome of a run, what an agent gets for a clean run: its status, the envelopes that reached its End (a few, and how many), what it wrote outside and the warnings and errors the user's components wrote.
+_Avoid_: Run output (only the End's envelopes), run record (the engine's full record)
+
+**Run summary**:
+The detail of a run per component: envelopes in and out per port, errors, writes, a Flow Invoker's calls and a few envelopes. What an agent gets for a run that is not clean, or when it asks for it.
+_Avoid_: Run result, run record (the summary is shrunk from it)
