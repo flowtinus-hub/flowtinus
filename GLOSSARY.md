@@ -81,7 +81,7 @@ _Avoid_: Async call, background run
 ### Runs through the MCP
 
 **Clean run**:
-A run that ended `completed` with no envelope in error in any component or call it waited for: none let through (`onError: continue`), none diverted (`onError: divert`), no call that failed.
+A run that ended `completed` with no envelope in error in any component or call it waited for: none let through (`onError: continue`), none diverted (`onError: divert`); every call it waited for ended `completed` too.
 _Avoid_: Successful run, green run (a run `with-warnings` is not clean)
 
 **Run result**:

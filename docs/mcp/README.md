@@ -191,7 +191,7 @@ The check is in the server (`features/api-tokens/run-scope.ts`, `StartRunHandler
   (`bun run docs`; CI fails when they drift).
 - <a id="a-runs-answer"></a>**A run's answer** (`test_run`, `run_for_real`, `get_run`; [ADR 0001](../adr/0001-mcp-run-answer-depends-on-outcome.md)):
   a **clean run** (status `completed`, no envelope in error in any component or call it waited for: none let through by
-  `onError: continue`, none diverted by `onError: divert`, no call that failed) answers its **run result**: `runId`,
+  `onError: continue`, none diverted by `onError: divert`, every call it waited for `completed`) answers its **run result**: `runId`, `flowId` (with `subRunPath` and the called `flow` for a sub-run),
   `status`, `durationMs`, `output` (up to `sample` of the envelopes that reached the End, shrunk as below, counted in
   `shrunk`), `outputCount` (all that reached it: `get_run_output` on the End pages them), `writes` summed per table over
   the whole run and its calls (empty in a test run) and `logs`, the warnings and errors the user's components wrote (`warning
@@ -199,7 +199,7 @@ The check is in the server (`features/api-tokens/run-scope.ts`, `StartRunHandler
   `queued`) answers its **run summary**: `flowId`, `mode`, `editorUrl` and, per component, envelopes in/out per port,
   errors, `writes`, a Flow Invoker's `subRuns` and up to `sample` envelopes (`run_for_real` adds `userApproval` or
   `approvedBy`). `detail: "result" | "summary"` forces either one. The sum flow (Start → `a + b` → End) answers
-  `{"runId":"…","status":"completed","durationMs":1,"output":[{"soma":42}],"outputCount":1}`.
+  `{"runId":"…","flowId":"…","status":"completed","durationMs":1,"output":[{"soma":42}],"outputCount":1}`.
 - Limits: a flow file in or out up to 512 KB; `test_run` waits up to 600 s (120 by default); summaries hold at most 10
   envelopes per component and port, each up to 12 KB: a larger one is **shrunk, still valid JSON** (long lists keep their
   first items and end with `"…+N items"`, texts their start and `"…+N chars"`, objects their first keys and

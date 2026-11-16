@@ -9,8 +9,10 @@ import { atEnd, endsOf, MAX_ENVELOPE_CHARS, runSummary, sampleSize, shrinkJson, 
 
 export type RunDetail = 'result' | 'summary';
 
-export type RunResult = {
-    runId: string;
+/** which run (and, for get_run with subRunId, which call of it) a run result is of */
+type RunOf = { runId: string; flowId: string; subRunPath?: string[]; flow?: string };
+
+export type RunResult = RunOf & {
     status: RunView['status'];
     durationMs?: number;
     error?: string;
@@ -29,7 +31,7 @@ const pending = (status: SubRun['status']) => status === 'queued' || status === 
 
 /**
  * No envelope in error in any component or call: none let through (onError: continue, the engine's error line), none
- * diverted (onError: divert), no call that failed or has an envelope in error. A fire-and-forget call still going is
+ * diverted (onError: divert), every call it waited for completed, with no envelope in error. A fire-and-forget call still going is
  * not waited for: it is not part of the outcome.
  */
 function noErrorIn(record: RunRecordSoFar): boolean {
@@ -38,9 +40,7 @@ function noErrorIn(record: RunRecordSoFar): boolean {
             !c.logs.some(l => l.level === 'error' && !l.byComponent) &&
             !c.outputs[ERROR_PORT] &&
             (c.subRuns ?? []).every(
-                sub =>
-                    (sub.fireAndForget && pending(sub.status)) ||
-                    ((sub.status === 'completed' || sub.status === 'with-warnings') && (!sub.record || noErrorIn(sub.record))),
+                sub => (sub.fireAndForget && pending(sub.status)) || (sub.status === 'completed' && (!sub.record || noErrorIn(sub.record))),
             ),
     );
 }
@@ -85,7 +85,7 @@ function userLogsOf(record: RunRecordSoFar): string[] {
     return lines.length > MAX_RESULT_LOGS ? [...lines.slice(0, MAX_RESULT_LOGS), `…+${lines.length - MAX_RESULT_LOGS} logs`] : lines;
 }
 
-function runResult(runId: string, status: RunView['status'], record: RunRecordSoFar | null, sample: number): RunResult {
+function runResult(of: RunOf, status: RunView['status'], record: RunRecordSoFar | null, sample: number): RunResult {
     const reached = record ? endsOf(record) : [];
     let shrunk = 0;
     const output = reached
@@ -100,7 +100,7 @@ function runResult(runId: string, status: RunView['status'], record: RunRecordSo
     const writes = record ? writesOf(record) : {};
     const logs = record ? userLogsOf(record) : [];
     return {
-        runId,
+        ...of,
         status,
         ...(record?.durationMs !== undefined ? { durationMs: record.durationMs } : {}),
         ...(error ? { error } : {}),
@@ -117,7 +117,7 @@ export function runAnswer(run: RunView, options: { detail?: RunDetail; sample: n
     const detail = options.detail ?? (isClean(run.status, record) ? 'result' : 'summary');
     return detail === 'summary'
         ? runSummary(run, options.sample, options.editorUrl)
-        : runResult(run.id, run.status, record, options.sample);
+        : runResult({ runId: run.id, flowId: run.flowId }, run.status, record, options.sample);
 }
 
 /** a flow the run called (get_run with subRunId), read from the record its caller keeps: the same contract */
@@ -127,6 +127,11 @@ export function subRunAnswer(run: RunView, found: FoundSubRun, options: { detail
     if (detail === 'summary') {
         return subRunSummaryView(run, found, options.sample);
     }
-    const result = runResult(run.id, sub.status, record, options.sample);
+    const result = runResult(
+        { runId: run.id, flowId: run.flowId, subRunPath: found.path, flow: sub.flow },
+        sub.status,
+        record,
+        options.sample,
+    );
     return { ...result, durationMs: sub.durationMs, ...(sub.error && !result.error ? { error: sub.error } : {}) };
 }

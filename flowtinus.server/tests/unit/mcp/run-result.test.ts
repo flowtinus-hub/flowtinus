@@ -28,7 +28,14 @@ const run = async (flow: ExecutableFlow) => viewOf(await flowRunner(flow, { mode
 
 test('a clean run answers its run result: status, output and its count, nothing else', async () => {
     const answer = runAnswer(await run(sum), { sample: 3 });
-    expect(answer).toEqual({ runId: 'r1', status: 'completed', durationMs: expect.any(Number), output: [{ soma: 42 }], outputCount: 1 });
+    expect(answer).toEqual({
+        runId: 'r1',
+        flowId: 'f1',
+        status: 'completed',
+        durationMs: expect.any(Number),
+        output: [{ soma: 42 }],
+        outputCount: 1,
+    });
 });
 
 /** Start → Mapper reading $a.b (fails on every envelope), with this error policy → End */
@@ -95,6 +102,7 @@ test('output: up to `sample` of the envelopes at the End, shrunk when large; out
     const end = component('end', 'end', { inputs: { 'in-0': 5 }, inputSample: [big, { n: 2 }, { n: 3 }] });
     expect(runAnswer(viewOf(recordOf([end])), { sample: 2 })).toEqual({
         runId: 'r1',
+        flowId: 'f1',
         status: 'completed',
         durationMs: 7,
         output: [{ big: `${'x'.repeat(2000)}…+18000 chars` }, { n: 2 }],
@@ -159,7 +167,16 @@ test("a sub-run read through get_run's subRunId answers the same way: its run re
         }
         return subRunAnswer(view, found.value, { sample: 3 });
     };
-    expect(answerFor('completed')).toEqual({ runId: 'r1', status: 'completed', durationMs: 4, output: [{ ok: true }], outputCount: 1 });
+    expect(answerFor('completed')).toEqual({
+        runId: 'r1',
+        flowId: 'f1',
+        subRunPath: ['s1'],
+        flow: 'Child',
+        status: 'completed',
+        durationMs: 4,
+        output: [{ ok: true }],
+        outputCount: 1,
+    });
     expect(answerFor('failed')).toMatchObject({ subRunPath: ['s1'], components: expect.any(Array) });
 });
 
@@ -180,4 +197,10 @@ test("a Log at level warn leaves the run clean: its line comes in the run result
         ],
     };
     expect(runAnswer(await run(warned), { sample: 3 })).toMatchObject({ status: 'completed', logs: ['warning (Check): stock is low'] });
+});
+
+test('a completed run with a call that ended with warnings is not clean: only a completed call is', () => {
+    const call = { id: 's1', flow: 'Child', status: 'with-warnings', durationMs: 1 };
+    const view = viewOf(recordOf([component('call', 'flow', { subRuns: [call] }), component('end', 'end')]));
+    expect(runAnswer(view, { sample: 3 })).toHaveProperty('components');
 });
