@@ -5,9 +5,9 @@ Judgement calls the reviewer applies to a diff. Formatting, import shape and bra
 
 ## Comments
 
-- Few comments, only the essential: an exception to a rule, a reason or a rule the code does not make explicit. A
-  comment that repeats what the code already says (a field doc that restates the name, a line narrating the next line)
-  is removed.
+- A comment marks an **edge case** the code does not show: an exception to a rule, a reason no name can carry. A diff
+  adds zero comments by default; review every comment it adds against this. What goes: a doc comment restating a name or
+  type, a header block summarizing a module, a pointer to an ADR or issue, a note describing a test fixture.
 
 ## GitHub workflows
 
