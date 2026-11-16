@@ -75,7 +75,6 @@ export const runForReal = defineTool({
             return failed(run.error);
         }
         const answer = runAnswer(run.value, { detail, sample, editorUrl: t.runLink(runId) });
-        // the approval goes back with the run summary only: a run result keeps the outcome alone
         return ok(
             'components' in answer
                 ? {

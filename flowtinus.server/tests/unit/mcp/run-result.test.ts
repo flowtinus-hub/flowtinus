@@ -5,7 +5,6 @@ import { runAnswer, subRunAnswer } from '#features/mcp/run-result';
 import { findSubRun } from '#features/mcp/run-summary';
 import type { RunView } from '#features/runs/get-run/get-run-handler';
 
-/** Start → Mapper (soma = 40 + 2) → End */
 const sum: ExecutableFlow = {
     project: 'Test',
     flow: 'Sum',
@@ -38,7 +37,6 @@ test('a clean run answers its run result: status, output and its count, nothing 
     });
 });
 
-/** Start → Mapper reading $a.b (fails on every envelope), with this error policy → End */
 const failing = (onError: 'continue' | 'divert'): ExecutableFlow => ({
     ...sum,
     nodes: sum.nodes.map(n =>
@@ -51,7 +49,6 @@ test.each(['continue', 'divert'] as const)('a run with an envelope in error (onE
     expect(answer).toMatchObject({ runId: 'r1', flowId: 'f1', components: expect.any(Array) });
 });
 
-/** a component of a record, as the engine leaves it */
 const component = (nodeId: string, type: string, more: Record<string, unknown> = {}) => ({
     nodeId,
     label: nodeId,

@@ -2,21 +2,14 @@ import { ERROR_PORT, type RunProgress, type RunRecord, type SubRun, type WriteCo
 import type { RunView } from '#features/runs/get-run/get-run-handler';
 import { atEnd, endsOf, MAX_ENVELOPE_CHARS, runSummary, sampleSize, shrinkJson, subRunSummaryView, type FoundSubRun, type RunSummary, type SubRunView } from './run-summary';
 
-/*
- * What test_run, run_for_real and get_run answer: the run result, the brief outcome, when the run is clean;
- * the run summary (run-summary.ts), the detail per component, when it is not. `detail` forces either one.
- */
-
 export type RunDetail = 'result' | 'summary';
 
-/** which run (and, for get_run with subRunId, which call of it) a run result is of */
 type RunOf = { runId: string; flowId: string; subRunPath?: string[]; flow?: string };
 
 export type RunResult = RunOf & {
     status: RunView['status'];
     durationMs?: number;
     error?: string;
-    /** up to `sample` of the envelopes that reached the End (shrunk when large: get_run_output on the End gives them whole) */
     output: unknown[];
     outputCount: number;
     shrunk?: number;
@@ -24,22 +17,18 @@ export type RunResult = RunOf & {
     logs?: string[];
 };
 
-/** a run's record, or its progress while it runs */
 type RunRecordSoFar = RunRecord | RunProgress;
 
 const pending = (status: SubRun['status']) => status === 'queued' || status === 'running';
 
-/**
- * No envelope in error in any component or call: none let through (onError: continue, the engine's error line), none
- * diverted (onError: divert), every call it waited for completed, with no envelope in error. A fire-and-forget call still going is
- * not waited for: it is not part of the outcome.
- */
 function noErrorIn(record: RunRecordSoFar): boolean {
     return record.components.every(
         c =>
+            // a component's own error line (a Log, console.error) is not an envelope in error
             !c.logs.some(l => l.level === 'error' && !l.byComponent) &&
             !c.outputs[ERROR_PORT] &&
             (c.subRuns ?? []).every(
+                // a fire-and-forget call still going is not part of the outcome
                 sub => (sub.fireAndForget && pending(sub.status)) || (sub.status === 'completed' && (!sub.record || noErrorIn(sub.record))),
             ),
     );
@@ -49,7 +38,6 @@ const isClean = (status: string, record: RunRecordSoFar | null) => status === 'c
 
 const MAX_RESULT_LOGS = 10;
 
-/** the record and the records of its calls (a call of a call...), each with the path of flows that leads to it */
 function* recordsIn(record: RunRecordSoFar, flows: string[] = []): Generator<{ record: RunRecordSoFar; flows: string[] }> {
     yield { record, flows };
     for (const sub of record.components.flatMap(c => c.subRuns ?? [])) {
@@ -59,7 +47,6 @@ function* recordsIn(record: RunRecordSoFar, flows: string[] = []): Generator<{ r
     }
 }
 
-/** what the whole run wrote outside (a real run; nothing in a test run), per table, summed over components and calls */
 function writesOf(record: RunRecordSoFar): Record<string, WriteCounts> {
     const total: Record<string, WriteCounts> = {};
     for (const { record: r } of recordsIn(record)) {
@@ -73,7 +60,6 @@ function writesOf(record: RunRecordSoFar): Record<string, WriteCounts> {
     return total;
 }
 
-/** the warnings and errors components wrote themselves (a Log, a script's console.warn); never the engine's lines */
 function userLogsOf(record: RunRecordSoFar): string[] {
     const lines = [...recordsIn(record)].flatMap(({ record: r, flows }) =>
         r.components.flatMap(c =>
@@ -120,7 +106,6 @@ export function runAnswer(run: RunView, options: { detail?: RunDetail; sample: n
         : runResult({ runId: run.id, flowId: run.flowId }, run.status, record, options.sample);
 }
 
-/** a flow the run called (get_run with subRunId), read from the record its caller keeps: the same contract */
 export function subRunAnswer(run: RunView, found: FoundSubRun, options: { detail?: RunDetail; sample: number }): RunResult | SubRunView {
     const { sub, record } = found;
     const detail = options.detail ?? (isClean(sub.status, record) ? 'result' : 'summary');

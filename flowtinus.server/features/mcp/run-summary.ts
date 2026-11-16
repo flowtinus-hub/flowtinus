@@ -128,7 +128,6 @@ export function shrinkJson(value: unknown, maxChars: number): { value: unknown; 
 
 export const endsOf = (record: RunRecord | RunProgress) => record.components.filter(c => c.type === END);
 
-/** how many envelopes reached the run's End */
 export const atEnd = (record: RunRecord | RunProgress) =>
     endsOf(record).reduce((n, c) => n + Object.values(c.inputs).reduce((a, b) => a + b, 0), 0);
 
