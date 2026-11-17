@@ -28,7 +28,7 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
             {saved.state.status === 'ready' && (
                 <>
                     <GitForm
-                        key={JSON.stringify(saved.state.value.config)}
+                        key={`form:${JSON.stringify(saved.state.value.config)}`}
                         slug={slug}
                         saved={saved.state.value.config}
                         readOnly={readOnly}
@@ -36,17 +36,17 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                     />
                     {saved.state.value.config && (
                         <TurnOnPanel
-                            key={JSON.stringify(saved.state.value.config)}
+                            key={`turn-on:${JSON.stringify(saved.state.value.config)}`}
                             slug={slug}
                             on={saved.state.value.on}
                             readOnly={readOnly}
                             run={saved.run}
                         />
                     )}
-                    {saved.state.value.on && <SyncStatus key={JSON.stringify(saved.state.value.config)} slug={slug} />}
+                    {saved.state.value.on && <SyncStatus key={`status:${JSON.stringify(saved.state.value.config)}`} slug={slug} />}
                     {saved.state.value.config && (
                         <TopologyPanel
-                            key={`${JSON.stringify(saved.state.value.config)}:${saved.state.value.on}`}
+                            key={`topology:${JSON.stringify(saved.state.value.config)}:${saved.state.value.on}`}
                             slug={slug}
                             config={saved.state.value.config}
                             readOnly={readOnly}
