@@ -138,10 +138,11 @@ export function PrPage() {
                                             onChange={() => setMethod(key)}
                                         />
                                         {label}
-                                        {key === 'squash' && pr.kind !== 'change' && (
+                                        {key === 'squash' && (pr.kind === 'promotion' || pr.kind === 'backport') && (
                                             <span className="text-xs text-red-600">
-                                                (Flowtinus opened this MR with squash off; someone turned it on. Try it: the target's
-                                                lineage breaks)
+                                                {pr.kind === 'promotion'
+                                                    ? "(Flowtinus opened this MR with squash off; someone turned it on. Try it: the target's lineage breaks)"
+                                                    : '(Flowtinus opened this MR with squash off: a squashed backport loses the ancestry later promotions rely on)'}
                                             </span>
                                         )}
                                         {key === 'ff' && !status.canFf && <span className="text-xs">(the target moved)</span>}

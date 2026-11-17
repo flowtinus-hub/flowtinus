@@ -366,14 +366,14 @@ function EnvCard({ env, cardRef }: { env: string; cardRef?: (el: HTMLDivElement 
                         back-ported
                     </span>
                     <span className="text-xs text-muted-foreground">
-                        {source} → {env} is blocked until the change is back in {source}. The backport goes to {root} and comes forward by
-                        promotion.
+                        {source} → {env} is blocked until the change is back in {source}. The backport goes one hop: {env} into {source}
+                        {source !== root && `, then ${source} into its own source, up to ${root}`}. Nothing else comes along.
                     </span>
                     {backportOpen ? (
                         <Link className="text-xs text-primary underline" to={prRoute(backportOpen.number)}>
                             Backport PR !{backportOpen.number} open
                         </Link>
-                    ) : state.session.env === root ? (
+                    ) : state.session.env === source ? (
                         <Button
                             size="sm"
                             className="justify-self-start"
@@ -384,10 +384,10 @@ function EnvCard({ env, cardRef }: { env: string; cardRef?: (el: HTMLDivElement 
                                 }
                             }}
                         >
-                            <Undo2 /> Back-port into {root}
+                            <Undo2 /> Back-port into {source}
                         </Button>
                     ) : (
-                        <span className="text-xs text-muted-foreground">The backport is opened on {root}'s server.</span>
+                        <span className="text-xs text-muted-foreground">The backport is opened on {source}'s server.</span>
                     )}
                     {ahead.slice(0, 3).map(path => (
                         <span key={path} className="truncate font-mono text-xs text-muted-foreground">

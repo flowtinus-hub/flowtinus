@@ -667,6 +667,12 @@ export const labelOf = (state: State, env: string) => envDecl(state, env)?.label
 export const envOfBranch = (state: State, branch: string) => topology(state).find(e => e.branch === branch)?.env ?? null;
 export const sourceOf = (state: State, env: string) => topology(state).find(e => e.promotesTo.includes(env))?.env ?? null;
 
+/** backport/<env branch>-<sha> goes into the source of that environment */
+export function backportTarget(state: State, branch: string): string | null {
+    const from = envOfBranch(state, branch.replace(/^backport\//, '').replace(/-[^-]+$/, ''));
+    return from ? sourceOf(state, from) : null;
+}
+
 export function rootOf(state: State, env: string): string {
     const seen = new Set([env]);
     let current = env;

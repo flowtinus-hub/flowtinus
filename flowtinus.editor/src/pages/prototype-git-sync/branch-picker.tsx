@@ -6,7 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { behind, createBranch, createHotfix, currentBranch, currentChanges, editRefusal, envBranch, server, switchBranch } from './actions';
-import { branchKind, isAncestor, labelOf, modeOf, ownerOf } from './model';
+import { backportTarget, branchKind, isAncestor, labelOf, modeOf, ownerOf } from './model';
 import { useStore } from './store';
 import { BASE, NameDialog } from './ui';
 
@@ -39,7 +39,7 @@ export function BranchPicker({ className, canvas }: { className?: string; canvas
     const mine = all.filter(b => kind(b) === 'user' && ownerOf(b) === state.session.user && visible(b));
     const shared = all.filter(b => kind(b) === 'shared' && visible(b));
     const others = all.filter(b => kind(b) === 'user' && ownerOf(b) !== state.session.user && visible(b));
-    const backports = all.filter(b => kind(b) === 'backport');
+    const backports = all.filter(b => kind(b) === 'backport' && backportTarget(state, b) === s.env);
     const hotfixes = all.filter(b => kind(b) === 'hotfix' && visible(b));
     const environments = all.filter(b => kind(b) === 'environment' && b !== env);
     const removed = Object.keys(s.working).filter(b => !state.branches[b] && b !== '__postgres__' && pendingHere(b) > 0);
@@ -118,9 +118,10 @@ export function BranchPicker({ className, canvas }: { className?: string; canvas
                     {mode === 'protected' ? (
                         <>
                             {group('Hotfix branches', hotfixes, uncommitted)}
-                            {hotfixes.length === 0 && (
+                            {group('Backports into this environment', backports, uncommitted)}
+                            {hotfixes.length + backports.length === 0 && (
                                 <p className="px-2 py-1 text-xs text-muted-foreground">
-                                    No hotfix branch. Only hotfix branches are edited here.
+                                    No hotfix or backport branch. Only those are edited here.
                                 </p>
                             )}
                         </>

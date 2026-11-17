@@ -1,4 +1,4 @@
-import { applyOverlay, aheadFiles, branchKind, branchOf, brokenLineage, changesBetween, commitsBetween, CONFIG_BRANCH, connectionFile, connectionYaml, envDecl, envOfBranch, FLOW_EXT, flowFile, flowYaml, isAncestor, isDeployed, isWorkBranch, joinSegments, labelOf, merge3, mergeBase, mergeTrees, modeOf, nameProblem, ownerOf, parseFlow, parseWorkspace, POSTGRES, projectDir, rootOf, sameName, scriptFile, scriptPathProblem, shortHash, sourceOf, TOPOLOGY_FILE, topologyProblems, topologyYaml, treeAt, validateTree, versionHash, WS, type Commit, type CommitKind, type EnvDecl, type FileMeta, type FlowDoc, type GitSettings, type Overlay, type PendingMerge, type Pr, type PrKind, type ScheduleDefaults, type State, type Tree, type TreeConflict } from './model';
+import { applyOverlay, aheadFiles, backportTarget, branchKind, branchOf, brokenLineage, changesBetween, commitsBetween, CONFIG_BRANCH, connectionFile, connectionYaml, envDecl, envOfBranch, FLOW_EXT, flowFile, flowYaml, isAncestor, isDeployed, isWorkBranch, joinSegments, labelOf, merge3, mergeBase, mergeTrees, modeOf, nameProblem, ownerOf, parseFlow, parseWorkspace, POSTGRES, projectDir, rootOf, sameName, scriptFile, scriptPathProblem, shortHash, sourceOf, TOPOLOGY_FILE, topologyProblems, topologyYaml, treeAt, validateTree, versionHash, WS, type Commit, type CommitKind, type EnvDecl, type FileMeta, type FlowDoc, type GitSettings, type Overlay, type PendingMerge, type Pr, type PrKind, type ScheduleDefaults, type State, type Tree, type TreeConflict } from './model';
 
 export type Result = string | null;
 
@@ -207,8 +207,11 @@ export function editRefusal(state: State, branch = currentBranch(state)): string
     if (kind === 'environment' || kind === 'config' || kind === 'promotion') {
         return `${branch} is read only here.`;
     }
-    if (mode === 'protected' && kind !== 'hotfix') {
-        return `On ${label}'s server only hotfix branches are edited.`;
+    if (kind === 'backport' && backportTarget(state, branch) !== s.env) {
+        return `${branch} is edited on the server of the environment it goes into.`;
+    }
+    if (mode === 'protected' && kind !== 'hotfix' && kind !== 'backport') {
+        return `On ${label}'s server only hotfix and backport branches are edited.`;
     }
     if (mode !== 'protected' && kind === 'hotfix') {
         return `A hotfix branch is edited on the server of the environment it fixes.`;
@@ -867,7 +870,7 @@ export function promotionBlockers(state: State, sourceEnv: string, targetEnv: st
     const ahead = aheadFiles(state, targetEnv);
     if (ahead.length) {
         blockers.push(
-            `${targetEnv} is ahead of ${sourceEnv} (${ahead.length} file${ahead.length === 1 ? '' : 's'}): its hotfix must be back-ported to ${rootOf(state, targetEnv)} and reach ${sourceEnv} first.`,
+            `${targetEnv} is ahead of ${sourceEnv} (${ahead.length} file${ahead.length === 1 ? '' : 's'}): back-port it into ${sourceEnv} first.`,
         );
     }
     for (const env of [sourceEnv, targetEnv]) {
@@ -927,20 +930,20 @@ export function repairLineage(state: State, env: string): Result {
 }
 
 export function startBackport(state: State, env: string): { error?: string } {
-    const root = rootOf(state, env);
-    if (root !== state.session.env) {
-        return { error: `The backport is opened on ${root}'s server.` };
+    const source = sourceOf(state, env);
+    if (!source || source !== state.session.env) {
+        return { error: `The backport is opened on ${source ?? env}'s server.` };
     }
     const tip = state.branches[branchOf(state, env)]!;
-    const rootBranch = envBranch(state);
+    const into = envBranch(state);
     const branch = `backport/${branchOf(state, env)}-${tip}`;
     if (state.prs.some(p => p.state === 'open' && p.from === branch)) {
         return { error: `The backport of ${env} @ ${tip} is already open.` };
     }
-    state.branches[branch] = state.branches[rootBranch]!;
+    state.branches[branch] = state.branches[into]!;
     state.session.branchByEnvUser[userKey(state)] = branch;
-    const title = `Backport ${env} @ ${tip} into ${rootBranch}`;
-    return startMerge(state, { branch, theirs: tip, kind: 'backport', message: title, pr: { kind: 'backport', to: rootBranch, title } });
+    const title = `Backport ${env} @ ${tip} into ${into}`;
+    return startMerge(state, { branch, theirs: tip, kind: 'backport', message: title, pr: { kind: 'backport', to: into, title } });
 }
 
 // ---------- the environment's own state ----------
