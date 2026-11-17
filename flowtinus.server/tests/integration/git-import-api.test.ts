@@ -65,7 +65,7 @@ function sampleTree(slug: string) {
     return { ids, files, loadOrders, notify };
 }
 
-describe('an empty workspace imports the workspace its branch holds', () => {
+describe('turning git on, an empty workspace imports the workspace its branch holds', () => {
     let db: Database;
     let app: ReturnType<typeof createApp>;
     let dir: string;
@@ -109,7 +109,7 @@ describe('an empty workspace imports the workspace its branch holds', () => {
         const { ids, files, loadOrders, notify } = sampleTree(slug);
         onBranch(files);
 
-        const imported = await call('POST', '/git/import');
+        const imported = await call('POST', '/git/on', {});
         expect(imported.status).toBe(200);
 
         const projects = (await call('GET', '/projects')).body.items;
@@ -156,7 +156,7 @@ describe('an empty workspace imports the workspace its branch holds', () => {
         const { files } = sampleTree(slug);
         const commit = onBranch(files);
 
-        expect((await call('POST', '/git/import')).status).toBe(200);
+        expect((await call('POST', '/git/on', {})).status).toBe(200);
         expect(await exportWorkspace(db, id)).toEqual(files);
         expect(git(repo, 'rev-parse', 'dev')).toBe(commit);
         expect((await call('GET', '/git/status')).body.status.pending).toBe(0);
@@ -175,7 +175,7 @@ describe('an empty workspace imports the workspace its branch holds', () => {
             [warehouse]: files[warehouse]!.replace('type: sqlserver', 'type: oracle'),
         });
 
-        const refused = await call('POST', '/git/import');
+        const refused = await call('POST', '/git/on', {});
         expect(refused.status).toBe(400);
         expect(refused.body.error.message).toBe('The workspace on dev is not valid: nothing was imported.');
         expect(refused.body.error.fields).toEqual({
@@ -187,13 +187,13 @@ describe('an empty workspace imports the workspace its branch holds', () => {
         expect((await call('GET', '/connections')).body.items).toEqual([]);
     });
 
-    test("the validation's warnings are shown and do not refuse: what is not configured or has no value here", async () => {
-        const { slug, call, onBranch } = await newWorkspace();
+    test("the validation's warnings are shown and do not refuse; the .gitattributes the branch lacks is committed", async () => {
+        const { slug, call, repo, onBranch } = await newWorkspace();
         const { files } = sampleTree(slug);
         const { '.gitattributes': _gitattributes, ...withoutAttributes } = files;
         onBranch(withoutAttributes);
 
-        const imported = await call('POST', '/git/import');
+        const imported = await call('POST', '/git/on', {});
         expect(imported.status).toBe(200);
         const loadOrders = `${slug}/projects/Sales/flows/Daily/Load orders.flow.yaml`;
         expect(imported.body.warnings).toEqual([
@@ -202,27 +202,12 @@ describe('an empty workspace imports the workspace its branch holds', () => {
             { path: loadOrders, message: 'The secret "token" has no value on this server.' },
             { path: loadOrders, message: 'The variable "region" has no value on this server.' },
         ]);
+        expect(git(repo, 'log', '-1', '--format=%an|%s', 'dev')).toBe(`Ana|Canonical form of ${slug}`);
+        expect(git(repo, 'diff', '--name-only', 'dev~1', 'dev')).toBe('.gitattributes');
     });
 
-    test('a workspace that is not empty, or a branch without the workspace, imports nothing', async () => {
-        const { slug, call, onBranch } = await newWorkspace();
-        onBranch({ 'other/workspace.yaml': workspaceToYaml() });
-        expect((await call('POST', '/git/import')).body.error).toEqual({
-            code: 'conflict',
-            message: `The branch dev has no workspace ${slug}.`,
-        });
-
-        onBranch(sampleTree(slug).files);
-        expect((await call('POST', '/projects', { name: 'Mine' })).status).toBe(201);
-        expect((await call('POST', '/git/import')).body.error).toEqual({
-            code: 'conflict',
-            message: 'The workspace is not empty: only an empty workspace imports from git.',
-        });
-        expect((await call('GET', '/projects')).body.items.map((p: { name: string }) => p.name)).toEqual(['Mine']);
-    });
-
-    test('names arrive in NFC, however the repository wrote them', async () => {
-        const { slug, call, onBranch } = await newWorkspace();
+    test('names arrive in NFC, however the repository wrote them, and the branch gets them in NFC', async () => {
+        const { id, slug, call, repo, onBranch } = await newWorkspace();
         const { ids, files } = sampleTree(slug);
         const decomposed = 'Café';
         onBranch(
@@ -234,8 +219,12 @@ describe('an empty workspace imports the workspace its branch holds', () => {
             ),
         );
 
-        expect((await call('POST', '/git/import')).status).toBe(200);
+        expect((await call('POST', '/git/on', {})).status).toBe(200);
         expect((await call('GET', '/projects')).body.items.map((p: { name: string }) => p.name)).toEqual(['Café']);
+        expect(git(repo, 'log', '-1', '--format=%s', 'dev')).toBe(`Canonical form of ${slug}`);
+        expect(git(repo, '-c', 'core.quotePath=false', 'ls-tree', '-r', '--name-only', 'dev').split('\n')).toEqual(
+            Object.keys(await exportWorkspace(db, id)),
+        );
         const contents = (await call('GET', `/projects/${ids.sales}/contents`)).body;
         expect(contents.folders.map((f: { name: string }) => f.name).sort()).toEqual(['Café', 'Later']);
     });
@@ -244,11 +233,11 @@ describe('an empty workspace imports the workspace its branch holds', () => {
         const first = await newWorkspace();
         const { files } = sampleTree(first.slug);
         first.onBranch(files);
-        expect((await first.call('POST', '/git/import')).status).toBe(200);
+        expect((await first.call('POST', '/git/on', {})).status).toBe(200);
 
         const second = await newWorkspace();
         second.onBranch(Object.fromEntries(Object.entries(files).map(([path, text]) => [path.replace(first.slug, second.slug), text])));
-        const refused = await second.call('POST', '/git/import');
+        const refused = await second.call('POST', '/git/on', {});
         expect(refused.status).toBe(400);
         expect(Object.keys(refused.body.error.fields).sort()).toEqual(
             [

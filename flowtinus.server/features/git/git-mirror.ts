@@ -1,6 +1,6 @@
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { readGitConfig } from './git-config';
+import { isGitOn } from './git-config';
 import { lockGitCommits, pushPendingCommits, queueGitCommit } from './git-commits';
 import { exportWorkspace, repoChanges, type RepoFiles } from './workspace-export';
 
@@ -19,7 +19,7 @@ export async function mirrorGitChange<T>(
     const value = await ctx.db.transaction(async tx => {
         const mirrored: { workspaceId: string; before: RepoFiles }[] = [];
         for (const workspaceId of [...new Set([ctx.workspaceId, ...also])].sort()) {
-            if (await readGitConfig(tx, workspaceId)) {
+            if (await isGitOn(tx, workspaceId)) {
                 await lockGitCommits(tx, workspaceId);
                 mirrored.push({ workspaceId, before: await exportWorkspace(tx, workspaceId) });
             }

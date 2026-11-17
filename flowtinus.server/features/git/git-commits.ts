@@ -2,7 +2,7 @@ import { deleteWorkspaceSetting, readWorkspaceSetting, writeWorkspaceSetting } f
 import type { Database } from '#shared/database/database';
 import { pgJson } from '#shared/database/jsonb';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { gitAccess, gitAuthorOf, readGitConfig, type GitOptions } from './git-config';
+import { gitAccess, gitAuthorOf, isGitOn, readGitState, type GitOptions } from './git-config';
 import { GitError, withWorkspaceClone, type GitRemote } from './git-remote';
 import { CONFIG_BRANCH } from './topology';
 import { readTopology } from './workspace-topology';
@@ -20,13 +20,13 @@ export const lockGitCommits = (db: Database, workspaceId: string) =>
 
 /**
  * a commit on the environment's branch, in the transaction of the change it mirrors (ctx.db), pushed by
- * pushPendingCommits; nothing when the workspace has no git configured
+ * pushPendingCommits; nothing when git is not on
  */
 export async function queueGitCommit(
     ctx: UseCaseContext,
     commit: { message: string; changes: () => Promise<GitChanges> },
 ): Promise<boolean> {
-    if (!(await readGitConfig(ctx.db, ctx.workspaceId))) {
+    if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
         return false;
     }
 
@@ -61,10 +61,12 @@ export async function clearPendingCommits(ctx: UseCaseContext): Promise<void> {
 
 /** the queued commits on top of the environment's branch, pushed; a failure leaves them queued with the reason */
 export async function pushPendingCommits(ctx: UseCaseContext, options: GitOptions): Promise<GitSyncView | null> {
-    const config = await readGitConfig(ctx.db, ctx.workspaceId);
-    if (!config) {
+    const state = await readGitState(ctx.db, ctx.workspaceId);
+    if (!state?.on) {
         return null;
     }
+
+    const { config } = state;
 
     const access = await gitAccess(ctx, config);
     const failure = !access.ok

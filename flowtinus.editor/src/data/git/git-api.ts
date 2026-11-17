@@ -29,9 +29,11 @@ export type GitStatus = { pending: number; reason: string | null; since: string 
 
 export const CONFIG_BRANCH = 'flowtinus/config';
 
-export const getGitConfig = (ws: string) => api<{ config: GitConfig | null }>(`/w/${ws}/git`);
+/** on: the workspace is mirrored; a saved configuration is off until git is turned on */
+export const getGitConfig = (ws: string) => api<{ config: GitConfig | null; on: boolean }>(`/w/${ws}/git`);
 
-export const saveGitConfig = (ws: string, config: GitConfig) => api<{ config: GitConfig }>(`/w/${ws}/git`, { method: 'PUT', body: config });
+export const saveGitConfig = (ws: string, config: GitConfig) =>
+    api<{ config: GitConfig; on: boolean }>(`/w/${ws}/git`, { method: 'PUT', body: config });
 
 export const removeGitConfig = (ws: string) => api<{ config: null }>(`/w/${ws}/git`, { method: 'DELETE' });
 
@@ -44,3 +46,33 @@ export const getTopology = (ws: string) => api<{ topology: Topology }>(`/w/${ws}
 
 export const createTopology = (ws: string, environment: { label?: string; branch?: string }) =>
     api<{ topology: Topology }>(`/w/${ws}/git/topology`, { method: 'POST', body: { confirm: true, ...environment } });
+
+export type FileChange = { path: string; change: 'added' | 'changed' | 'removed' };
+
+export type TreeIssue = { path: string; message: string };
+
+/** export: the branch has no workspace; import: this workspace is empty; choice: both have one */
+export type TurnOnPlan = {
+    branch: string;
+    branchExists: boolean;
+    case: 'export' | 'import' | 'choice';
+    /** what the server's side writes on the branch: the first export, or "the server replaces git" */
+    toGit: FileChange[];
+    /** what git's side changes in what this server holds: the import, or "git replaces the server" */
+    toServer: FileChange[];
+    errors: TreeIssue[];
+    warnings: TreeIssue[];
+};
+
+export type TurnOnResult = {
+    outcome: 'exported' | 'imported' | 'server-replaced-git' | 'git-replaced-server';
+    branch: string;
+    warnings: TreeIssue[];
+    status: GitStatus | null;
+};
+
+/** what turning git on would do, changing nothing */
+export const getTurnOnPlan = (ws: string) => api<TurnOnPlan>(`/w/${ws}/git/on`);
+
+export const turnGitOn = (ws: string, options: { createBranch?: boolean; choice?: 'git' | 'server' }) =>
+    api<TurnOnResult>(`/w/${ws}/git/on`, { method: 'POST', body: options });

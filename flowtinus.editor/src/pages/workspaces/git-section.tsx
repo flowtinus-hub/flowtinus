@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from 'react';
-import { CircleCheck, CircleX, GitBranch, TriangleAlert } from 'lucide-react';
+import { CircleCheck, CircleX, GitBranch, Power, TriangleAlert } from 'lucide-react';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useResource } from '@/data/use-resource';
 import { listSecrets } from '@/data/secrets/secrets-api';
+import type { ApiResult } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, getTopology, removeGitConfig, saveGitConfig, testGitAccess, type AccessTest, type GitConfig, type Topology } from '@/data/git/git-api';
+import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, getTopology, getTurnOnPlan, removeGitConfig, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type FileChange, type GitConfig, type Topology, type TreeIssue, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
@@ -34,10 +35,19 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                         readOnly={readOnly}
                         onChanged={saved.reload}
                     />
-                    {saved.state.value.config && <SyncStatus key={JSON.stringify(saved.state.value.config)} slug={slug} />}
+                    {saved.state.value.config && (
+                        <TurnOnPanel
+                            key={JSON.stringify(saved.state.value.config)}
+                            slug={slug}
+                            on={saved.state.value.on}
+                            readOnly={readOnly}
+                            run={saved.run}
+                        />
+                    )}
+                    {saved.state.value.on && <SyncStatus key={JSON.stringify(saved.state.value.config)} slug={slug} />}
                     {saved.state.value.config && (
                         <TopologyPanel
-                            key={JSON.stringify(saved.state.value.config)}
+                            key={`${JSON.stringify(saved.state.value.config)}:${saved.state.value.on}`}
                             slug={slug}
                             config={saved.state.value.config}
                             readOnly={readOnly}
@@ -172,7 +182,7 @@ function GitForm({
                             onClick={() =>
                                 setConfirm({
                                     title: 'Remove the git configuration?',
-                                    description: 'The workspace stops being mirrored to git. The repository keeps what it has.',
+                                    description: 'Git turns off: the workspace stops being mirrored. The repository keeps what it has.',
                                     confirmLabel: 'Remove',
                                     busyLabel: 'Removing...',
                                     destructive: true,
@@ -366,5 +376,274 @@ function TopologyTable({ topology, environment }: { topology: Extract<Topology, 
                 </p>
             ))}
         </div>
+    );
+}
+
+const OUTCOMES: Record<TurnOnResult['outcome'], (branch: string) => string> = {
+    exported: branch => `Git is on: the first export is the first commit of ${branch}.`,
+    imported: branch => `Git is on: the workspace was imported from ${branch}.`,
+    'server-replaced-git': branch => `Git is on: ${branch} now holds what is deployed here.`,
+    'git-replaced-server': branch => `Git is on: this server now holds what ${branch} holds.`,
+};
+
+type TurnOnOptions = { createBranch?: boolean; choice?: 'git' | 'server' };
+
+/** off until turned on: the first export, the import, or a choice when both sides have the workspace, each previewed */
+function TurnOnPanel({
+    slug,
+    on,
+    readOnly,
+    run,
+}: {
+    slug: string;
+    on: boolean;
+    readOnly: boolean;
+    /** the change, then the configuration read again (git on) */
+    run: <R>(change: Promise<ApiResult<R>>) => Promise<ApiResult<R>>;
+}) {
+    const [plan, setPlan] = useState<TurnOnPlan | null>(null);
+    const [busy, setBusy] = useState(false);
+    const [failure, setFailure] = useState<{ message: string; fields: Record<string, string> } | null>(null);
+    const [done, setDone] = useState<TurnOnResult | null>(null);
+    const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
+
+    if (on) {
+        return (
+            <div className="grid gap-2 text-sm" role="status">
+                <p className="flex items-center gap-2">
+                    <CircleCheck className="size-4 text-emerald-600" />
+                    {done ? OUTCOMES[done.outcome](done.branch) : 'Git is on: every deploy and change of the workspace is a commit.'}
+                </p>
+                {done && <Issues tone="warn" issues={done.warnings} />}
+            </div>
+        );
+    }
+
+    const readPlan = async () => {
+        setBusy(true);
+        setFailure(null);
+        const result = await getTurnOnPlan(slug);
+        setBusy(false);
+        setPlan(result.ok ? result.value : null);
+        if (!result.ok) {
+            setFailure({ message: result.error.message, fields: {} });
+        }
+    };
+
+    const turnOn = async (options: TurnOnOptions) => {
+        setBusy(true);
+        const result = await run(turnGitOn(slug, options));
+        setBusy(false);
+        if (result.ok) {
+            setDone(result.value);
+        } else {
+            setFailure({ message: result.error.message, fields: result.error.fields ?? {} });
+        }
+        return result;
+    };
+
+    const ask = (target: Omit<ConfirmTarget, 'busyLabel' | 'onConfirm'>, options: TurnOnOptions) =>
+        setConfirm({ ...target, busyLabel: 'Turning git on...', onConfirm: () => turnOn(options) });
+
+    const files = (changes: FileChange[]) => `${changes.length} ${changes.length === 1 ? 'file' : 'files'}`;
+
+    return (
+        <div className="grid gap-3 rounded-lg border p-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+                <Power className="size-4 text-muted-foreground" />
+                <p className="font-medium">Git is off</p>
+                <p className="text-muted-foreground">The workspace is not mirrored until git is turned on.</p>
+                {!readOnly && !plan && (
+                    <Button size="sm" className="ml-auto" disabled={busy} onClick={() => void readPlan()}>
+                        {busy ? 'Reading the repository...' : 'Turn git on'}
+                    </Button>
+                )}
+            </div>
+            {failure && (
+                <div className="grid gap-1" role="alert">
+                    <p className="text-destructive">{failure.message}</p>
+                    <Issues tone="error" issues={Object.entries(failure.fields).map(([path, message]) => ({ path, message }))} />
+                </div>
+            )}
+            {plan && (
+                <div className="grid gap-3">
+                    {!plan.branchExists && (
+                        <Check ok="warn">The branch {plan.branch} does not exist yet. It is created, empty, only when you confirm.</Check>
+                    )}
+                    {plan.case === 'export' && (
+                        <>
+                            <p>
+                                {plan.branch} has no workspace {slug}: the first export makes what is deployed here its first commit. Drafts
+                                stay drafts, out of git.
+                            </p>
+                            <Changes title={`On ${plan.branch}`} changes={plan.toGit} />
+                        </>
+                    )}
+                    {plan.case === 'import' && (
+                        <>
+                            <p>
+                                {plan.branch} holds the workspace {slug} and this workspace is empty: it is imported. Connections arrive not
+                                configured.
+                            </p>
+                            <Issues tone="error" issues={plan.errors} />
+                            <Issues tone="warn" issues={plan.warnings} />
+                            <Changes title="Arrives here" changes={plan.toServer} />
+                        </>
+                    )}
+                    {plan.case === 'choice' && (
+                        <>
+                            <p>
+                                Both {plan.branch} and this server have the workspace {slug}. Nothing happens until you choose which one
+                                replaces the other. Drafts stay drafts either way.
+                            </p>
+                            <div className="grid gap-3 md:grid-cols-2">
+                                <div className="grid content-start gap-2 rounded-md border p-3">
+                                    <p className="font-medium">Git replaces the server</p>
+                                    <p className="text-muted-foreground">
+                                        This server takes what {plan.branch} holds. A deployed flow git does not have is archived; a draft
+                                        never deployed stays.
+                                    </p>
+                                    <Issues tone="error" issues={plan.errors} />
+                                    <Changes title="Changes here" changes={plan.toServer} />
+                                    {!readOnly && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="justify-self-start"
+                                            disabled={busy || plan.errors.length > 0}
+                                            onClick={() =>
+                                                ask(
+                                                    {
+                                                        title: 'Git replaces the server?',
+                                                        description: `This server takes the workspace ${plan.branch} holds: ${files(plan.toServer)} change here.`,
+                                                        confirmLabel: 'Git replaces the server',
+                                                        destructive: true,
+                                                    },
+                                                    { choice: 'git' },
+                                                )
+                                            }
+                                        >
+                                            Git replaces the server
+                                        </Button>
+                                    )}
+                                </div>
+                                <div className="grid content-start gap-2 rounded-md border p-3">
+                                    <p className="font-medium">The server replaces git</p>
+                                    <p className="text-muted-foreground">One commit makes {plan.branch} hold what is deployed here.</p>
+                                    <Changes title={`On ${plan.branch}`} changes={plan.toGit} />
+                                    {!readOnly && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="justify-self-start"
+                                            disabled={busy}
+                                            onClick={() =>
+                                                ask(
+                                                    {
+                                                        title: 'The server replaces git?',
+                                                        description: `One commit on ${plan.branch}: ${files(plan.toGit)} change.`,
+                                                        confirmLabel: 'The server replaces git',
+                                                        destructive: true,
+                                                    },
+                                                    { choice: 'server' },
+                                                )
+                                            }
+                                        >
+                                            The server replaces git
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        </>
+                    )}
+                    {!readOnly && (
+                        <div className="flex flex-wrap gap-2">
+                            {plan.case !== 'choice' && (
+                                <Button
+                                    size="sm"
+                                    disabled={busy || plan.errors.length > 0}
+                                    onClick={() =>
+                                        plan.branchExists
+                                            ? void turnOn({})
+                                            : ask(
+                                                  {
+                                                      title: `Create ${plan.branch}?`,
+                                                      description: `The repository gets the branch ${plan.branch}, empty, then the first export of what is deployed here.`,
+                                                      confirmLabel: 'Create and turn git on',
+                                                  },
+                                                  { createBranch: true },
+                                              )
+                                    }
+                                >
+                                    {!plan.branchExists
+                                        ? `Create ${plan.branch} and turn git on`
+                                        : plan.case === 'import'
+                                          ? 'Import and turn git on'
+                                          : 'Turn git on'}
+                                </Button>
+                            )}
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void readPlan()}>
+                                Read again
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                    setPlan(null);
+                                    setFailure(null);
+                                }}
+                            >
+                                Cancel
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            )}
+            <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
+        </div>
+    );
+}
+
+const CHANGE_MARK: Record<FileChange['change'], { mark: string; className: string }> = {
+    added: { mark: '+', className: 'text-emerald-600' },
+    changed: { mark: '~', className: 'text-amber-600' },
+    removed: { mark: '-', className: 'text-destructive' },
+};
+
+function Changes({ title, changes }: { title: string; changes: FileChange[] }) {
+    return (
+        <div className="grid gap-1">
+            <p className="text-xs text-muted-foreground">
+                {title}: {changes.length === 0 ? 'nothing changes' : `${changes.length} ${changes.length === 1 ? 'file' : 'files'}`}
+            </p>
+            {changes.length > 0 && (
+                <ul className="max-h-48 overflow-auto rounded-md border bg-muted/30 p-2 font-mono text-xs">
+                    {changes.map(c => (
+                        <li key={c.path} className="flex gap-2">
+                            <span className={`w-3 shrink-0 ${CHANGE_MARK[c.change].className}`}>{CHANGE_MARK[c.change].mark}</span>
+                            <span className="break-all">{c.path}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+function Issues({ tone, issues }: { tone: 'error' | 'warn'; issues: TreeIssue[] }) {
+    if (issues.length === 0) {
+        return null;
+    }
+
+    return (
+        <ul className="grid gap-1">
+            {issues.map(issue => (
+                <li key={`${issue.path}:${issue.message}`}>
+                    <Check ok={tone === 'warn' ? 'warn' : false}>
+                        <span className="font-mono text-xs">{issue.path}</span> {issue.message}
+                    </Check>
+                </li>
+            ))}
+        </ul>
     );
 }

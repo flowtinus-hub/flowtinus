@@ -59,14 +59,14 @@ describe("a workspace's git configuration", () => {
 
     test('absent until an admin saves it: the repository, the secret holding the token and which environment this server is', async () => {
         const { call } = await newWorkspace();
-        expect((await call('GET', '/git')).body).toEqual({ config: null });
+        expect((await call('GET', '/git')).body).toEqual({ config: null, on: false });
 
         const config = { repository: 'https://git.example.com/acme/flows.git', tokenSecret: 'git-token', environment: 'DEV' };
         expect(await call('PUT', '/git', config)).toMatchObject({ status: 200, body: { config } });
-        expect((await call('GET', '/git')).body).toEqual({ config });
+        expect((await call('GET', '/git')).body).toEqual({ config, on: false });
 
         expect((await call('DELETE', '/git')).status).toBe(200);
-        expect((await call('GET', '/git')).body).toEqual({ config: null });
+        expect((await call('GET', '/git')).body).toEqual({ config: null, on: false });
     });
 
     test('HTTP(S) only, with an existing secret and an environment; only admins change it', async () => {
@@ -86,7 +86,7 @@ describe("a workspace's git configuration", () => {
         const editor = await insertMember(db, id, { role: 'editor' });
         expect((await call('PUT', '/git', ok, editor)).status).toBe(403);
         expect((await call('DELETE', '/git', undefined, editor)).status).toBe(403);
-        expect((await call('GET', '/git')).body).toEqual({ config: null });
+        expect((await call('GET', '/git')).body).toEqual({ config: null, on: false });
     });
 
     test('the access test, before saving: reads, pushes and deletes a throwaway branch, and says it does not prove a branch is protected', async () => {
@@ -107,7 +107,7 @@ describe("a workspace's git configuration", () => {
         });
         expect(tested.body.note).toContain('not whether a given branch is protected');
         expect(git(repo.path, 'for-each-ref', 'refs/heads')).toBe('');
-        expect((await call('GET', '/git')).body).toEqual({ config: null });
+        expect((await call('GET', '/git')).body).toEqual({ config: null, on: false });
     });
 
     test('the access test says what failed: a repository it cannot reach, or an invalid configuration', async () => {
