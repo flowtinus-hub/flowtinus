@@ -113,7 +113,7 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
         const before = deployedVersion(latest);
         const warnings = latest.warnings ?? [];
         confirm({
-            title: `Deploy v${nextNumber(latest)} to ${environment}?`,
+            title: `Deploy v${nextNumber(latest, draftNow())} to ${environment}?`,
             description: (
                 <>
                     {saved !== 'saved'
@@ -204,7 +204,7 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem disabled={busy || nothingToDeploy} onSelect={() => void deploy()}>
-                        <Upload /> Deploy draft as v{nextNumber(current)}
+                        <Upload /> Deploy draft as v{nextNumber(current, draftNow())}
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled={current.versions.length === 0} onSelect={() => setVersionsOpen(true)}>
                         <History /> Versions

@@ -24,6 +24,9 @@ export type AccessTest = {
     note: string;
 };
 
+/** git behind what is deployed: the commits not pushed yet, and why the last push failed */
+export type GitStatus = { pending: number; reason: string | null; since: string | null };
+
 export const CONFIG_BRANCH = 'flowtinus/config';
 
 export const getGitConfig = (ws: string) => api<{ config: GitConfig | null }>(`/w/${ws}/git`);
@@ -34,6 +37,8 @@ export const removeGitConfig = (ws: string) => api<{ config: null }>(`/w/${ws}/g
 
 /** a configuration, saved or not: pushes and deletes a throwaway branch */
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
+
+export const getGitStatus = (ws: string) => api<{ status: GitStatus | null }>(`/w/${ws}/git/status`);
 
 export const getTopology = (ws: string) => api<{ topology: Topology }>(`/w/${ws}/git/topology`);
 

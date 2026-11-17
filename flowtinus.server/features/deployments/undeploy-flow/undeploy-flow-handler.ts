@@ -4,11 +4,15 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed, type FlowDeploymentsView } from '../deployments';
+import type { GitOptions } from '#features/git/git-config';
+import { pushPendingCommits } from '#features/git/git-commits';
+import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, queueFlowFile, setDeployed, type FlowDeploymentsView } from '../deployments';
 
 export const UndeployFlowCommand = z.object({ id: z.uuid('Invalid') });
 
 export class UndeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> {
+    constructor(private readonly git: GitOptions) {}
+
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<FlowDeploymentsView>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
@@ -33,10 +37,14 @@ export class UndeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> 
             }
 
             await setDeployed(tx, ctx, row.id, 'undeploy', current.id, null);
+            await queueFlowFile(tx, ctx, row, current.id, { message: `Undeploy ${row.name}`, deployed: false });
             return true;
         });
-        return undeployed
-            ? success(await loadDeployments(ctx.db, ctx.workspaceId, row.id))
-            : fail('validation', 'The flow is not deployed.');
+        if (!undeployed) {
+            return fail('validation', 'The flow is not deployed.');
+        }
+
+        await pushPendingCommits(ctx, this.git);
+        return success(await loadDeployments(ctx.db, ctx.workspaceId, row.id));
     }
 }

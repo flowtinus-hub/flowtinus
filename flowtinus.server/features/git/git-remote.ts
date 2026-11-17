@@ -140,7 +140,7 @@ export class GitRemote {
 
     /**
      * a commit in the clone (not pushed): the parent's tree (none: empty) with the files written (content) or removed
-     * (null), by the author
+     * (null), by the author; when that leaves the parent's tree as it was, no commit: the parent comes back
      */
     async commit(options: {
         parent: string | null;
@@ -162,6 +162,10 @@ export class GitRemote {
             }
 
             const tree = (await this.run(['write-tree'], { env: index })).trim();
+            if (options.parent && tree === (await this.run(['rev-parse', `${options.parent}^{tree}`])).trim()) {
+                return options.parent;
+            }
+
             const author = options.author ?? FLOWTINUS;
             const who = {
                 GIT_AUTHOR_NAME: author.name,

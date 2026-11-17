@@ -4,7 +4,9 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed, type FlowDeploymentsView } from '../deployments';
+import type { GitOptions } from '#features/git/git-config';
+import { pushPendingCommits } from '#features/git/git-commits';
+import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, queueFlowFile, setDeployed, type FlowDeploymentsView } from '../deployments';
 
 export const DeployVersionCommand = z.object({ id: z.uuid('Invalid'), versionId: z.uuid('Invalid') });
 
@@ -13,6 +15,8 @@ export const DeployVersionCommand = z.object({ id: z.uuid('Invalid'), versionId:
  * rollback), or any one while nothing is deployed, is a deploy. The versions never change.
  */
 export class DeployVersionHandler implements UseCaseHandler<FlowDeploymentsView> {
+    constructor(private readonly git: GitOptions) {}
+
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<FlowDeploymentsView>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
@@ -46,8 +50,15 @@ export class DeployVersionHandler implements UseCaseHandler<FlowDeploymentsView>
 
             const action = current && version.number < current.number ? 'rollback' : 'deploy';
             await setDeployed(tx, ctx, row.id, action, current?.id ?? null, version.id);
+            const message = action === 'rollback' ? `Roll back ${row.name} to v${version.number}` : `Deploy ${row.name} v${version.number}`;
+            await queueFlowFile(tx, ctx, row, version.id, { message, deployed: true });
             return null;
         });
-        return refused ? fail(refused.code, refused.message) : success(await loadDeployments(ctx.db, ctx.workspaceId, row.id));
+        if (refused) {
+            return fail(refused.code, refused.message);
+        }
+
+        await pushPendingCommits(ctx, this.git);
+        return success(await loadDeployments(ctx.db, ctx.workspaceId, row.id));
     }
 }
