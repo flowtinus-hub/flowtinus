@@ -119,6 +119,8 @@ A `git` key in `workspace_settings`: repo, the server's branch, whether it is ed
 
 Nine scenarios run with real git (2.54) on fake flows written by the core's `flowToYaml`, in a local repo: `git merge --no-ff` for a merged PR, `--squash` for a squashed one. GitLab's server-side merge was not tested and may differ. Nothing below is decided: each point is a question for the second round.
 
+The script and its evidence are in `docs/git-sync-simulation/`: `sim.ts` (run `bun sim.ts` in that folder, about 90 seconds; `bun sim.ts 5` runs one scenario; it rebuilds `repos/` there, which git ignores, and rewrites `out/`), `out/results.md` (every command, output and conflict hunk) and `out/summary.json` (one line per scenario). Temporary: delete the folder, and this paragraph, once the git sync decisions are closed and implemented.
+
 Held up:
 
 - One branch per environment with merge commits or fast-forwards: three rounds of promotion stayed clean, and ancestry (`git log staging..dev`) says what is not promoted yet.

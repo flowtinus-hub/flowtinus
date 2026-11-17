@@ -1,0 +1,106 @@
+[
+  {
+    "id": "1-no-ff",
+    "outcome": "r1: staging clean, prod clean; r2: staging clean, prod clean; r3: staging clean, prod clean"
+  },
+  {
+    "id": "1-ff",
+    "outcome": "r1: staging clean, prod clean; r2: staging clean, prod clean; r3: staging clean, prod clean"
+  },
+  {
+    "id": "2",
+    "outcome": "r1 dev->staging: clean; r1 staging->prod: clean; r2 dev->staging: CONFLICT in 1 file(s); r2 staging->prod: CONFLICT in 1 file(s); r3 dev->staging: clean; r3 staging->prod: clean; after r3 dev/staging trees DIFFERENT"
+  },
+  {
+    "id": "3a",
+    "outcome": "backport merge clean; next promotion: staging clean, prod clean; all three trees end identical"
+  },
+  {
+    "id": "3b1",
+    "outcome": "staging clean; prod CONFLICT in acme/Billing/flows/Sales/Load orders.yaml"
+  },
+  {
+    "id": "3b2",
+    "outcome": "staging clean; prod clean; hotfix present in dev: false, staging: false, prod: true; valid"
+  },
+  {
+    "id": "3c",
+    "outcome": "staging clean; prod clean; hotfix present in dev: false, staging: false, prod: true"
+  },
+  {
+    "id": "3d",
+    "outcome": "staging clean; prod clean; but prod vs dev: rev-list dev..prod = 5 (no-merges: 1); merging prod into dev would change dev: no"
+  },
+  {
+    "id": "4",
+    "outcome": "4a: clean, valid: clean, valid // 4b1: CONFLICT (1 hunk): CONFLICT (1 hunk) // 4b2: clean, valid: clean, valid // 4b3: clean, valid: CONFLICT (1 hunk) // 4b4: CONFLICT (1 hunk): clean, valid // 4c1: clean, valid: clean, valid // 4c2: clean, valid: clean, valid // 4c3: clean, valid: clean, valid // 4d1: clean, valid: CONFLICT (2 hunk) // 4d2: clean, valid: CONFLICT (2 hunk) // 4d3: CONFLICT (1 hunk): CONFLICT (3 hunk) // 4d4: clean, valid: CONFLICT (2 hunk) // trials: {\"side branch off random nodes / sorted\":{\"conflict\":19,\"invalid\":0},\"side branch off random nodes / insertion\":{\"conflict\":150,\"invalid\":0},\"inserted into random links / sorted\":{\"conflict\":27,\"invalid\":0},\"inserted into random links / insertion\":{\"conflict\":150,\"invalid\":0}}"
+  },
+  {
+    "id": "5a1",
+    "outcome": "clean; git followed the rename: true"
+  },
+  {
+    "id": "5a2a",
+    "outcome": "similarity 62%; rename followed, CONFLICT (content)"
+  },
+  {
+    "id": "5a2b",
+    "outcome": "similarity 60%; rename followed, CONFLICT (content)"
+  },
+  {
+    "id": "5c",
+    "outcome": "CONFLICT (content) in the unrelated new flow: git took delete + add for a rename"
+  },
+  {
+    "id": "5a3",
+    "outcome": "CONFLICT (rename/rename): three paths involved, not a \"mine or theirs for this file\" conflict"
+  },
+  {
+    "id": "5b",
+    "outcome": "directoryRenames=conflict: CONFLICT (file location), folders: Finance, Revenue; directoryRenames=true: clean, folders: Finance, Revenue; directoryRenames=false: clean, folders: Finance, Revenue, Sales"
+  },
+  {
+    "id": "6.1",
+    "outcome": "clean merge; merged flow: INVALID (acme/Billing/flows/Sales/Load orders.yaml: Edge 22 connects a node that is not in the flow.)"
+  },
+  {
+    "id": "6.2",
+    "outcome": "clean merge; INVALID (acme/Billing/flows/Finance/Tax report.yaml: node \"Tax 5\" calls pricing/tax#total, but acme/Billing/scripts/pricing/tax.ts does not exist)"
+  },
+  {
+    "id": "6.3",
+    "outcome": "clean merge; INVALID (acme/Billing/flows/Finance/Send reminders.yaml: node \"Send 6\" uses connection dddddddd-dddd-4ddd-addd-000000000004, not declared in workspace.yaml)"
+  },
+  {
+    "id": "6.4",
+    "outcome": "clean merge; 2 issue(s): acme/Billing/flows/Sales/Copy of orders.yaml, acme/Billing/flows/Sales/Load orders.yaml | node \"Call sync\" calls flow b548ea75-c1c3-46d9-a2a5-f0e0230f7af3, which is not in the repo"
+  },
+  {
+    "id": "7",
+    "outcome": "a list, new entries appended: CONFLICT; a list sorted by id, the two ids far apart: clean (6 connections); a list sorted by id, the two ids next to each other: CONFLICT; a map keyed by id, sorted, ids far apart: clean (6 connections); a map keyed by id, sorted, ids next to each other: CONFLICT; one file per connection: clean (6 connections); trials n=4 list-append: 150/150 conflict; trials n=4 list-sorted: 48/150 conflict; trials n=4 map-sorted: 49/150 conflict; trials n=12 list-append: 150/150 conflict; trials n=12 list-sorted: 17/150 conflict; trials n=12 map-sorted: 21/150 conflict"
+  },
+  {
+    "id": "8a",
+    "outcome": "mine (whole file): valid flow; dev after bob's PR: alice 0/12 changes kept (lost: move of Query 15, move of Code 11, move of Log 102, new node Log 201, move of Code 4, move of Query 1, Query 1.sql, move of Send 13, Filter 9.condition, new edge, new edge, removed edge), bob 3/3 changes kept // theirs (whole file): valid flow; dev after bob's PR: alice 12/12 changes kept, bob 0/3 changes kept (lost: Query 15.timeoutS, Query 1.sql, Log 14.message) // mine per hunk (-X ours): valid flow; dev after bob's PR: alice 11/12 changes kept (lost: Query 1.sql), bob 3/3 changes kept // theirs per hunk (-X theirs): valid flow; dev after bob's PR: alice 12/12 changes kept, bob 2/3 changes kept (lost: Query 1.sql) // union per hunk: valid flow; dev after bob's PR: alice 11/12 changes kept (lost: Query 1.sql), bob 2/3 changes kept (lost: Query 1.sql)"
+  },
+  {
+    "id": "8b-ours",
+    "outcome": "prod SQL: AND o.status IN ('paid', 'shipped', 'refunded'); Filter 9 on prod: $total > 90 && $customerId != null; prod..staging after = 0; next promotion clean and does not bring the dropped side back"
+  },
+  {
+    "id": "8b-theirs",
+    "outcome": "prod SQL: AND o.status IN ('paid', 'shipped', 'partial'); Filter 9 on prod: $total > 999; prod..staging after = 0; next promotion clean and does not bring the dropped side back"
+  },
+  {
+    "id": "8c",
+    "outcome": "mine on workspace.yaml: acme/Billing/flows/Sales/Load orders.yaml: node \"Query 1\" uses connection 3c0ffee0-1111-4111-a111-00000000000a, not declared in workspace.yaml"
+  },
+  {
+    "id": "9",
+    "outcome": "promote/dev-0dce47e into staging clean, on to prod clean; later tip into staging clean, prod clean; trees end identical"
+  },
+  {
+    "id": "9b",
+    "outcome": "tip promotion after a partial promotion + a hotfix on the line a not-yet-promoted commit changed: CONFLICT"
+  }
+]
