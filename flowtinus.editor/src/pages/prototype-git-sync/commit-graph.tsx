@@ -12,6 +12,8 @@ const KIND: Partial<Record<CommitKind, string>> = {
     merge: 'merge',
     promotion: 'promotion',
     backport: 'backport',
+    hotfix: 'hotfix',
+    repair: 'repair',
     update: 'update',
 };
 

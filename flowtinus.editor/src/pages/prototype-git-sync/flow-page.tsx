@@ -10,9 +10,9 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { ThemeToggle } from '@/layout/theme-toggle';
 import { cn } from '@/lib/utils';
-import { changeFlow, currentBranch, deployNoGit, editRefusal, renameFlow, server, setScheduleEnabled, setScheduleOverride, workingTree } from './actions';
+import { changeFlow, currentBranch, deployNoGit, editRefusal, envBranch, pinFlow, renameFlow, server, setScheduleEnabled, setScheduleOverride, unpinFlow, workingTree } from './actions';
 import { BranchPicker } from './branch-picker';
-import { parseWorkspace, shortHash, type FlowItem, type ScheduleDefaults } from './model';
+import { isDeployed, modeOf, parseWorkspace, shortHash, versionHash, type FlowItem, type ScheduleDefaults } from './model';
 import { ChangesButton, EnvPill } from './shell';
 import { useStore } from './store';
 import { BASE, NameDialog, Pill, projectRoute, Sha, when } from './ui';
@@ -247,9 +247,11 @@ function GitVersions({ flow, refusal }: { flow: FlowItem; refusal: string | null
     const { state, act } = useStore();
     const s = server(state);
     const row = s.flows[flow.id];
-    const workingHash = shortHash(workingTree(state)[flow.path]!.replace(/^deployed: .*$/m, ''));
+    const workingHash = versionHash(workingTree(state)[flow.path]!);
     const running = row?.current ? row.versions.find(v => v.n === row.current) : undefined;
     const differs = row?.versions.at(-1) && row.versions.at(-1)!.hash !== workingHash;
+    const pinned = s.pins[flow.id];
+    const protectedEnv = modeOf(state, s.env) === 'protected';
     return (
         <>
             <DropdownMenu>
@@ -263,33 +265,55 @@ function GitVersions({ flow, refusal }: { flow: FlowItem; refusal: string | null
                                 not running
                             </Pill>
                         ) : (
-                            <Pill tone={differs ? 'warn' : 'ok'} className="font-mono text-[10px]">
+                            <Pill tone={differs || pinned !== undefined ? 'warn' : 'ok'} className="font-mono text-[10px]">
                                 v{row.current}
-                                {differs && ' · branch differs'}
+                                {pinned !== undefined ? ' · pinned' : differs && ' · branch differs'}
                             </Pill>
                         )}
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-[28rem]">
                     <DropdownMenuLabel className="font-normal text-muted-foreground">
-                        {s.env}: versions come from merges into <span className="font-mono">{s.settings.branch}</span> (no Deploy button
-                        with git)
+                        {s.env}: versions come from merges into <span className="font-mono">{envBranch(state)}</span> (no Deploy button with
+                        git)
                     </DropdownMenuLabel>
                     {!row && (
                         <p className="px-2 py-1 text-sm text-muted-foreground">
-                            Not in {s.env} yet: it arrives when its file reaches {s.settings.branch}.
+                            Not in {s.env} yet: it arrives when its file reaches {envBranch(state)}.
                         </p>
                     )}
                     {row?.current === null && (
                         <p className="px-2 py-1 text-sm text-amber-700">
-                            Not running: the file on {s.settings.branch} says deployed: false (or the file is gone).
+                            Not running: the file on {envBranch(state)} says deployed: false (or the file is gone).
                         </p>
+                    )}
+                    {pinned !== undefined && (
+                        <div className="grid gap-1 px-2 py-1 text-sm text-amber-700">
+                            <span>
+                                Pinned to v{pinned} in an emergency: {s.env} differs from git until a commit changes this flow. The fix is a
+                                hotfix.
+                            </span>
+                            <Button
+                                size="xs"
+                                variant="outline"
+                                className="justify-self-start"
+                                onClick={() => act(d => unpinFlow(d, flow.id))}
+                            >
+                                Remove the pin
+                            </Button>
+                        </div>
                     )}
                     {row?.versions
                         .slice()
                         .reverse()
                         .map(v => (
-                            <DropdownMenuItem key={v.n} className="items-start">
+                            <DropdownMenuItem
+                                key={v.n}
+                                className="items-start"
+                                disabled={v.n === row.current}
+                                title={v.n === row.current ? undefined : `Emergency pin: run v${v.n} in ${s.env} without git`}
+                                onSelect={() => act(d => pinFlow(d, flow.id, v.n))}
+                            >
                                 <span className="w-8 font-mono text-xs">v{v.n}</span>
                                 <span className="grid flex-1 gap-0.5">
                                     <span className="text-xs">{v.message}</span>
@@ -305,24 +329,43 @@ function GitVersions({ flow, refusal }: { flow: FlowItem; refusal: string | null
                             </DropdownMenuItem>
                         ))}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled>Roll back to a version: open question (a revert commit?)</DropdownMenuItem>
+                    <p className="px-2 py-1 text-xs text-muted-foreground">
+                        Click an older version to pin it here in an emergency (versions are this server's: v2 here can be v3 elsewhere; the
+                        sha is what environments share).{' '}
+                        {protectedEnv ? 'The fix itself goes through a hotfix branch.' : 'The fix itself is a commit.'}
+                    </p>
                     {running && differs && (
                         <p className="px-2 py-1 text-xs text-muted-foreground">
-                            Your branch's file differs from v{running.n}: merge it to {s.settings.branch} to deploy it.
+                            Your branch's file differs from v{running.n}: merge it to {envBranch(state)} to deploy it.
                         </p>
                     )}
                 </DropdownMenuContent>
             </DropdownMenu>
             <label
                 className="flex h-7 items-center gap-2 rounded-md border bg-card px-2 text-xs shadow-md"
-                title="The deployed field of the flow file: false keeps the flow in git without running it. Changing it is a change to commit."
+                title="Absent in the file means deployed. Turning it off writes deployed: false (an undeploy is a commit, promoted like any other); it makes no new version."
             >
-                {flow.doc.deployed ? <Rocket className="size-3.5" /> : <CircleOff className="size-3.5" />}
+                {isDeployed(flow.doc) ? <Rocket className="size-3.5" /> : <CircleOff className="size-3.5" />}
                 deployed
                 <Switch
-                    checked={flow.doc.deployed}
+                    checked={isDeployed(flow.doc)}
                     disabled={!!refusal}
-                    onCheckedChange={v => act(d => changeFlow(d, flow.id, doc => void (doc.deployed = v), `deployed: ${v}`))}
+                    onCheckedChange={v =>
+                        act(d =>
+                            changeFlow(
+                                d,
+                                flow.id,
+                                doc => {
+                                    if (v) {
+                                        delete doc.deployed;
+                                    } else {
+                                        doc.deployed = false;
+                                    }
+                                },
+                                v ? 'deployed (the field removed)' : 'deployed: false',
+                            ),
+                        )
+                    }
                 />
             </label>
         </>
@@ -376,7 +419,9 @@ function Schedules({ flow, refusal }: { flow: FlowItem; refusal: string | null }
                                     <div className="flex items-center gap-2">
                                         <span className="font-medium">{sc.name}</span>
                                         <Sha sha={sc.id} />
-                                        {s.gitOn && !row && <Pill>not in {s.env} yet: arrives disabled</Pill>}
+                                        {s.gitOn && !row && (
+                                            <Pill>not in {s.env} yet: arrives disabled, here too; enable it after the merge</Pill>
+                                        )}
                                         {row && (
                                             <label className="ml-auto flex items-center gap-2 text-sm">
                                                 Enabled in {s.env}

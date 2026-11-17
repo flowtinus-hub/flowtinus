@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { createFlow, createFolder, createProject, createScript, editFiles, editRefusal, renameFlow, renameFolder, renameProject, renameScript, server, workingTree } from './actions';
+import { createFlow, createFolder, createProject, createScript, editFiles, editRefusal, envBranch, renameFlow, renameFolder, renameProject, renameScript, server, workingTree } from './actions';
 import { parseWorkspace, shortHash, type FlowItem } from './model';
 import { useStore } from './store';
 import { Banner, flowRoute, NameDialog, Pill, projectRoute } from './ui';
@@ -47,7 +47,7 @@ export function FlowStatus({ flow }: { flow: FlowItem }) {
         return row?.current ? <Pill tone="ok">v{row.current}</Pill> : <Pill>Not deployed</Pill>;
     }
     if (!row) {
-        return <Pill title={`Not on ${s.settings.branch}: nothing in ${s.env} yet`}>not in {s.env}</Pill>;
+        return <Pill title={`Not on ${envBranch(state)}: nothing in ${s.env} yet`}>not in {s.env}</Pill>;
     }
     if (row.current === null) {
         return (

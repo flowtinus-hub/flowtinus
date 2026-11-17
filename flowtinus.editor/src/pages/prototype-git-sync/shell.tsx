@@ -7,8 +7,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { ThemeToggle } from '@/layout/theme-toggle';
 import { cn } from '@/lib/utils';
-import { aheadOfSource, type State } from './model';
-import { currentBranch, currentChanges, outsideCommit, server, teammateChangesSyncOrders, update, type Conflict } from './actions';
+import { aheadFiles, branchOf, brokenLineage, topology, type State } from './model';
+import { brokenPush, cancelMerge, currentBranch, currentChanges, finishMerge, laptopBranch, outsideCommit, pendingMergeResult, server, teammateChangesSyncOrders, update } from './actions';
 import { BranchPicker, ChromeContext } from './branch-picker';
 import { ChangesPanel, ConflictDialog } from './changes-panel';
 import { PrototypeStore, useStore } from './store';
@@ -32,7 +32,6 @@ function Chrome() {
     const navigate = useNavigate();
     const [params, setParams] = useSearchParams();
     const [changesOpen, setChangesOpen] = useState(false);
-    const [conflicts, setConflicts] = useState<Conflict[] | null>(null);
     const [message, setMessage] = useState('');
     const variant = params.get('variant') ?? state.session.variant;
 
@@ -48,9 +47,7 @@ function Chrome() {
         openChanges: (drawer?: boolean) => (variant === 'B' && !drawer ? navigate(`${BASE}/changes?variant=B`) : setChangesOpen(true)),
         startUpdate: () => {
             const result = act(d => update(d));
-            if (result.conflicts) {
-                setConflicts(result.conflicts);
-            } else if (result.error) {
+            if (result.error) {
                 setMessage(result.error);
             }
         },
@@ -72,7 +69,7 @@ function Chrome() {
                     </div>
                 </SheetContent>
             </Sheet>
-            <ConflictDialog conflicts={conflicts} onClose={() => setConflicts(null)} />
+            <PendingMergeDialog />
             {message && (
                 <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border bg-popover px-4 py-2 text-sm shadow-lg">
                     {message}{' '}
@@ -131,7 +128,7 @@ export function PrototypeShell() {
     const variant = params.get('variant') ?? state.session.variant;
     const s = server(state);
     const changes = s.gitOn ? currentChanges(state).length : 0;
-    const ahead = s.gitOn ? aheadOfSource(state, s.env).length : 0;
+    const ahead = s.gitOn ? aheadFiles(state, s.env).length + (brokenLineage(state, s.env) ? 1 : 0) : 0;
     const openPrs = state.prs.filter(p => p.state === 'open').length;
     const q = `?variant=${variant}`;
 
@@ -224,7 +221,7 @@ export function ChangesPage() {
         <div className="mx-auto grid w-full max-w-3xl gap-4">
             <h1 className="text-2xl font-semibold">Source control</h1>
             <p className="text-sm text-muted-foreground">
-                Layout B: the changes panel is a page in the sidebar, with the branch picker under the workspace.
+                The branch picker sits under the workspace; this page is its changes, commit, update and pull request.
             </p>
             <ChangesPanel />
         </div>
@@ -313,7 +310,13 @@ function PrototypeBar({ variant }: { variant: string }) {
                             Someone pushes straight to dev in git
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => act(d => outsideCommit(d, 'prod'))}>
-                            Someone pushes straight to prod in git
+                            An admin pushes straight to prod, past the protection
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => act(d => brokenPush(d, 'dev'))}>
+                            Someone pushes to dev a tree that is not valid (a script a flow still calls is deleted)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => act(d => laptopBranch(d))}>
+                            A developer pushes fix/refunds-timeout from VS Code (a branch the app did not create)
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -343,6 +346,9 @@ function DebugDrawer({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
                 {
                     gitOn: s.gitOn,
                     settings: s.settings,
+                    branch: branchOf(state, env),
+                    refused: s.refused,
+                    pins: s.pins,
                     reconciledSha: s.reconciledSha,
                     deployments: Object.fromEntries(
                         Object.values(s.flows).map(f => [
@@ -362,6 +368,7 @@ function DebugDrawer({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
                             Object.fromEntries(Object.entries(o).map(([p, v]) => [p, v === null ? 'DELETED' : `${v.length} chars`])),
                         ]),
                     ),
+                    workingCopyMeta: s.workingMeta,
                     deploymentHistory: s.history.slice(0, 15),
                 },
             ];
@@ -383,6 +390,7 @@ function DebugDrawer({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
                     </SheetDescription>
                 </SheetHeader>
                 <div className="grid gap-3 px-4 pb-6">
+                    {section('Topology (topology.yaml on flowtinus/config)', JSON.stringify(topology(state), null, 2))}
                     {section('Branches (the shared repo)', branches.join('\n'))}
                     {section(
                         'Open / merged PRs (the provider)',
@@ -427,5 +435,20 @@ function Toasts({ state }: { state: State }) {
                 </div>
             ))}
         </div>
+    );
+}
+
+function PendingMergeDialog() {
+    const { state, act } = useStore();
+    const pending = state.session.pendingMerge?.env === state.session.env ? state.session.pendingMerge : null;
+    const conflicts = pending ? pendingMergeResult(state).conflicts : [];
+    return (
+        <ConflictDialog
+            conflicts={pending && conflicts.length ? conflicts : null}
+            title={`${pending?.message ?? ''}: ${conflicts.length} conflict(s)`}
+            description={`Mine is ${pending?.branch}, theirs is ${pending?.theirs}. The result must be valid before the merge commit.`}
+            onCancel={() => act(d => cancelMerge(d))}
+            onSubmit={resolution => act(d => finishMerge(d, resolution))}
+        />
     );
 }

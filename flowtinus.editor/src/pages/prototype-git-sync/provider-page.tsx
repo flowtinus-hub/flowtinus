@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { closePr, mergePr, prStatus, server } from './actions';
+import { closePr, envBranch, mergePr, prStatus, server } from './actions';
 import { applyOverlay, commitsBetween, type Tree } from './model';
 import { useStore } from './store';
 import { BASE, ChangeLabel, DiffView, Pill, prRoute, Sha, when } from './ui';
@@ -93,12 +93,6 @@ export function PrPage() {
                                     </span>
                                 </div>
                             ))}
-                            {pr.from === 'dev' || pr.from === 'staging' || pr.from === 'prod' ? (
-                                <p className="text-xs text-amber-700 dark:text-amber-400">
-                                    This MR is from {pr.from} itself: it follows the branch, so commits that land on {pr.from} after it was
-                                    opened join it.
-                                </p>
-                            ) : null}
                         </section>
                         <section className="grid gap-1 rounded-lg border bg-background p-3">
                             <h2 className="text-sm font-semibold">Changes ({status.files.length})</h2>
@@ -117,10 +111,11 @@ export function PrPage() {
                         </section>
                         {status.conflicts.length > 0 && (
                             <p className="rounded-md border border-red-500/40 bg-red-500/10 p-2 text-sm">
-                                Merge blocked: conflicts in {status.conflicts.join(', ')}.{' '}
-                                {pr.kind === 'change'
-                                    ? 'Update the source branch in Flowtinus first.'
-                                    : `The source is an environment's branch: Update would pull ${pr.to} into ${pr.from}, which the design does not allow. No resolution path in the design (prototype finding).`}
+                                Merge blocked: conflicts in{' '}
+                                {status.conflicts.map(c => ('path' in c ? c.path : c.base).split('/').pop()).join(', ')}.{' '}
+                                {pr.kind === 'promotion'
+                                    ? 'A promotion only conflicts when the target was not back-ported: Flowtinus blocks it before it gets here.'
+                                    : 'Update the source branch in Flowtinus (or with git) first.'}
                             </p>
                         )}
                         <section className="grid gap-2 rounded-lg border bg-background p-3">
@@ -132,7 +127,7 @@ export function PrPage() {
                                     ['squash', 'Squash'],
                                 ] as const
                             ).map(([key, label]) => {
-                                const disabled = (key === 'ff' && !status.canFf) || (key === 'squash' && pr.kind !== 'change');
+                                const disabled = key === 'ff' && !status.canFf;
                                 return (
                                     <label key={key} className={cn('flex items-center gap-2 text-sm', disabled && 'opacity-50')}>
                                         <input
@@ -144,7 +139,10 @@ export function PrPage() {
                                         />
                                         {label}
                                         {key === 'squash' && pr.kind !== 'change' && (
-                                            <span className="text-xs">(never for a promotion or backport: it breaks ancestry)</span>
+                                            <span className="text-xs text-red-600">
+                                                (Flowtinus opened this MR with squash off; someone turned it on. Try it: the target's
+                                                lineage breaks)
+                                            </span>
                                         )}
                                         {key === 'ff' && !status.canFf && <span className="text-xs">(the target moved)</span>}
                                     </label>
@@ -164,8 +162,8 @@ export function PrPage() {
                                 </Button>
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                Merging moves {pr.to}: the server whose branch it is fetches (poll or webhook) and reconciles: that is the
-                                deploy.
+                                Merging moves {pr.to}: the server whose branch it is fetches (poll or webhook), validates the tree and
+                                reconciles: that is the deploy. The source branch is removed on merge (the adapter asked for it).
                             </p>
                         </section>
                     </>
@@ -200,7 +198,7 @@ export function RepoPage() {
     const { state } = useStore();
     const s = server(state);
     const branches = Object.keys(state.branches).sort();
-    const [branch, setBranch] = useState(s.settings.branch);
+    const [branch, setBranch] = useState(envBranch(state));
     const [withWorking, setWithWorking] = useState(false);
     const [selected, setSelected] = useState<string | null>(null);
     const sha = state.branches[branch];

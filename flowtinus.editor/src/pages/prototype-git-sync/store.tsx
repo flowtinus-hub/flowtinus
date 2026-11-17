@@ -6,7 +6,7 @@ type Store = { state: State; act: <T>(fn: (draft: State) => T) => T; reset: () =
 
 const StoreContext = createContext<Store | null>(null);
 
-const KEY = 'flowtinus.prototype-git-sync';
+const KEY = 'flowtinus.prototype-git-sync.round-2';
 
 function load(): State {
     try {

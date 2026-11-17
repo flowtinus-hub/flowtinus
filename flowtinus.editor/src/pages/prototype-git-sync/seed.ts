@@ -1,12 +1,11 @@
-import YAML from 'yaml';
-import { flowFile, flowYaml, scriptFile, workspaceFile, WS, type FlowDoc, type Server, type State, type Tree } from './model';
+import { CONFIG_BRANCH, connectionFile, connectionYaml, flowFile, flowYaml, projectDir, scriptFile, TOPOLOGY_FILE, topologyYaml, workspaceFile, type EnvDecl, type FlowDoc, type Server, type State, type Tree } from './model';
 import { branchMoved, commitTree } from './actions';
 
-const project = (id: string, description: string, color: string) => YAML.stringify({ id, description, icon: 'folder', color });
+const project = (id: string, description: string, color: string) =>
+    `id: ${id}\ndescription: ${description}\nicon: folder\ncolor: ${color}\n`;
 
 const syncOrders: FlowDoc = {
     id: 'f-sync-orders',
-    deployed: true,
     workerTag: 'default',
     nodes: [
         { id: 'start', type: 'Start', position: { x: 0, y: 0 } },
@@ -26,7 +25,6 @@ const syncOrders: FlowDoc = {
 
 const refunds: FlowDoc = {
     id: 'f-refunds',
-    deployed: true,
     workerTag: 'default',
     nodes: [
         { id: 'start', type: 'Start', position: { x: 0, y: 0 } },
@@ -62,7 +60,6 @@ const welcome: FlowDoc = {
 
 const invoices: FlowDoc = {
     id: 'f-invoices',
-    deployed: true,
     workerTag: 'billing',
     nodes: [
         { id: 'start', type: 'Start', position: { x: 0, y: 0 } },
@@ -88,36 +85,44 @@ const invoices: FlowDoc = {
     ],
 };
 
-const connections = (list: { id: string; name: string; type: string }[]) => YAML.stringify({ connections: list });
-
 const baseTree: Tree = {
-    [workspaceFile]: connections([
-        { id: 'c-shop-db', name: 'Shop database', type: 'postgres' },
-        { id: 'c-mailer', name: 'Mailer', type: 'smtp' },
-    ]),
-    [`${WS}/Shop/project.yaml`]: project('p-shop', 'The online shop', 'blue'),
+    '.gitattributes': '* text=auto eol=lf\n',
+    [workspaceFile]: 'format: 1\n',
+    [connectionFile('Shop database')]: connectionYaml('c-shop-db', 'postgres'),
+    [connectionFile('Mailer')]: connectionYaml('c-mailer', 'smtp'),
+    [`${projectDir('Shop')}/project.yaml`]: project('p-shop', 'The online shop', 'blue'),
     [flowFile('Shop', 'Orders', 'Sync orders')]: flowYaml(syncOrders),
     [flowFile('Shop', 'Orders', 'Refunds')]: flowYaml(refunds),
-    [`${WS}/Shop/flows/Archive/.gitkeep`]: '',
+    [`${projectDir('Shop')}/flows/Archive/.gitkeep`]: '',
     [scriptFile('Shop', 'transform/orders.ts')]:
         'export function main(rows: Order[]) {\n    return rows.map(r => ({ id: r.id, total: r.total }));\n}\n',
     [scriptFile('Shop', 'utils/money.ts')]: 'export const cents = (value: number) => Math.round(value * 100);\n',
-    [`${WS}/Billing/project.yaml`]: project('p-billing', 'Invoices and payments', 'green'),
+    [`${projectDir('Billing')}/project.yaml`]: project('p-billing', 'Invoices and payments', 'green'),
     [flowFile('Billing', '', 'Invoices')]: flowYaml(invoices),
     [scriptFile('Billing', 'invoice.ts')]:
         'export function main(order: Order, taxRate: number) {\n    return order.total * (1 + taxRate);\n}\n',
 };
 
-const server = (env: string, branch: string, directEdits: boolean, promotesTo: string[]): Server => ({
+const environments: EnvDecl[] = [
+    { env: 'DEV', label: 'Development', branch: 'dev', promotesTo: ['STAGING'], mode: 'direct' },
+    { env: 'STAGING', label: 'Staging', branch: 'staging', promotesTo: ['PROD', 'SANDBOX'], mode: 'protected' },
+    { env: 'PROD', label: 'Production', branch: 'prod', promotesTo: [], mode: 'protected' },
+    { env: 'SANDBOX', label: 'Sandbox', branch: 'sandbox', promotesTo: [], mode: 'pull-request' },
+];
+
+const server = (env: string): Server => ({
     env,
     gitOn: true,
-    settings: { repo: 'https://gitlab.example.com/omc-solutions/flows.git', branch, directEdits, credential: 'GIT_TOKEN', promotesTo },
+    settings: { repo: 'https://gitlab.example.com/omc-solutions/flows.git', credential: 'GIT_TOKEN', env },
     reconciledSha: null,
+    refused: null,
     flows: {},
+    pins: {},
     schedules: {},
     connections: {},
     scripts: {},
     working: {},
+    workingMeta: {},
     history: [],
 });
 
@@ -127,25 +132,29 @@ export function seed(): State {
         clock: Date.UTC(2026, 10, 2, 9),
         commits: {},
         branches: {},
-        branchMeta: {},
         prs: [],
-        servers: {
-            DEV: server('DEV', 'dev', true, ['staging']),
-            STAGING: server('STAGING', 'staging', false, ['prod', 'sandbox']),
-            PROD: server('PROD', 'prod', true, []),
-            SANDBOX: server('SANDBOX', 'sandbox', true, []),
-        },
+        servers: { DEV: server('DEV'), STAGING: server('STAGING'), PROD: server('PROD'), SANDBOX: server('SANDBOX') },
         envOrder: ['DEV', 'STAGING', 'PROD', 'SANDBOX'],
+        providerProtected: ['staging', 'prod'],
         users: [
             { slug: 'ana', name: 'Ana Silva' },
             { slug: 'bruno', name: 'Bruno Costa' },
         ],
         secrets: ['GIT_TOKEN', 'GITLAB_DEPLOY_TOKEN', 'SMTP_PASSWORD'],
-        session: { env: 'DEV', user: 'ana', branchByEnvUser: {}, variant: 'A' },
+        session: { env: 'DEV', user: 'ana', branchByEnvUser: {}, variant: 'B', showMerged: false, pendingMerge: null },
         events: [],
     };
 
-    const c1 = commitTree(state, null, baseTree, 'Initial export from DEV', 'flowtinus (DEV)', 'initial');
+    state.branches[CONFIG_BRANCH] = commitTree(
+        state,
+        null,
+        { [TOPOLOGY_FILE]: topologyYaml(environments) },
+        'Create the topology',
+        'Ana Silva',
+        'config',
+    );
+
+    const c1 = commitTree(state, null, baseTree, 'First export from DEV', 'flowtinus (DEV)', 'initial');
     for (const branch of ['dev', 'staging', 'prod', 'sandbox']) {
         state.branches[branch] = c1;
         branchMoved(state, branch);
@@ -162,11 +171,10 @@ export function seed(): State {
     state.branches.dev = c2;
     branchMoved(state, 'dev');
     state.branches.staging = c2;
-    state.branchMeta.staging = {};
     branchMoved(state, 'staging');
 
     const withWelcome: Tree = { ...refundsRetry, [flowFile('Shop', 'Customers', 'Welcome email')]: flowYaml(welcome) };
-    const c3 = commitTree(state, [c2], withWelcome, 'Add the Welcome email flow (not deployed yet)', 'Bruno Costa', 'commit');
+    const c3 = commitTree(state, [c2], withWelcome, 'Add the Welcome email flow (deployed: false for now)', 'Bruno Costa', 'commit');
     state.branches.dev = c3;
     branchMoved(state, 'dev');
 
@@ -179,7 +187,6 @@ export function seed(): State {
     };
     const c4 = commitTree(state, [c3], taxed, 'Invoices: VAT 23%', 'Bruno Costa', 'commit');
     state.branches['users/bruno/vat-23'] = c4;
-    state.branchMeta['users/bruno/vat-23'] = { cutFrom: 'dev', owner: 'bruno', createdOn: 'DEV' };
     state.prs.push({
         number: 1,
         kind: 'change',
