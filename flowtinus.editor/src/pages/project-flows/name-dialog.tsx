@@ -13,8 +13,11 @@ export type NameDialogTarget = {
     description?: string;
     initial: string;
     submitLabel: string;
+    kind?: 'folder' | 'flow';
     /** the names next to it, for the instant "Already in use" check */
     siblings: { name: string }[];
+    /** the path in the repository this name would make too long */
+    pathIssue?: (name: string) => string | undefined;
     onSave: (name: string) => Promise<ApiResult<unknown>>;
 };
 
@@ -41,9 +44,14 @@ function NameForm({ target, onClose }: { target: NameDialogTarget; onClose: () =
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
 
+    const check = (typed: string) => {
+        const checked = validateName(typed, target.siblings, target.kind);
+        return { ...checked, error: checked.error ?? target.pathIssue?.(checked.value) };
+    };
+
     const submit = async (event: FormEvent) => {
         event.preventDefault();
-        const checked = validateName(name, target.siblings);
+        const checked = check(name);
         setError(checked.error ?? '');
         if (checked.error) {
             return;
@@ -74,7 +82,10 @@ function NameForm({ target, onClose }: { target: NameDialogTarget; onClose: () =
                     maxLength={NAME_MAX}
                     value={name}
                     aria-invalid={error ? true : undefined}
-                    onChange={event => setName(event.target.value)}
+                    onChange={event => {
+                        setName(event.target.value);
+                        setError(check(event.target.value).error ?? '');
+                    }}
                 />
                 {error && <p className="text-sm text-destructive">{error}</p>}
             </div>

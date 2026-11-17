@@ -4,6 +4,7 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { toProjectView } from '../project-fields';
+import { pathTooLong } from '#features/folders/project-tree';
 import { ProjectRepository } from '../project-repository';
 import { UpdateProjectCommand, type UpdateProjectResponse } from './update-project-command';
 
@@ -23,6 +24,13 @@ export class UpdateProjectHandler implements UseCaseHandler<UpdateProjectRespons
         const projects = new ProjectRepository(ctx.db, ctx.workspaceId);
         if (changes.name !== undefined && (await projects.existsByName(changes.name, id))) {
             return fail('conflict', `A project named "${changes.name}" already exists.`, { name: 'Already in use' });
+        }
+
+        if (changes.name !== undefined) {
+            const tooLong = await pathTooLong(ctx, id, { project: changes.name });
+            if (tooLong) {
+                return tooLong;
+            }
         }
 
         const project = await projects.update(id, changes);

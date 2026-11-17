@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { projectRepoPaths, repoPathIssue, type ProjectScripts, type TreeContents } from '@flowtinus/core';
 import { flows, type Flow } from '#features/flows/flow';
 import { ProjectRepository } from '#features/projects/project-repository';
+import { listScripts } from '#features/scripts/script-store';
+import { workspaces } from '#features/workspaces/workspace';
 import { WorkspaceRepository } from '#shared/database/repository';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -140,3 +143,34 @@ export const nameTaken = (kind: 'folder' | 'flow', name: string) =>
     fail('conflict', `A ${kind} named "${name}" is already there.`, { name: 'Already in use' });
 
 export const invalidName = (error: string) => fail('validation', 'The request has invalid fields.', { name: error });
+
+export async function workspaceSlug(ctx: UseCaseContext, workspaceId = ctx.workspaceId): Promise<string> {
+    const [row] = await ctx.db.orm.select({ slug: workspaces.slug }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+    return row?.slug ?? '';
+}
+
+export type ProjectChange = { tree?: TreeContents; project?: string; scripts?: ProjectScripts; workspaceId?: string };
+
+/** the path in the repo a change to a project would make too long; what the change leaves out is read as it is now */
+export async function longRepoPath(ctx: UseCaseContext, projectId: string, change: ProjectChange): Promise<string | undefined> {
+    const project = change.project ?? (await new ProjectRepository(ctx.db, ctx.workspaceId).findById(projectId))?.name ?? '';
+    const tree = change.tree ?? (await loadTree(ctx.db, ctx.workspaceId, projectId));
+    const scripts =
+        change.scripts ??
+        (await listScripts(ctx.db, ctx.workspaceId, projectId).then(({ scripts, folders }) => ({
+            scripts: scripts.map(s => s.path),
+            folders,
+        })));
+    const workspace = await workspaceSlug(ctx, change.workspaceId);
+    return repoPathIssue(projectRepoPaths(workspace, project, tree, scripts));
+}
+
+export async function pathTooLong(
+    ctx: UseCaseContext,
+    projectId: string,
+    change: ProjectChange,
+    field = 'name',
+): Promise<UseCaseResult<never> | null> {
+    const issue = await longRepoPath(ctx, projectId, change);
+    return issue ? fail('validation', 'The request has invalid fields.', { [field]: issue }) : null;
+}

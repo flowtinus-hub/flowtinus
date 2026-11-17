@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { normalizeScriptPath, scriptContentIssue, scriptExports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
+import { insideScriptFolder, normalizeScriptPath, pathCaseClash, scriptContentIssue, scriptExports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
 import { api, type ApiResult } from '@/lib/api';
 
 /*
@@ -139,7 +139,7 @@ export function useScriptContent(projectId: string, path: string | null): Script
 export const scriptFolders = (project: ProjectScripts): string[] => project.folders;
 
 /** what makes a new path impossible, as far as this page knows (the server checks again) */
-export function newPathIssue(projectId: string, text: string): string | null {
+export function newPathIssue(projectId: string, text: string, from?: string): string | null {
     const path = normalizeScriptPath(text);
     const issue = scriptPathIssue(path);
     if (issue) {
@@ -155,7 +155,15 @@ export function newPathIssue(projectId: string, text: string): string | null {
         return 'A folder with this path already exists.';
     }
 
-    return project.scripts.some(s => path.startsWith(`${s.path}/`)) ? 'A script cannot hold other scripts: pick another folder.' : null;
+    if (project.scripts.some(s => path.startsWith(`${s.path}/`))) {
+        return 'A script cannot hold other scripts: pick another folder.';
+    }
+
+    const others = [...project.scripts.map(s => s.path), ...project.folders].filter(
+        other => from === undefined || !insideScriptFolder(other, from),
+    );
+    const clash = pathCaseClash(path, others);
+    return clash ? `${clash}: a disk that ignores case holds only one.` : null;
 }
 
 const errorOf = (result: ApiResult<unknown>) =>

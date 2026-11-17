@@ -168,7 +168,12 @@ function ConnectionForm({ target, profiles, secrets, onClose, onSave, onTest }: 
                     autoFocus
                     value={name}
                     aria-invalid={errors.name ? true : undefined}
-                    onChange={event => setName(event.target.value)}
+                    onChange={event => {
+                        const typed = event.target.value;
+                        setName(typed);
+                        const nameError = validateProfile({ name: typed, type, config }, profiles, [], editing?.id).errors.name;
+                        setErrors(({ name: _name, ...rest }) => (nameError ? { ...rest, name: nameError } : rest));
+                    }}
                 />
             </Field>
 

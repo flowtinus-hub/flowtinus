@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
-import { requireActiveProject } from '#features/folders/project-tree';
+import { movedScriptPath, normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
+import { pathTooLong, requireActiveProject } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -55,6 +55,23 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
         const issue = await newPathIssue(ctx.db, ctx.workspaceId, id, target);
         if (issue) {
             return issue.includes('already exists') ? fail('conflict', issue, { path: issue }) : invalidPath(issue);
+        }
+
+        const current = await listScripts(ctx.db, ctx.workspaceId, id);
+        const scripts = current.scripts.map(s => s.path);
+        const tooLong = await pathTooLong(
+            ctx,
+            id,
+            {
+                scripts:
+                    kind === 'folder'
+                        ? { scripts, folders: [...current.folders, target] }
+                        : { scripts: [...scripts, target], folders: current.folders },
+            },
+            'path',
+        );
+        if (tooLong) {
+            return tooLong;
         }
 
         const code = content ?? `export function example(): string {\n  return 'hello';\n}\n`;
@@ -143,9 +160,21 @@ export class MoveScriptPathHandler implements UseCaseHandler<{ path: string }> {
             return success({ path: to });
         }
 
-        const issue = await newPathIssue(ctx.db, ctx.workspaceId, id, to);
+        const issue = await newPathIssue(ctx.db, ctx.workspaceId, id, to, from);
         if (issue) {
             return issue.includes('already exists') ? fail('conflict', issue, { path: issue }) : invalidPath(issue);
+        }
+
+        const current = await listScripts(ctx.db, ctx.workspaceId, id);
+        const moved = (path: string) => movedScriptPath(path, from, to);
+        const tooLong = await pathTooLong(
+            ctx,
+            id,
+            { scripts: { scripts: current.scripts.map(s => moved(s.path)), folders: current.folders.map(moved) } },
+            'path',
+        );
+        if (tooLong) {
+            return tooLong;
         }
 
         await moveScriptPath(ctx.db, ctx.workspaceId, id, from, to, ctx.userId);

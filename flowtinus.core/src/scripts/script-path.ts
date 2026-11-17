@@ -1,3 +1,5 @@
+import { fileNameIssue } from '../names/file-name';
+
 /** where the project's scripts live for the TypeScript tools (Monaco, the runner's bundle): their one name, change it here */
 export const SCRIPT_MODULE_DIR = 'myproject/scripts';
 export const SCRIPT_IMPORT_PREFIX = `@${SCRIPT_MODULE_DIR}/`;
@@ -24,6 +26,12 @@ export function scriptPathIssue(path: string): string | null {
         return bad === ''
             ? 'The path has an empty folder (two slashes together).'
             : `"${bad}" is not a valid name: use letters, numbers, - and _ (starting with a letter or a number).`;
+    }
+    for (const part of path.split('/')) {
+        const issue = fileNameIssue(part, 'script');
+        if (issue) {
+            return `"${part}": ${issue}.`;
+        }
     }
     return null;
 }

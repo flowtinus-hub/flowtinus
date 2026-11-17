@@ -1,4 +1,4 @@
-import { insideScriptFolder, movedScriptPath, normalizeScriptPath, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
+import { insideScriptFolder, movedScriptPath, normalizeScriptPath, pathCaseClash, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
 import { and, eq, isNull } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
 import type { Database } from '#shared/database/database';
@@ -114,7 +114,14 @@ export const allFolders = (scripts: { path: string }[], folders: string[]) => {
     return [...all].sort();
 };
 
-export async function newPathIssue(db: Database, workspaceId: string, projectId: string, text: string): Promise<string | null> {
+/** `from` is what a move takes away: a path may differ only in case from what it moves */
+export async function newPathIssue(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+    text: string,
+    from?: string,
+): Promise<string | null> {
     const path = normalizeScriptPath(text);
     const issue = scriptPathIssue(path);
     if (issue) {
@@ -130,7 +137,9 @@ export async function newPathIssue(db: Database, workspaceId: string, projectId:
     if (scripts.some(s => path.startsWith(`${s.path}/`))) {
         return 'A script cannot hold other scripts: pick another folder.';
     }
-    return null;
+    const others = [...scripts.map(s => s.path), ...folders].filter(other => from === undefined || !insideScriptFolder(other, from));
+    const clash = pathCaseClash(path, others);
+    return clash ? `${clash}: a disk that ignores case holds only one.` : null;
 }
 
 export async function scriptUsage(
