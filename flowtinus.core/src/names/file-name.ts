@@ -57,6 +57,8 @@ export function validateName(name: string, siblings: { name: string }[], kind?: 
 }
 
 export const repoPath = {
+    gitattributes: '.gitattributes',
+    workspace: (workspace: string) => `${workspace}/workspace.yaml`,
     connection: (workspace: string, name: string) => `${workspace}/connections/${name}.yaml`,
     project: (workspace: string, project: string) => `${workspace}/projects/${project}/project.yaml`,
     flow: (workspace: string, project: string, folders: string[], flow: string) =>

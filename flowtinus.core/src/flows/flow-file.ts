@@ -64,7 +64,11 @@ export function flowFileName(name: string): string {
 }
 
 export function flowToYaml(file: FlowFile): string {
-    const lean: FlowFile = {
+    return stringify(leanFlow(file), { blockQuote: 'literal', lineWidth: 0, indent: 2 });
+}
+
+export function leanFlow(file: FlowFile): FlowFile {
+    return {
         version: FLOW_FILE_VERSION,
         ...(file.id ? { id: file.id } : {}),
         name: file.name,
@@ -85,7 +89,6 @@ export function flowToYaml(file: FlowFile): string {
         edges: file.edges.map(e => ({ source: e.source, sourcePort: e.sourcePort, target: e.target, targetPort: e.targetPort })),
         ...(file.groups?.length ? { groups: file.groups } : {}),
     };
-    return stringify(lean, { blockQuote: 'literal', lineWidth: 0, indent: 2 });
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -331,20 +334,32 @@ const canonical = (value: unknown): unknown =>
             )
           : value;
 
+const withLf = (value: unknown): unknown =>
+    typeof value === 'string'
+        ? value.replace(/\r\n?/g, '\n')
+        : Array.isArray(value)
+          ? value.map(withLf)
+          : isObject(value)
+            ? Object.fromEntries(Object.entries(value).map(([key, v]) => [key, withLf(v)]))
+            : value;
+
 /**
  * What a deploy compares: only what the engine takes (toExecutableFlow), as text. Not the flow's name (the row's), nor
  * what is only on the canvas or for people (where the components are, the groups, the notes), nor the pinned outputs
- * (a real run ignores them); the order of the components, of the edges and of the keys does not count either. A
- * component's label does: the run's record and logs show it.
+ * (a real run ignores them), nor whether it is deployed (the repository's `deployed`); the order of the components, of
+ * the edges and of the keys does not count either, nor line endings (a clone on Windows may have CRLF). A component's
+ * label does: the run's record and logs show it.
  */
 export function deployContent(file: FlowFile): string {
     const { nodes, edges } = toExecutableFlow(file, '');
     const edgeKey = (e: ExecutableEdge) => [e.source, e.sourcePort, e.target, e.targetPort].join('|');
     return JSON.stringify(
-        canonical({
-            nodes: nodes.map(({ pinned: _pinned, ...node }) => node).sort((a, b) => a.id.localeCompare(b.id)),
-            edges: [...edges].sort((a, b) => edgeKey(a).localeCompare(edgeKey(b))),
-        }),
+        withLf(
+            canonical({
+                nodes: nodes.map(({ pinned: _pinned, ...node }) => node).sort((a, b) => a.id.localeCompare(b.id)),
+                edges: [...edges].sort((a, b) => edgeKey(a).localeCompare(edgeKey(b))),
+            }),
+        ),
     );
 }
 
