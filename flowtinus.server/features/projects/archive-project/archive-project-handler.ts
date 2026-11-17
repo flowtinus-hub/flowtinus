@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { mirrorGitChange } from '#features/git/git-mirror';
+import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -24,35 +25,38 @@ export class ArchiveProjectHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
-        const archive = { deletedAt: new Date(), deletedBy: ctx.userId };
         const name = (await new ProjectRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
-        const archived = await mirrorGitChange(ctx, `Archive project ${name}`, async tx => {
-            if (!(await new ProjectRepository(tx, ctx.workspaceId).update(id, archive))) {
-                return false;
-            }
-
-            const tree = await loadTree(tx, ctx.workspaceId, id);
-            const folderRepository = new FolderRepository(tx, ctx.workspaceId);
-            const flowRepository = new FlowRepository(tx, ctx.workspaceId);
-            for (const folder of tree.folders.filter(f => f.archivedAt === null)) {
-                await folderRepository.update(folder.id, archive);
-            }
-
-            for (const flow of tree.flows.filter(f => f.archivedAt === null)) {
-                await flowRepository.update(flow.id, archive);
-            }
-
-            await undeployArchived(
-                tx,
-                ctx,
-                tree.flows.map(f => f.id),
-            );
-            return true;
-        });
+        const archived = await mirrorGitChange(ctx, `Archive project ${name}`, tx => archiveProject(tx, ctx, id));
         if (!archived) {
             return fail('not-found', 'Project not found.');
         }
 
         return success({ id });
     }
+}
+
+/** the project, its folders and flows archived, its deployed flows undeployed; in the transaction of db */
+export async function archiveProject(db: Database, ctx: { workspaceId: string; userId: string }, id: string): Promise<boolean> {
+    const archive = { deletedAt: new Date(), deletedBy: ctx.userId };
+    if (!(await new ProjectRepository(db, ctx.workspaceId).update(id, archive))) {
+        return false;
+    }
+
+    const tree = await loadTree(db, ctx.workspaceId, id);
+    const folderRepository = new FolderRepository(db, ctx.workspaceId);
+    const flowRepository = new FlowRepository(db, ctx.workspaceId);
+    for (const folder of tree.folders.filter(f => f.archivedAt === null)) {
+        await folderRepository.update(folder.id, archive);
+    }
+
+    for (const flow of tree.flows.filter(f => f.archivedAt === null)) {
+        await flowRepository.update(flow.id, archive);
+    }
+
+    await undeployArchived(
+        db,
+        ctx,
+        tree.flows.map(f => f.id),
+    );
+    return true;
 }

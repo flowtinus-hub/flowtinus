@@ -5,18 +5,25 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { z } from 'zod';
-import { findTokenSecret, gitAccess, gitAuthorOf, gitConfigSchema, readGitConfig, removeGitConfig, saveGitConfig, type GitConfig, type GitOptions } from './git-config';
+import { findTokenSecret, gitAccess, gitAuthorOf, gitConfigSchema, readGitConfig, readGitState, removeGitConfig, saveGitConfig, type GitConfig, type GitOptions } from './git-config';
 import { GitError, withThrowawayClone, withWorkspaceClone, type GitRemote } from './git-remote';
 import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type EnvironmentDecl } from './topology';
 import { readTopology, type TopologyView } from './workspace-topology';
-import { clearPendingCommits, gitSyncStatus, lockGitCommits, type GitSyncView } from './git-commits';
-import { holdsWorkspace, importWorkspace, isWorkspaceEmpty, readBranchWorkspace, validateImport } from './workspace-import';
-import { workspaceSlug } from '#features/folders/project-tree';
+import { clearPendingCommits, gitSyncStatus, pushPendingCommits, type GitSyncView } from './git-commits';
+import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
 
-export class GetGitConfigHandler implements UseCaseHandler<{ config: GitConfig | null }> {
-    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ config: GitConfig | null }>> {
-        return requireRole(ctx, 'viewer') ?? success({ config: await readGitConfig(ctx.db, ctx.workspaceId) });
+export type GitConfigView = { config: GitConfig | null; on: boolean };
+
+export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<GitConfigView>> {
+        const denied = requireRole(ctx, 'viewer');
+        if (denied) {
+            return denied;
+        }
+
+        const state = await readGitState(ctx.db, ctx.workspaceId);
+        return success({ config: state?.config ?? null, on: state?.on ?? false });
     }
 }
 
@@ -33,10 +40,11 @@ async function validConfig(input: unknown, ctx: UseCaseContext, options: GitOpti
     );
 }
 
-export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig }> {
+/** git stays on while the repository and the environment stay the same (a new token secret); otherwise it turns off */
+export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig; on: boolean }> {
     constructor(private readonly options: GitOptions) {}
 
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ config: GitConfig }>> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ config: GitConfig; on: boolean }>> {
         const denied = requireRole(ctx, 'admin');
         if (denied) {
             return denied;
@@ -47,8 +55,15 @@ export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig 
             return config;
         }
 
-        await saveGitConfig(ctx, config.value);
-        return success({ config: config.value });
+        const saved = await readGitState(ctx.db, ctx.workspaceId);
+        const on =
+            !!saved?.on && saved.config.repository === config.value.repository && saved.config.environment === config.value.environment;
+        await saveGitConfig(ctx, config.value, on);
+        if (!on) {
+            await clearPendingCommits(ctx);
+        }
+
+        return success({ config: config.value, on });
     }
 }
 
@@ -220,66 +235,46 @@ export class CreateTopologyHandler implements UseCaseHandler<{ topology: Topolog
     }
 }
 
-export type ImportResult = { branch: string; commit: string; warnings: TreeIssue[] };
-
-/**
- * an empty workspace takes the workspace its environment's branch holds; a tree with any error is refused whole, its
- * errors by path in the error's fields
- */
-export class ImportWorkspaceHandler implements UseCaseHandler<ImportResult> {
+export class GetTurnOnPlanHandler implements UseCaseHandler<TurnOnPlan> {
     constructor(private readonly options: GitOptions) {}
 
-    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ImportResult>> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<TurnOnPlan>> {
+        return requireRole(ctx, 'admin') ?? onWorkspaceRepository(ctx, this.options, (remote, config) => turnOnPlan(ctx, remote, config));
+    }
+}
+
+export const TurnGitOnCommand = z.object({
+    createBranch: z.boolean().optional(),
+    choice: z.enum(['git', 'server'], 'git or server').optional(),
+});
+
+export type TurnOnResult = { outcome: TurnOnOutcome; branch: string; warnings: TreeIssue[]; status: GitSyncView | null };
+
+/** turns git on (turnGitOn), then pushes the commit it queued */
+export class TurnGitOnHandler implements UseCaseHandler<TurnOnResult> {
+    constructor(private readonly options: GitOptions) {}
+
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<TurnOnResult>> {
         const denied = requireRole(ctx, 'admin');
         if (denied) {
             return denied;
         }
 
-        return onWorkspaceRepository(ctx, this.options, async (remote, config) => {
-            const branches = await remote.branches();
-            const topology = await readTopology(remote, config.environment, branches);
-            if (!topology.exists) {
-                return fail('conflict', `The repository has no ${CONFIG_BRANCH} branch.`);
-            }
-            if (!topology.environment) {
-                return fail('conflict', `${config.environment} is not in the topology.`);
-            }
+        const parsed = validate(TurnGitOnCommand, input);
+        if (!parsed.ok) {
+            return parsed;
+        }
 
-            const branch = topology.environment.branch;
-            const commit = await remote.fetch(branch, branches);
-            if (!commit) {
-                return fail('conflict', `The branch ${branch} does not exist yet.`);
-            }
+        const turned = await onWorkspaceRepository(ctx, this.options, (remote, config) => turnGitOn(ctx, remote, config, parsed.value));
+        if (!turned.ok) {
+            return turned;
+        }
 
-            const slug = await workspaceSlug(ctx);
-            const files = await readBranchWorkspace(remote, commit, slug);
-            if (!holdsWorkspace(files, slug)) {
-                return fail('conflict', `The branch ${branch} has no workspace ${slug}.`);
-            }
-
-            return ctx.db.transaction(async tx => {
-                await lockGitCommits(tx, ctx.workspaceId);
-                if (!(await isWorkspaceEmpty(tx, ctx.workspaceId))) {
-                    return fail('conflict', 'The workspace is not empty: only an empty workspace imports from git.');
-                }
-
-                const { errors, warnings } = await validateImport(tx, ctx.workspaceId, slug, files);
-                if (errors.length > 0) {
-                    const fields: Record<string, string> = {};
-                    for (const { path, message } of errors) {
-                        fields[path] = fields[path] ? `${fields[path]}\n${message}` : message;
-                    }
-                    return fail('validation', `The workspace on ${branch} is not valid: nothing was imported.`, fields);
-                }
-
-                await importWorkspace({ ...ctx, db: tx }, slug, files);
-                return success({ branch, commit, warnings });
-            });
-        });
+        return success({ ...turned.value, status: await pushPendingCommits(ctx, this.options) });
     }
 }
 
-/** whether git is behind what is deployed: the commits not pushed yet and why (null: no git configured) */
+/** whether git is behind what is deployed: the commits not pushed yet and why (null: git is not on) */
 export class GetGitStatusHandler implements UseCaseHandler<{ status: GitSyncView | null }> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ status: GitSyncView | null }>> {
         const denied = requireRole(ctx, 'viewer');
@@ -287,8 +282,8 @@ export class GetGitStatusHandler implements UseCaseHandler<{ status: GitSyncView
             return denied;
         }
 
-        const config = await readGitConfig(ctx.db, ctx.workspaceId);
-        return success({ status: config ? await gitSyncStatus(ctx.db, ctx.workspaceId) : null });
+        const state = await readGitState(ctx.db, ctx.workspaceId);
+        return success({ status: state?.on ? await gitSyncStatus(ctx.db, ctx.workspaceId) : null });
     }
 }
 

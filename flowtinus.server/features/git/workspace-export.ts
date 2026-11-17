@@ -1,8 +1,7 @@
 import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, projectToYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
 import { loadTree } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
-import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { queueGitCommit, type GitChanges } from './git-commits';
+import type { GitChanges } from './git-commits';
 
 export type RepoFiles = Record<string, string>;
 
@@ -104,9 +103,4 @@ export function repoChanges(before: RepoFiles, after: RepoFiles): GitChanges {
         }
     }
     return changes;
-}
-
-/** the whole workspace as one commit, in the transaction of ctx.db: the first export of a branch without the workspace */
-export async function queueWorkspaceExport(ctx: UseCaseContext, message: string): Promise<boolean> {
-    return queueGitCommit(ctx, { message, changes: () => exportWorkspace(ctx.db, ctx.workspaceId) });
 }

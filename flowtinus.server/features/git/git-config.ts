@@ -57,15 +57,25 @@ export const gitConfigSchema = (options: GitOptions) =>
         environment: z.string('Required').trim().regex(ENVIRONMENT_NAME, 'Letters, digits, - and _ (1 to 40)'),
     });
 
-const storedConfig = z.object({ repository: z.string(), tokenSecret: z.string(), environment: z.string() });
+const storedConfig = z.object({ repository: z.string(), tokenSecret: z.string(), environment: z.string(), on: z.boolean().optional() });
 
-export async function readGitConfig(db: Database, workspaceId: string): Promise<GitConfig | null> {
+/** the configuration, and whether git is on: only then is the workspace mirrored */
+export async function readGitState(db: Database, workspaceId: string): Promise<{ config: GitConfig; on: boolean } | null> {
     const parsed = storedConfig.safeParse(await readWorkspaceSetting(db, workspaceId, GIT_SETTING));
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) {
+        return null;
+    }
+
+    const { on, ...config } = parsed.data;
+    return { config, on: on ?? false };
 }
 
-export const saveGitConfig = (ctx: UseCaseContext, config: GitConfig) =>
-    writeWorkspaceSetting(ctx.db, ctx.workspaceId, GIT_SETTING, config, ctx.userId);
+export const readGitConfig = async (db: Database, workspaceId: string) => (await readGitState(db, workspaceId))?.config ?? null;
+
+export const isGitOn = async (db: Database, workspaceId: string) => (await readGitState(db, workspaceId))?.on ?? false;
+
+export const saveGitConfig = (ctx: UseCaseContext, config: GitConfig, on: boolean) =>
+    writeWorkspaceSetting(ctx.db, ctx.workspaceId, GIT_SETTING, { ...config, on }, ctx.userId);
 
 export const removeGitConfig = (ctx: UseCaseContext) => deleteWorkspaceSetting(ctx.db, ctx.workspaceId, GIT_SETTING);
 
