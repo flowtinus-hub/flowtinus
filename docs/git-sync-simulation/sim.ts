@@ -1,16 +1,18 @@
 // Throwaway simulation of the git-sync branching design (docs/GIT-BRAINSTORM.md).
 // Run: bun sim.ts            (from this directory; writes out/results.md and out/summary.json)
 // Local repos only, under ./repos. No remote is ever contacted.
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { flowChanges, flowFromYaml, flowToYaml, type FlowFile, type FlowFileNode } from '../../flowtinus.core/src/flows/flow-file.ts';
+import { deployContent, flowChanges, flowFromYaml, flowToYaml, type FlowFile, type FlowFileNode } from '../../flowtinus.core/src/flows/flow-file.ts';
 import { parse, stringify } from '../../flowtinus.core/node_modules/yaml/dist/index.js';
 
 const ROOT = import.meta.dir;
 const REPOS = join(ROOT, 'repos');
 const OUT = join(ROOT, 'out');
 rmSync(REPOS, { recursive: true, force: true });
-rmSync(OUT, { recursive: true, force: true });
+if (process.argv.length <= 2) {
+    rmSync(OUT, { recursive: true, force: true });
+}
 mkdirSync(REPOS, { recursive: true });
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(ROOT, 'empty.gitconfig'), '');
@@ -1678,9 +1680,211 @@ function s10() {
     }
 }
 
+// ================================================================ 11
+function s11() {
+    section(`Scenario 11: local mode, a developer's clone on this machine (${process.platform}), edited by hand and by the app`);
+    const lines = (dir: string, path: string) => {
+        const [a = '0', d = '0'] = q(dir, ['diff', '--numstat', '--', path]).split(/\s+/);
+        return `+${a} -${d} of ${readFileSync(join(dir, path), 'utf8').split('\n').length} lines`;
+    };
+    const appSave = (dir: string, path: string, fn: (f: FlowFile) => void = () => {}) => {
+        const f = parse(readFileSync(join(dir, path), 'utf8')) as FlowFile;
+        fn(f);
+        writeFlow(dir, path, f, 'sorted');
+    };
+
+    sub('11a: a hand edit in the order and style a person writes, then the app saves one change to that file');
+    {
+        const dir = newRepo('s11a');
+        seed(dir, 'sorted');
+        const path = F.orders;
+        let text = readFileSync(join(dir, path), 'utf8');
+        text = text.replace(/^(\s+)sql: \|/m, '$1# why: orders paid after midnight UTC were missed\n$1sql: |');
+        const hand = [
+            '  - id: hand-added-log',
+            '    type: log',
+            '    label: Log hand',
+            '    config: { message: "added by hand", level: info }',
+            '    position: { x: 9000, y: 0 }',
+        ].join('\n');
+        text = text.replace(/^edges:/m, `${hand}\nedges:`);
+        writeFileSync(join(dir, path), text);
+        say(`hand edit: a comment above a SQL block, a node appended last in flow style (${lines(dir, path)})`);
+        const ok = flowFromYaml(text).ok;
+        commit(dir, 'by hand: comment + a node at the end');
+        appSave(dir, path, f => (node(f, 'Query 1').position.x += 40));
+        const after = readFileSync(join(dir, path), 'utf8');
+        run(dir, ['diff', '--stat']);
+        const diff = lines(dir, path);
+        const commentKept = after.includes('# why:');
+        say(`the app moves one node and writes the file: ${diff}; comment kept: ${commentKept}`);
+        commit(dir, 'app: move Query 1');
+        checkout(dir, 'other', true, 'HEAD~1');
+        let t2 = readFileSync(join(dir, path), 'utf8');
+        t2 = t2.replace('message: "added by hand"', 'message: "added by hand, then reworded"');
+        writeFileSync(join(dir, path), t2);
+        commit(dir, 'by hand on another branch: reword the hand node');
+        const m = merge(dir, 'dev', 'other', 'no-ff', [], 5);
+        if (!m.clean) {
+            showHunks(dir, path, 1);
+            git(dir, ['merge', '--abort']);
+        }
+        verdict(
+            '11a',
+            `hand-written file reads ${ok ? 'fine' : 'INVALID'}; one app save rewrites it (${diff}), comment kept: ${commentKept}; another branch's hand edit to the same node then merges ${m.clean ? 'clean' : 'with a CONFLICT'}`,
+        );
+    }
+
+    sub('11b: a case-only rename (Load orders -> Load Orders), by git mv and by the file system');
+    {
+        const dir = newRepo('s11b');
+        seed(dir, 'sorted');
+        say(`core.ignorecase in a repo created here: ${q(dir, ['config', '--get', 'core.ignorecase']) || '(unset: false)'}`);
+        const upper = F.orders.replace('Load orders', 'Load Orders');
+        checkout(dir, 'by-fs', true, 'dev');
+        renameSync(join(dir, F.orders), join(dir, upper));
+        git(dir, ['add', '-A']);
+        const fsStatus = q(dir, ['status', '--porcelain']);
+        say(`renamed on disk, then git add -A; git status: ${fsStatus || '(nothing to commit)'}`);
+        const inTree = q(dir, ['ls-files', '--', `${P}/flows/Sales`]);
+        say(`the index still names: ${inTree.split('\n').join(', ')}`);
+        git(dir, ['checkout', '-q', '-f', 'dev']);
+        checkout(dir, 'by-git-mv', true, 'dev');
+        const mv = run(dir, ['mv', F.orders, upper]);
+        const sha = commit(dir, 'rename Load orders -> Load Orders');
+        checkout(dir, 'dev');
+        edit(dir, F.orders, 'sorted', f => setLine(f, 'Query 1', 'sql', 3, 'WHERE o.updatedAt >= @since -- dev'));
+        commit(dir, 'dev: edit Load orders');
+        const m = merge(dir, 'dev', 'by-git-mv', 'no-ff', [], 5);
+        const disk = readdirSync(join(dir, P, 'flows/Sales')).join(', ');
+        const tree = q(dir, ['ls-tree', '--name-only', 'HEAD', `${P}/flows/Sales/`]).replace(/\n/g, ', ');
+        say(`after merging the rename into dev: tree has ${tree}; the disk shows ${disk}`);
+        verdict(
+            '11b',
+            `a rename by the file system is ${fsStatus ? 'seen' : 'NOT seen'} by git here; git mv ${mv.code === 0 ? 'works' : 'fails'} (${sha}); merging it into a branch that edited the file: ${m.clean ? 'clean' : 'CONFLICT'}, tree: ${tree}, disk: ${disk}`,
+        );
+    }
+
+    sub('11c: two branches create the same folder in different case (Sales vs sales), the way a Linux clone allows');
+    {
+        const dir = newRepo('s11c');
+        seed(dir, 'sorted');
+        const blob = q(dir, ['hash-object', '-w', join(dir, F.customers)]);
+        const lower = `${P}/flows/sales/Other.yaml`;
+        checkout(dir, 'linux', true, 'dev');
+        git(dir, ['update-index', '--add', '--cacheinfo', `100644,${blob},${lower}`]);
+        git(dir, ['commit', '-q', '-m', 'from a Linux clone: sales/Other.yaml']);
+        git(dir, ['checkout', '-q', '-f', 'dev']);
+        const m = merge(dir, 'dev', 'linux', 'no-ff', [], 8);
+        const tree = q(dir, ['ls-tree', '-d', '--name-only', 'HEAD', `${P}/flows/`]).replace(/\n/g, ', ');
+        const st = q(dir, ['status', '--porcelain']);
+        verdict(
+            '11c',
+            `git merges it ${m.clean ? 'clean' : 'with a CONFLICT'}; the tree has the folders ${tree}; on this disk they are one folder${st ? `, and git status is not clean: ${st.split('\n')[0]}` : ''}. Only the validation (names unique whatever the case) catches it`,
+        );
+    }
+
+    sub('11d: the same name in NFC and in NFD (é as one code point, or e + U+0301), as macOS tools may write it');
+    {
+        const dir = newRepo('s11d');
+        seed(dir, 'sorted');
+        const nfc = `${P}/flows/Sales/Relatório.yaml`;
+        const nfd = `${P}/flows/Sales/Relatório.yaml`;
+        writeFileSync(join(dir, nfc), readFileSync(join(dir, F.customers)));
+        commit(dir, 'NFC name');
+        checkout(dir, 'mac', true, 'HEAD~1');
+        writeFileSync(join(dir, nfd), readFileSync(join(dir, F.customers)));
+        commit(dir, 'NFD name');
+        const m = merge(dir, 'dev', 'mac', 'no-ff', [], 5);
+        const entries = q(dir, ['-c', 'core.quotepath=false', 'ls-tree', '--name-only', 'HEAD', `${P}/flows/Sales/`]).split('\n');
+        const rel = entries.filter(e => e.normalize('NFC').endsWith('Relatório.yaml'));
+        verdict(
+            '11d',
+            `merge ${m.clean ? 'clean' : 'CONFLICT'}; the tree holds ${rel.length} entries that read the same (${rel.map(e => (e === e.normalize('NFC') ? 'NFC' : 'NFD')).join(' + ')}); the disk here has ${readdirSync(join(dir, P, 'flows/Sales')).filter(f => f.normalize('NFC').startsWith('Relat')).length}`,
+        );
+    }
+
+    sub('11e: a long path, cloned on Windows with and without core.longpaths');
+    {
+        const dir = newRepo('s11e');
+        seed(dir, 'sorted');
+        const folder = 'Integrations with the regional distribution centers/Inbound shipments and returns processing';
+        const name = 'Reconcile inbound shipment notices against purchase orders and supplier invoices';
+        const path = `${P}/flows/${folder}/${name}.yaml`;
+        mkdirSync(join(dir, dirname(path)), { recursive: true });
+        writeFileSync(join(dir, path), readFileSync(join(dir, F.customers)));
+        const add = git(dir, ['add', '-A']);
+        const staged = q(dir, ['status', '--porcelain']);
+        say(
+            `git add without core.longpaths, in a repo at ${dir.length} characters: exit ${add.code}; status: ${staged.split(String.fromCharCode(10))[0]}`,
+        );
+        const addOk = staged.startsWith('A ');
+        git(dir, ['config', 'core.longpaths', 'true']);
+        commit(dir, 'a long but reasonable path');
+        const clone = (longpaths: boolean) => {
+            const target = join(REPOS, `s11e-clone-${longpaths}`);
+            const r = git(REPOS, ['-c', `core.longpaths=${longpaths}`, 'clone', '-q', dir, target]);
+            return { code: r.code, full: join(target, path).length, out: r.out.split('\n').find(l => /too long|error/i.test(l)) ?? '' };
+        };
+        const off = clone(false);
+        const on = clone(true);
+        say(`repo-relative path: ${path.length} characters; absolute in the clone: ${off.full}`);
+        verdict(
+            '11e',
+            `a ${path.length}-character repo path, ${off.full} absolute: git add without core.longpaths ${addOk ? 'ok' : 'does NOT stage it'}; clone with core.longpaths=false ${off.code === 0 ? 'ok' : `FAILS (${off.out.trim()})`}; with core.longpaths=true ${on.code === 0 ? 'ok' : 'FAILS'}`,
+        );
+    }
+
+    sub('11f: line endings in a clone with core.autocrlf=true (the Git for Windows default), with and without .gitattributes');
+    {
+        const results: string[] = [];
+        for (const attrs of [false, true]) {
+            const dir = newRepo(`s11f-${attrs}`);
+            if (attrs) {
+                writeFileSync(join(dir, '.gitattributes'), '* text=auto eol=lf\n');
+            }
+            seed(dir, 'sorted');
+            const target = join(REPOS, `s11f-clone-${attrs}`);
+            git(REPOS, ['-c', 'core.autocrlf=true', 'clone', '-q', dir, target]);
+            git(target, ['config', 'core.autocrlf', 'true']);
+            const raw = readFileSync(join(target, F.orders), 'utf8');
+            const crlf = raw.includes('\r\n');
+            const hashSame = deployContent(parseFlowText(raw)) === deployContent(parseFlowText(raw.replace(/\r\n/g, '\n')));
+            appSave(target, F.orders);
+            const st = q(target, ['status', '--porcelain']);
+            results.push(
+                `${attrs ? 'with' : 'without'} .gitattributes: the file on disk has ${crlf ? 'CRLF' : 'LF'}; the content hash ${hashSame ? 'is the same either way' : 'DIFFERS'}; the app writing LF over it leaves git status ${st ? `dirty (${st})` : 'clean'}`,
+            );
+        }
+        for (const r of results) {
+            say(r);
+        }
+        verdict('11f', results.join(' // '));
+    }
+}
+const parseFlowText = (text: string) => {
+    const r = flowFromYaml(text);
+    if (!r.ok) {
+        throw new Error(r.errors.join(' '));
+    }
+    return r.value;
+};
+
 // ---------------------------------------------------------------- main
 const only = process.argv.slice(2);
-const all: Record<string, () => void> = { '1': s1, '2': s2, '3': s3, '4': s4, '5': s5, '6': s6, '7': s7, '8': s8, '9': s9, '10': s10 };
+const all: Record<string, () => void> = {
+    '1': s1,
+    '2': s2,
+    '3': s3,
+    '4': s4,
+    '5': s5,
+    '6': s6,
+    '7': s7,
+    '8': s8,
+    '9': s9,
+    '10': s10,
+    '11': s11,
+};
 say('# git-sim raw results');
 say(
     `\n${git(ROOT, ['--version']).out.trim()}, bun ${Bun.version}. Flow files written by the core's flowToYaml; validity checked by the core's flowFromYaml plus repo-wide checks.`,
@@ -1706,5 +1910,5 @@ for (const s of summary) {
     say(`- **${s.id}**: ${s.outcome}`);
 }
 writeFileSync(join(OUT, only.length ? `results-${only.join('-')}.md` : 'results.md'), buf.join('\n') + '\n');
-writeFileSync(join(OUT, 'summary.json'), JSON.stringify(summary, null, 2));
+writeFileSync(join(OUT, only.length ? `summary-${only.join('-')}.json` : 'summary.json'), JSON.stringify(summary, null, 2));
 console.log(summary.map(s => `${s.id}: ${s.outcome}`).join('\n'));

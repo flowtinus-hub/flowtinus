@@ -1914,6 +1914,106 @@ then the ordinary promotions: dev -> staging clean, staging -> prod clean; trees
 
 **RESULT 10b2:** hop 1 CONFLICT, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical
 
+## Scenario 11: local mode, a developer's clone on this machine (win32), edited by hand and by the app
+
+### 11a: a hand edit in the order and style a person writes, then the app saves one change to that file
+
+hand edit: a comment above a SQL block, a node appended last in flow style (+6 -0 of 366 lines)
+
+```
+$ git diff --stat    [exit 0]
+ acme/Billing/flows/Sales/Load orders.yaml | 17 ++++++++++-------
+ 1 file changed, 10 insertions(+), 7 deletions(-)
+```
+
+the app moves one node and writes the file: +10 -7 of 369 lines; comment kept: false
+
+```
+$ git merge --no-ff -m "Merge other into dev" other    [exit 1]
+Auto-merging acme/Billing/flows/Sales/Load orders.yaml
+CONFLICT (content): Merge conflict in acme/Billing/flows/Sales/Load orders.yaml
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+```
+# acme/Billing/flows/Sales/Load orders.yaml
+1 conflict hunk(s)
+@@ line 261
+          name: since
+          type: text
+<<<<<<< HEAD
+=======
+  - id: hand-added-log
+    type: log
+    label: Log hand
+    config: { message: "added by hand, then reworded", level: info }
+    position: { x: 9000, y: 0 }
+>>>>>>> other
+edges:
+```
+
+**RESULT 11a:** hand-written file reads fine; one app save rewrites it (+10 -7 of 369 lines), comment kept: false; another branch's hand edit to the same node then merges with a CONFLICT
+
+### 11b: a case-only rename (Load orders -> Load Orders), by git mv and by the file system
+
+core.ignorecase in a repo created here: true
+renamed on disk, then git add -A; git status: (nothing to commit)
+the index still names: acme/Billing/flows/Sales/Load orders.yaml, acme/Billing/flows/Sales/Sync customers.yaml
+
+```
+$ git mv "acme/Billing/flows/Sales/Load orders.yaml" "acme/Billing/flows/Sales/Load Orders.yaml"    [exit 0]
+```
+
+```
+$ git merge --no-ff -m "Merge by-git-mv into dev" by-git-mv    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/{Load orders.yaml => Load Orders.yaml} | 0
+ 1 file changed, 0 insertions(+), 0 deletions(-)
+ rename acme/Billing/flows/Sales/{Load orders.yaml => Load Orders.yaml} (100%)
+```
+
+after merging the rename into dev: tree has acme/Billing/flows/Sales/Load Orders.yaml, acme/Billing/flows/Sales/Sync customers.yaml; the disk shows Load Orders.yaml, Sync customers.yaml
+
+**RESULT 11b:** a rename by the file system is NOT seen by git here; git mv works (be7170c); merging it into a branch that edited the file: clean, tree: acme/Billing/flows/Sales/Load Orders.yaml, acme/Billing/flows/Sales/Sync customers.yaml, disk: Load Orders.yaml, Sync customers.yaml
+
+### 11c: two branches create the same folder in different case (Sales vs sales), the way a Linux clone allows
+
+```
+$ git merge --no-ff -m "Merge linux into dev" linux    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/sales/Other.yaml | 217 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 217 insertions(+)
+ create mode 100644 acme/Billing/flows/sales/Other.yaml
+```
+
+**RESULT 11c:** git merges it clean; the tree has the folders acme/Billing/flows/Finance, acme/Billing/flows/Sales, acme/Billing/flows/sales; on this disk they are one folder. Only the validation (names unique whatever the case) catches it
+
+### 11d: the same name in NFC and in NFD (é as one code point, or e + U+0301), as macOS tools may write it
+
+```
+$ git merge --no-ff -m "Merge mac into dev" mac    [exit 0]
+Merge made by the 'ort' strategy.
+ "acme/Billing/flows/Sales/Relato\314\201rio.yaml" | 217 ++++++++++++++++++++++
+ 1 file changed, 217 insertions(+)
+ create mode 100644 "acme/Billing/flows/Sales/Relato\314\201rio.yaml"
+```
+
+**RESULT 11d:** merge clean; the tree holds 2 entries that read the same (NFD + NFC); the disk here has 2
+
+### 11e: a long path, cloned on Windows with and without core.longpaths
+
+git add without core.longpaths, in a repo at 69 characters: exit 128; status: ?? "acme/Billing/flows/Integrations with the regional distribution centers/"
+repo-relative path: 197 characters; absolute in the clone: 279
+
+**RESULT 11e:** a 197-character repo path, 279 absolute: git add without core.longpaths does NOT stage it; clone with core.longpaths=false FAILS (error: unable to create file acme/Billing/flows/Integrations with the regional distribution centers/Inbound shipments and returns processing/Reconcile inbound shipment notices against purchase orders and supplier invoices.yaml: Filename too long); with core.longpaths=true ok
+
+### 11f: line endings in a clone with core.autocrlf=true (the Git for Windows default), with and without .gitattributes
+
+without .gitattributes: the file on disk has CRLF; the content hash is the same either way; the app writing LF over it leaves git status dirty (M "acme/Billing/flows/Sales/Load orders.yaml")
+with .gitattributes: the file on disk has LF; the content hash is the same either way; the app writing LF over it leaves git status clean
+
+**RESULT 11f:** without .gitattributes: the file on disk has CRLF; the content hash is the same either way; the app writing LF over it leaves git status dirty (M "acme/Billing/flows/Sales/Load orders.yaml") // with .gitattributes: the file on disk has LF; the content hash is the same either way; the app writing LF over it leaves git status clean
+
 ## Summary
 
 - **1-no-ff**: r1: staging clean, prod clean; r2: staging clean, prod clean; r3: staging clean, prod clean
@@ -1946,3 +2046,9 @@ then the ordinary promotions: dev -> staging clean, staging -> prod clean; trees
 - **10a2**: hop 1 clean, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical
 - **10b1**: backport CONFLICT; staging -> prod unblocked only after dev -> staging (clean), which brought round 3 into staging: true; next prod promotion (clean) carries round 3: true
 - **10b2**: hop 1 CONFLICT, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical
+- **11a**: hand-written file reads fine; one app save rewrites it (+10 -7 of 369 lines), comment kept: false; another branch's hand edit to the same node then merges with a CONFLICT
+- **11b**: a rename by the file system is NOT seen by git here; git mv works (be7170c); merging it into a branch that edited the file: clean, tree: acme/Billing/flows/Sales/Load Orders.yaml, acme/Billing/flows/Sales/Sync customers.yaml, disk: Load Orders.yaml, Sync customers.yaml
+- **11c**: git merges it clean; the tree has the folders acme/Billing/flows/Finance, acme/Billing/flows/Sales, acme/Billing/flows/sales; on this disk they are one folder. Only the validation (names unique whatever the case) catches it
+- **11d**: merge clean; the tree holds 2 entries that read the same (NFD + NFC); the disk here has 2
+- **11e**: a 197-character repo path, 279 absolute: git add without core.longpaths does NOT stage it; clone with core.longpaths=false FAILS (error: unable to create file acme/Billing/flows/Integrations with the regional distribution centers/Inbound shipments and returns processing/Reconcile inbound shipment notices against purchase orders and supplier invoices.yaml: Filename too long); with core.longpaths=true ok
+- **11f**: without .gitattributes: the file on disk has CRLF; the content hash is the same either way; the app writing LF over it leaves git status dirty (M "acme/Billing/flows/Sales/Load orders.yaml") // with .gitattributes: the file on disk has LF; the content hash is the same either way; the app writing LF over it leaves git status clean

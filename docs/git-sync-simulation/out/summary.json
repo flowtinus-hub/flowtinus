@@ -118,5 +118,29 @@
   {
     "id": "10b2",
     "outcome": "hop 1 CONFLICT, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical"
+  },
+  {
+    "id": "11a",
+    "outcome": "hand-written file reads fine; one app save rewrites it (+10 -7 of 369 lines), comment kept: false; another branch's hand edit to the same node then merges with a CONFLICT"
+  },
+  {
+    "id": "11b",
+    "outcome": "a rename by the file system is NOT seen by git here; git mv works (be7170c); merging it into a branch that edited the file: clean, tree: acme/Billing/flows/Sales/Load Orders.yaml, acme/Billing/flows/Sales/Sync customers.yaml, disk: Load Orders.yaml, Sync customers.yaml"
+  },
+  {
+    "id": "11c",
+    "outcome": "git merges it clean; the tree has the folders acme/Billing/flows/Finance, acme/Billing/flows/Sales, acme/Billing/flows/sales; on this disk they are one folder. Only the validation (names unique whatever the case) catches it"
+  },
+  {
+    "id": "11d",
+    "outcome": "merge clean; the tree holds 2 entries that read the same (NFD + NFC); the disk here has 2"
+  },
+  {
+    "id": "11e",
+    "outcome": "a 197-character repo path, 279 absolute: git add without core.longpaths does NOT stage it; clone with core.longpaths=false FAILS (error: unable to create file acme/Billing/flows/Integrations with the regional distribution centers/Inbound shipments and returns processing/Reconcile inbound shipment notices against purchase orders and supplier invoices.yaml: Filename too long); with core.longpaths=true ok"
+  },
+  {
+    "id": "11f",
+    "outcome": "without .gitattributes: the file on disk has CRLF; the content hash is the same either way; the app writing LF over it leaves git status dirty (M \"acme/Billing/flows/Sales/Load orders.yaml\") // with .gitattributes: the file on disk has LF; the content hash is the same either way; the app writing LF over it leaves git status clean"
   }
 ]
