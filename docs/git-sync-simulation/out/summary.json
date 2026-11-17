@@ -102,5 +102,21 @@
   {
     "id": "9b",
     "outcome": "tip promotion after a partial promotion + a hotfix on the line a not-yet-promoted commit changed: CONFLICT"
+  },
+  {
+    "id": "10a1",
+    "outcome": "backport clean; staging -> prod unblocked only after dev -> staging (clean), which brought round 3 into staging: true; next prod promotion (clean) carries round 3: true"
+  },
+  {
+    "id": "10a2",
+    "outcome": "hop 1 clean, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical"
+  },
+  {
+    "id": "10b1",
+    "outcome": "backport CONFLICT; staging -> prod unblocked only after dev -> staging (clean), which brought round 3 into staging: true; next prod promotion (clean) carries round 3: true"
+  },
+  {
+    "id": "10b2",
+    "outcome": "hop 1 CONFLICT, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical"
   }
 ]

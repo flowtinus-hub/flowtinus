@@ -1574,6 +1574,346 @@ Automatic merge failed; fix conflicts and then commit the result.
 
 **RESULT 9b:** tip promotion after a partial promotion + a hotfix on the line a not-yet-promoted commit changed: CONFLICT
 
+## Scenario 10: a hotfix on prod while staging and dev both have unpromoted work; backport to the root vs one hop at a time
+
+### 10a1: the hotfix touches a flow nobody else changed; backport to the root (dev)
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml    | 2 +-
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+... (1 more lines)
+```
+
+before: staging -> prod BLOCKED
+
+```
+$ git merge --no-ff -m "Merge prod into backport/prod-e08d95b" prod    [exit 0]
+Auto-merging acme/Billing/flows/Sales/Sync customers.yaml
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+```
+$ git merge --no-ff -m "Merge backport/prod-e08d95b into dev" backport/prod-e08d95b    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+after the backport into dev: staging -> prod BLOCKED, dev -> staging open
+the only dev commits that carry the hotfix are the backport merge and later; the promotion takes the tip:
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Finance/Monthly invoices.yaml |  2 +-
+ acme/Billing/flows/Sales/Load orders.yaml        | 15 +--------------
+ acme/Billing/flows/Sales/Sync customers.yaml     |  2 +-
+ 3 files changed, 3 insertions(+), 16 deletions(-)
+```
+
+after dev -> staging: staging has round 2: true, round 3: true; staging -> prod open
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Finance/Monthly invoices.yaml |  2 +-
+ acme/Billing/flows/Sales/Load orders.yaml        | 17 ++---------------
+ acme/Billing/flows/Sales/Sync customers.yaml     |  2 +-
+ 3 files changed, 4 insertions(+), 17 deletions(-)
+```
+
+after staging -> prod: prod has round 2: true, round 3: true; valid
+
+**RESULT 10a1:** backport clean; staging -> prod unblocked only after dev -> staging (clean), which brought round 3 into staging: true; next prod promotion (clean) carries round 3: true
+
+### 10a2: the hotfix touches a flow nobody else changed; backport one hop at a time (prod into staging, then staging into dev)
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml    | 2 +-
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+... (1 more lines)
+```
+
+```
+$ git merge --no-ff -m "Merge prod into backport/prod-9537b9c" prod    [exit 0]
+Auto-merging acme/Billing/flows/Sales/Sync customers.yaml
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+```
+$ git merge --no-ff -m "Merge backport/prod-9537b9c into staging" backport/prod-9537b9c    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+after hop 1: staging -> prod open, dev -> staging BLOCKED; staging has round 2: true, round 3: false
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml    | 2 +-
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+```
+
+staging -> prod right away (clean): prod has round 2: true, round 3: false
+
+```
+$ git merge --no-ff -m "Merge staging into backport/staging-d80409c" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+```
+$ git merge --no-ff -m "Merge backport/staging-d80409c into dev" backport/staging-d80409c    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+after hop 2: dev -> staging open
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Finance/Monthly invoices.yaml |  2 +-
+ acme/Billing/flows/Sales/Load orders.yaml        | 15 +--------------
+ 2 files changed, 2 insertions(+), 15 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Finance/Monthly invoices.yaml |  2 +-
+ acme/Billing/flows/Sales/Load orders.yaml        | 15 +--------------
+ 2 files changed, 2 insertions(+), 15 deletions(-)
+```
+
+then the ordinary promotions: dev -> staging clean, staging -> prod clean; trees dev/prod identical; valid
+
+**RESULT 10a2:** hop 1 clean, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical
+
+### 10b1: the hotfix changes the line round 2 changed on staging; backport to the root (dev)
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml    | 2 +-
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+... (1 more lines)
+```
+
+before: staging -> prod BLOCKED
+
+```
+$ git merge --no-ff -m "Merge prod into backport/prod-020f6d1" prod    [exit 1]
+Auto-merging acme/Billing/flows/Sales/Load orders.yaml
+CONFLICT (content): Merge conflict in acme/Billing/flows/Sales/Load orders.yaml
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+conflict in backport/prod-020f6d1, resolved by taking prod's side of each hunk
+
+```
+# acme/Billing/flows/Sales/Load orders.yaml
+1 conflict hunk(s)
+@@ line 78
+        FROM dbo.Orders_1 o
+        JOIN dbo.Customer c ON c.id = o.customerId
+<<<<<<< HEAD
+        WHERE o.updatedAt >= DATEADD(day, -1, @since)
+=======
+        WHERE o.updatedAt >= @since -- hotfix
+>>>>>>> prod
+          AND o.status IN ('paid', 'shipped')
+```
+
+```
+$ git merge --no-ff -m "Merge backport/prod-020f6d1 into dev" backport/prod-020f6d1    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+after the backport into dev: staging -> prod BLOCKED, dev -> staging open
+the only dev commits that carry the hotfix are the backport merge and later; the promotion takes the tip:
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Finance/Monthly invoices.yaml | 2 +-
+ acme/Billing/flows/Sales/Load orders.yaml        | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+```
+
+after dev -> staging: staging has round 2: true, round 3: true; staging -> prod open
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Finance/Monthly invoices.yaml | 2 +-
+ acme/Billing/flows/Sales/Sync customers.yaml     | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+```
+
+after staging -> prod: prod has round 2: true, round 3: true; valid
+
+**RESULT 10b1:** backport CONFLICT; staging -> prod unblocked only after dev -> staging (clean), which brought round 3 into staging: true; next prod promotion (clean) carries round 3: true
+
+### 10b2: the hotfix changes the line round 2 changed on staging; backport one hop at a time (prod into staging, then staging into dev)
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml    | 2 +-
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+... (1 more lines)
+```
+
+```
+$ git merge --no-ff -m "Merge prod into backport/prod-b178598" prod    [exit 1]
+Auto-merging acme/Billing/flows/Sales/Load orders.yaml
+CONFLICT (content): Merge conflict in acme/Billing/flows/Sales/Load orders.yaml
+Automatic merge failed; fix conflicts and then commit the result.
+```
+
+conflict in backport/prod-b178598, resolved by taking prod's side of each hunk
+
+```
+# acme/Billing/flows/Sales/Load orders.yaml
+1 conflict hunk(s)
+@@ line 78
+        FROM dbo.Orders_1 o
+        JOIN dbo.Customer c ON c.id = o.customerId
+<<<<<<< HEAD
+        WHERE o.updatedAt >= DATEADD(day, -1, @since)
+=======
+        WHERE o.updatedAt >= @since -- hotfix
+>>>>>>> prod
+          AND o.status IN ('paid', 'shipped')
+```
+
+```
+$ git merge --no-ff -m "Merge backport/prod-b178598 into staging" backport/prod-b178598    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+after hop 1: staging -> prod open, dev -> staging BLOCKED; staging has round 2: true, round 3: false
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Sync customers.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+staging -> prod right away (clean): prod has round 2: true, round 3: false
+
+```
+$ git merge --no-ff -m "Merge staging into backport/staging-7f8b32c" staging    [exit 0]
+Auto-merging acme/Billing/flows/Sales/Load orders.yaml
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+```
+$ git merge --no-ff -m "Merge backport/staging-7f8b32c into dev" backport/staging-7f8b32c    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Sales/Load orders.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+after hop 2: dev -> staging open
+
+```
+$ git merge --no-ff -m "Merge dev into staging" dev    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Finance/Monthly invoices.yaml |  2 +-
+ acme/Billing/flows/Sales/Load orders.yaml        | 15 +--------------
+ 2 files changed, 2 insertions(+), 15 deletions(-)
+```
+
+```
+$ git merge --no-ff -m "Merge staging into prod" staging    [exit 0]
+Merge made by the 'ort' strategy.
+ acme/Billing/flows/Finance/Monthly invoices.yaml |  2 +-
+ acme/Billing/flows/Sales/Load orders.yaml        | 15 +--------------
+ 2 files changed, 2 insertions(+), 15 deletions(-)
+```
+
+then the ordinary promotions: dev -> staging clean, staging -> prod clean; trees dev/prod identical; valid
+
+**RESULT 10b2:** hop 1 CONFLICT, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical
+
 ## Summary
 
 - **1-no-ff**: r1: staging clean, prod clean; r2: staging clean, prod clean; r3: staging clean, prod clean
@@ -1602,3 +1942,7 @@ Automatic merge failed; fix conflicts and then commit the result.
 - **8c**: mine on workspace.yaml: acme/Billing/flows/Sales/Load orders.yaml: node "Query 1" uses connection 3c0ffee0-1111-4111-a111-00000000000a, not declared in workspace.yaml
 - **9**: promote/dev-0dce47e into staging clean, on to prod clean; later tip into staging clean, prod clean; trees end identical
 - **9b**: tip promotion after a partial promotion + a hotfix on the line a not-yet-promoted commit changed: CONFLICT
+- **10a1**: backport clean; staging -> prod unblocked only after dev -> staging (clean), which brought round 3 into staging: true; next prod promotion (clean) carries round 3: true
+- **10a2**: hop 1 clean, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical
+- **10b1**: backport CONFLICT; staging -> prod unblocked only after dev -> staging (clean), which brought round 3 into staging: true; next prod promotion (clean) carries round 3: true
+- **10b2**: hop 1 CONFLICT, staging -> prod open at once and (clean) carries round 2: true, round 3: false; hop 2 clean; later promotions clean, trees end identical

@@ -2,7 +2,7 @@
 
 Where the discussion on git sync stands. Not a spec: it records what was decided and why, so the spec and its tickets can be written from it.
 
-Status: second round closed, ready for the third. Every point the git simulation and the first mock of the screens raised has a decision below, and the prototype follows them. "For round 3" lists what adjusting the prototype turned up. Nothing here is to be implemented or published to the issue tracker until the maintainer says so.
+Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. Nothing here is to be implemented or published to the issue tracker until the maintainer says so.
 
 ## Goal
 
@@ -98,18 +98,19 @@ Considered and dropped: one repo with a single `main` and a moving ref per envir
 - Only a commit on the source's first-parent line can be chosen: one that came in through a merge was never a state of the source environment, and goes with its merge.
 - Every promotion is opened from `promote/<source>-<sha>`, for the tip too, so the pull request stays what was chosen. A pull request opened from the environment's branch would grow with every later commit.
 - A server promotes only along the edges that leave its own environment, never on behalf of another.
-- A promotion pull request is never squashed or rebased: only a merge commit or a fast-forward. Where there is an adapter, it is opened with squash off, and the app refuses to open it on a project that forces squash.
-- After the target's reconcile, the app checks that the promoted sha is an ancestor of the target. If not (a squash or rebase on the provider), the target's lineage is broken: promotions into and out of it are blocked until a repair pull request, a commit whose parents are the target and the promoted sha and whose tree is the promoted sha's. That is the right content because a promotion only happens when the target is contained in its source (see below). The deploy follows git meanwhile.
+- A promotion pull request is never squashed or rebased: only a merge commit or a fast-forward. Where there is an adapter, it is opened with squash off, and the app refuses to open it on a project that forces squash. Squash matters only for promotions and backports: a change or hotfix pull request may be squashed, since its branch is removed on merge and nothing later depends on its ancestry.
+- After the target's reconcile, the app checks that the promoted sha is an ancestor of the target. It needs no adapter: the promoted sha is in the `promote/<source>-<sha>` branch the app opened, so the app keeps the promotions it opened (a table of its own, part of the promotion step). If not (a squash or rebase on the provider), the target's lineage is broken: promotions into and out of it are blocked until a repair pull request, a commit whose parents are the target and the promoted sha and whose tree is the promoted sha's. That is the right content because a promotion only happens when the target is contained in its source (see below). The deploy follows git meanwhile.
 - "To promote" shows the files that change (a tree diff), not a count of commits: a merge commit that changes nothing is not work to promote.
 
 ### Hotfix and backport
 
 - A `protected` environment takes a hotfix as a pull request from `hotfix/<name>`, cut from its branch and reviewed like a promotion.
 - An environment is ahead of its source when merging it into the source would change the source's tree (`git merge-tree --write-tree`). Not a count of commits: promotion merge commits would count, and a change back-ported by cherry-pick would be flagged for ever.
-- While an environment is ahead of its source, the promotion from that source into it is blocked. So a promotion never conflicts inside a protected branch, and environments never differ in silence.
-- The backport goes to the root of the pipeline, from `backport/<env>-<sha>` cut from the root's branch, opened on the root's server. A conflict is resolved in that branch, in the editor or with git locally. From there the hotfix moves forward through the ordinary promotions, and each edge unblocks when it reaches that edge's source.
+- While an environment is ahead of its source, the promotion from that source into it is blocked. So a promotion never conflicts inside a protected branch, and environments never differ in silence. A hotfix whose content the source already has (the same fix made upstream and promoted) leaves the environment not ahead, and nothing is blocked.
+- The backport goes one hop at a time: from the environment into its source, by a pull request from `backport/<env>-<sha>` cut from the source's branch, opened on the source's server. Once it is merged, the source's edge into the environment unblocks at once, and the source is ahead of its own source in turn: the app offers the next hop, up to the root. A conflict is resolved in the backport branch, in the editor or with git locally, before the pull request; on a `protected` source the editor edits a backport branch as it does a hotfix branch.
+- Each hop brings only the hotfix: the next promotion into the environment carries what its source already had, never the unpromoted work further up. Backporting straight to the root was dropped for this: the hotfix then reached the source only by a promotion from the root, which carried all of the root's pending work, ready or not (scenario 10 of the simulation).
 - A backport is always a merge, never a cherry-pick or a squash, for the same reason as a promotion.
-- The cost: until the hotfix is back at the source, nothing is promoted into the environment that had it. A second emergency there is a second hotfix.
+- The cost: a reviewed pull request in each protected branch on the way, and until a hop is merged, nothing is promoted into the environment it leaves. A second emergency there is a second hotfix.
 
 ## The editor as a small source control client
 
@@ -128,15 +129,15 @@ Out: stash, rebase, a visual merge editor beyond the conflict screen.
 
 The app tells a branch's kind by its name and the topology, with nothing stored:
 
-| Branch                                    | Kind                                                                                                        |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| an environment's branch (in the topology) | environment                                                                                                 |
-| `promote/…`, `backport/…`, `hotfix/…`     | the app's own; not offered as work branches (on a `protected` server the picker shows only hotfix branches) |
-| `users/<slug>/…`                          | a user's: only that user writes; the owner comes from the name                                              |
-| any other (`fix/x`, pushed from a laptop) | a shared work branch: anyone may edit it, and its working copy works as the environment's does              |
+| Branch                                    | Kind                                                                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| an environment's branch (in the topology) | environment                                                                                                                           |
+| `promote/…`, `backport/…`, `hotfix/…`     | the app's own; not offered as work branches (on a `protected` server the picker shows only hotfix branches and the backports into it) |
+| `users/<slug>/…`                          | a user's: only that user writes; the owner comes from the name                                                                        |
+| any other (`fix/x`, pushed from a laptop) | a shared work branch: anyone may edit it, and its working copy works as the environment's does                                        |
 
 - The app creates `users/<slug>/<name>`. A branch can be cut from any branch, another user's included. A pull request from a branch cut from another user's branch says that it includes N commits from that branch not yet in the environment; they leave the diff once that branch is merged.
-- A pull request from a work branch goes to the environment of the server it is opened on. Only a `direct` or `pull-request` environment's server opens one; a `protected` environment's server opens only promotions and hotfixes, and its editor edits flows only inside a hotfix branch.
+- A pull request from a work branch goes to the environment of the server it is opened on. Only a `direct` or `pull-request` environment's server opens one; a `protected` environment's server opens only promotions and hotfixes, and its editor edits flows only inside a hotfix branch or a backport into it.
 - Where there is an adapter, the app opens a pull request with "remove the source branch" on, and always for its own branches. Whatever the provider, the picker hides a branch that is contained in the environment's branch and has no uncommitted change, behind "show merged".
 - A branch removed on the remote while this server has uncommitted changes on it: the changes are kept, marked as such, and the user either creates a branch with them or discards them.
 
@@ -227,18 +228,9 @@ Considered and dropped: a stored slug per project, folder and flow (a rename wou
 
 ## Evidence
 
-Nine scenarios run with real git (2.54) on fake flows written by the core's `flowToYaml`, in a local repo, with `git merge --no-ff` for a merged pull request and `--squash` for a squashed one; GitLab's server-side merge was not tested. Most of the rules above on promotion, backport, identity, conflicts and file granularity come from what broke there. The script and its evidence are in `docs/git-sync-simulation/`: `sim.ts` (run `bun sim.ts` in that folder, about 90 seconds; `bun sim.ts 5` runs one scenario; it rebuilds `repos/` there, which git ignores, and rewrites `out/`), `out/results.md` (every command, output and conflict hunk) and `out/summary.json`. Temporary: delete the folder, and this paragraph, once git sync is implemented.
+Ten scenarios run with real git (2.54) on fake flows written by the core's `flowToYaml`, in a local repo, with `git merge --no-ff` for a merged pull request and `--squash` for a squashed one; GitLab's server-side merge was not tested. Most of the rules above on promotion, backport, identity, conflicts and file granularity come from what broke there. The script and its evidence are in `docs/git-sync-simulation/`: `sim.ts` (run `bun sim.ts` in that folder, about 90 seconds; `bun sim.ts 5` runs one scenario; it rebuilds `repos/` there, which git ignores, and rewrites `out/`), `out/results.md` (every command, output and conflict hunk) and `out/summary.json`. Temporary: delete the folder, and this paragraph, once git sync is implemented.
 
-The clickable prototype, with mocked data only, is in the editor under `src/pages/prototype-git-sync` (dev builds only): `bun run editor`, then `/prototype/git-sync?variant=B`. Its bottom bar switches the server it runs as and the user, simulates another user's change or a push straight in git, shows the raw state and resets it. It is the reference for the screens and follows the decisions above: the layout, the topology on `flowtinus/config` (edited in Settings), the three modes, hotfix branches on a protected server, the backport into the root, the block on a promotion while the target is ahead, the lineage check and its repair (squash a promotion on the mock provider to see it), the reconcile refusing an invalid tree (Simulate), the working copy's base and last editor with the three-way merge when its branch moves, the conflict screen per hunk, branches of any name (Simulate pushes one from a laptop), merged branches hidden, the emergency pin (Versions on the canvas), and the three cases of turning git on. It does not show webhooks, the GitHub adapter, the CLI, or the local mode.
-
-## For round 3
-
-What adjusting the prototype to the decisions turned up. Nothing below is decided.
-
-1. **A backport into the root drags the source's unpromoted work along.** To unblock STAGING → PROD after a hotfix in PROD, the hotfix has to reach STAGING by a promotion from DEV. The backport merge commit on `dev` contains everything `dev` had before it, so STAGING receives all of DEV's pending work, ready or not, before anything can be promoted to PROD again. Choosing an earlier commit does not help: only commits after the backport carry it. The alternative set aside in the second round, a backport one hop at a time (PROD into STAGING by a pull request on the protected branch, then STAGING into DEV), unblocks STAGING → PROD at once and drags nothing, at the cost of a reviewed pull request in each protected branch on the way. Back to decision 3 with this in hand.
-2. **The tree measure of "ahead" held in a case the doc did not name.** A hotfix whose content the source already had (the same fix made in DEV and promoted) leaves PROD not ahead, and nothing is blocked. That is the intended behavior.
-3. **The lineage check does not need the adapter.** The promoted sha is in the `promote/<source>-<sha>` branch the app created, so the app knows it from what it opened, provider or not. It does need the app to keep the promotions it opened: the new table of 11.3 is part of the promotion step, not a later one.
-4. **Squash only matters for promotions and backports.** The mock provider lets a change or hotfix pull request be squashed: the work branch is removed on merge and nothing later depends on its ancestry.
+The clickable prototype, with mocked data only, is in the editor under `src/pages/prototype-git-sync` (dev builds only): `bun run editor`, then `/prototype/git-sync?variant=B`. Its bottom bar switches the server it runs as and the user, simulates another user's change or a push straight in git, shows the raw state and resets it. It is the reference for the screens and follows the decisions above: the layout, the topology on `flowtinus/config` (edited in Settings), the three modes, hotfix branches on a protected server, the backport one hop at a time, the block on a promotion while the target is ahead, the lineage check and its repair (squash a promotion on the mock provider to see it), the reconcile refusing an invalid tree (Simulate), the working copy's base and last editor with the three-way merge when its branch moves, the conflict screen per hunk, branches of any name (Simulate pushes one from a laptop), merged branches hidden, the emergency pin (Versions on the canvas), and the three cases of turning git on. It does not show webhooks, the GitHub adapter, the CLI, or the local mode.
 
 ## Step 1
 
@@ -273,8 +265,8 @@ In the order they depend on each other, to be cut into tickets when step 1 is do
 1. React to a commit (polling and the generic webhook) with the reconcile, the environment's branch becomes the source of truth and the Deploy button goes; scripts become versioned; the environment shows when git is ahead of its deploy and why.
 2. The working copy and the editor's source control client: branches, changes, commit, discard, update, pull request, the three-way merge on a moved branch, the conflict screen; the environment modes.
 3. Schedules and webhooks in the flow's file, arriving disabled.
-4. Promotion: `promote/` branches, first-parent choice, the pre-flight, the lineage check and its repair; the Environments page.
-5. Hotfix and backport, and the block on promotion while the target is ahead.
+4. Promotion: `promote/` branches, first-parent choice, the pre-flight, the table of the promotions the app opened, the lineage check and its repair; the Environments page.
+5. Hotfix and the backport one hop at a time, and the block on promotion while the target is ahead.
 6. The GitLab adapter, then GitHub.
 7. The emergency pin.
 

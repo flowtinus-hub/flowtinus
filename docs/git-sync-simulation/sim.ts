@@ -1573,9 +1573,114 @@ function s9() {
     );
 }
 
+// ================================================================ 10
+function s10() {
+    section('Scenario 10: a hotfix on prod while staging and dev both have unpromoted work; backport to the root vs one hop at a time');
+    // round 1 is in prod; round 2 reached staging only (being tested); round 3 is on dev only (not ready)
+    const base = (name: string, hotfix: (dir: string) => void) => {
+        const dir = newRepo(name);
+        seed(dir, 'sorted');
+        envs(dir);
+        rounds[0]!(dir, 'sorted');
+        merge(dir, 'staging', 'dev', 'no-ff', [], 3);
+        merge(dir, 'prod', 'staging', 'no-ff', [], 3);
+        checkout(dir, 'dev');
+        rounds[1]!(dir, 'sorted');
+        merge(dir, 'staging', 'dev', 'no-ff', [], 3);
+        checkout(dir, 'dev');
+        rounds[2]!(dir, 'sorted');
+        checkout(dir, 'prod');
+        hotfix(dir);
+        return dir;
+    };
+    const hotOther = (dir: string) => {
+        edit(dir, F.customers, 'sorted', f => (node(f, 'Filter 9').config.condition = '$total > 0 -- hotfix'));
+        commit(dir, 'HOTFIX on prod: Sync customers, Filter 9 (no other branch touches it)');
+    };
+    const hotSame = (dir: string) => {
+        edit(dir, F.orders, 'sorted', f => setLine(f, 'Query 1', 'sql', 3, 'WHERE o.updatedAt >= @since -- hotfix'));
+        commit(dir, 'HOTFIX on prod: Load orders, Query 1 line 3 (the line round 2 changed on staging)');
+    };
+    const has = (dir: string, ref: string) => ({
+        r2: q(dir, ['show', `${ref}:${F.customers}`]).includes('$total > 50'),
+        r3: q(dir, ['show', `${ref}:${F.invoices}`]).includes('* 1.5'),
+    });
+    const content = (dir: string, ref: string) => {
+        const h = has(dir, ref);
+        return `${ref} has round 2: ${h.r2}, round 3: ${h.r3}`;
+    };
+    const blocked = (dir: string, source: string, env: string) => (ahead(dir, source, env).changes === 'no' ? 'open' : 'BLOCKED');
+    const resolveTheirs = (dir: string, files: string[]) => {
+        for (const f of files) {
+            showHunks(dir, f, 1);
+            git(dir, ['checkout', '--theirs', f]);
+            git(dir, ['add', f]);
+        }
+        git(dir, ['commit', '-q', '--no-edit']);
+    };
+    const backport = (dir: string, from: string, into: string) => {
+        const sha = q(dir, ['rev-parse', '--short', from]);
+        const br = `backport/${from}-${sha}`;
+        checkout(dir, br, true, into);
+        const m = merge(dir, br, from, 'no-ff', [], 5);
+        if (!m.clean) {
+            say(`conflict in ${br}, resolved by taking ${from}'s side of each hunk`);
+            resolveTheirs(dir, m.files);
+        }
+        merge(dir, into, br, 'no-ff', [], 3);
+        return m;
+    };
+
+    for (const [id, what, hot] of [
+        ['a', 'the hotfix touches a flow nobody else changed', hotOther],
+        ['b', 'the hotfix changes the line round 2 changed on staging', hotSame],
+    ] as const) {
+        sub(`10${id}1: ${what}; backport to the root (dev)`);
+        {
+            const dir = base(`s10${id}1`, hot);
+            say(`before: staging -> prod ${blocked(dir, 'staging', 'prod')}`);
+            const bp = backport(dir, 'prod', 'dev');
+            say(
+                `after the backport into dev: staging -> prod ${blocked(dir, 'staging', 'prod')}, dev -> staging ${blocked(dir, 'dev', 'staging')}`,
+            );
+            say('the only dev commits that carry the hotfix are the backport merge and later; the promotion takes the tip:');
+            const a = merge(dir, 'staging', 'dev', 'no-ff', [], 5);
+            say(`after dev -> staging: ${content(dir, 'staging')}; staging -> prod ${blocked(dir, 'staging', 'prod')}`);
+            const b = merge(dir, 'prod', 'staging', 'no-ff', [], 5);
+            say(`after staging -> prod: ${content(dir, 'prod')}; ${validity(dir)}`);
+            verdict(
+                `10${id}1`,
+                `backport ${bp.clean ? 'clean' : 'CONFLICT'}; staging -> prod unblocked only after dev -> staging (${a.clean ? 'clean' : 'CONFLICT'}), which brought round 3 into staging: ${has(dir, 'staging').r3}; next prod promotion (${b.clean ? 'clean' : 'CONFLICT'}) carries round 3: ${has(dir, 'prod').r3}`,
+            );
+        }
+        sub(`10${id}2: ${what}; backport one hop at a time (prod into staging, then staging into dev)`);
+        {
+            const dir = base(`s10${id}2`, hot);
+            const h1 = backport(dir, 'prod', 'staging');
+            say(
+                `after hop 1: staging -> prod ${blocked(dir, 'staging', 'prod')}, dev -> staging ${blocked(dir, 'dev', 'staging')}; ${content(dir, 'staging')}`,
+            );
+            const p = merge(dir, 'prod', 'staging', 'no-ff', [], 5);
+            const prodNow = has(dir, 'prod');
+            say(`staging -> prod right away (${p.clean ? 'clean' : 'CONFLICT'}): ${content(dir, 'prod')}`);
+            const h2 = backport(dir, 'staging', 'dev');
+            say(`after hop 2: dev -> staging ${blocked(dir, 'dev', 'staging')}`);
+            const a = merge(dir, 'staging', 'dev', 'no-ff', [], 5);
+            const b = merge(dir, 'prod', 'staging', 'no-ff', [], 5);
+            say(
+                `then the ordinary promotions: dev -> staging ${a.clean ? 'clean' : 'CONFLICT'}, staging -> prod ${b.clean ? 'clean' : 'CONFLICT'}; trees dev/prod ${same(dir, 'dev', 'prod')}; ${validity(dir)}`,
+            );
+            verdict(
+                `10${id}2`,
+                `hop 1 ${h1.clean ? 'clean' : 'CONFLICT'}, staging -> prod open at once and (${p.clean ? 'clean' : 'CONFLICT'}) carries round 2: ${prodNow.r2}, round 3: ${prodNow.r3}; hop 2 ${h2.clean ? 'clean' : 'CONFLICT'}; later promotions ${a.clean && b.clean ? 'clean' : 'CONFLICT'}, trees end ${same(dir, 'dev', 'prod')}`,
+            );
+        }
+    }
+}
+
 // ---------------------------------------------------------------- main
 const only = process.argv.slice(2);
-const all: Record<string, () => void> = { '1': s1, '2': s2, '3': s3, '4': s4, '5': s5, '6': s6, '7': s7, '8': s8, '9': s9 };
+const all: Record<string, () => void> = { '1': s1, '2': s2, '3': s3, '4': s4, '5': s5, '6': s6, '7': s7, '8': s8, '9': s9, '10': s10 };
 say('# git-sim raw results');
 say(
     `\n${git(ROOT, ['--version']).out.trim()}, bun ${Bun.version}. Flow files written by the core's flowToYaml; validity checked by the core's flowFromYaml plus repo-wide checks.`,
