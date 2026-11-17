@@ -20,6 +20,8 @@ export type AppSettings = {
     editorUrl?: string;
     /** the keys that encrypt the secrets (SECRETS_KEYS, the last one encrypts); empty = DEV's fixed key, refused elsewhere */
     secretsKeys: KeyEntry[];
+    /** where each workspace's private git clone lives (default: a folder in the OS temp folder) */
+    gitClonesDir?: string;
     logLevel: ServerLogLevel;
     logFormat: LogFormat;
 };
@@ -131,6 +133,7 @@ export function readAppSettings(env: Record<string, string | undefined> = proces
         editorUrl:
             url('EDITOR_URL', env.EDITOR_URL) ?? ((env.ENVIRONMENT?.trim() || 'DEV') === 'DEV' ? 'http://localhost:5180' : undefined),
         secretsKeys: keys(env.SECRETS_KEYS),
+        gitClonesDir: env.GIT_CLONES_DIR?.trim() || undefined,
         logLevel: oneOf('LOG_LEVEL', env.LOG_LEVEL, LOG_LEVELS, 'info'),
         logFormat: oneOf('LOG_FORMAT', env.LOG_FORMAT, LOG_FORMATS, 'pretty'),
     };

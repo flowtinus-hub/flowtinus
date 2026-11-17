@@ -17,12 +17,17 @@ import { mcpRoute, type McpRouteOptions } from './routes/mcp.routes';
 import { workspaceContext } from './middlewares/workspace-context';
 import { workspaceRoutes } from './routes/workspaces.routes';
 import { tokensRoutes } from './routes/tokens.routes';
+import { gitRoutes } from './routes/git.routes';
+import { gitOptions, type GitOptions } from '#features/git/git-config';
 import { jsonBody } from './routes/request-input';
 import { CreateWorkspaceHandler, GetMeHandler, ListWorkspacesHandler } from '#features/workspaces/workspaces-handlers';
 
 export const WORKERS_CHECK_MS = 2000;
 
-export function createApp(db: Database, environment: string, keyring?: Keyring, logger?: Logger, mcp: McpRouteOptions = {}) {
+export type AppOptions = McpRouteOptions & { git?: Partial<GitOptions> };
+
+export function createApp(db: Database, environment: string, keyring?: Keyring, logger?: Logger, options: AppOptions = {}) {
+    const { git, ...mcp } = options;
     const app = new Hono<AppEnv>();
     if (logger) {
         app.use('*', accessLog(logger));
@@ -86,6 +91,7 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
     workspace.route('/schedules', schedulesRoutes());
     workspace.route('/webhooks', webhooksRoutes());
     workspace.route('/', projectResourcesRoutes());
+    workspace.route('/git', gitRoutes(gitOptions(environment, git)));
     app.route('/w/:workspace', workspace);
 
     app.onError((error, c) => {
