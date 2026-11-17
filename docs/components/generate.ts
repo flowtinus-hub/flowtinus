@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { format, resolveConfig } from 'prettier';
 // the core's own copy of yaml (the workspaces are isolated: the repo root has no yaml of its own)
 import { stringify } from '../../flowtinus.core/node_modules/yaml';
-import { buildCatalog, COMPONENT_CATEGORIES, CONNECTION_GROUPS, type CatalogComponent, type CatalogSetting } from '../../flowtinus.core/src/index';
+import { buildCatalog, COMPONENT_CATEGORIES, CONNECTION_GROUPS, GITATTRIBUTES, NAME_MAX, REPO_FORMAT, REPO_PATH_MAX, REPO_SCHEMA_BASE_URL, REPO_SCHEMAS, type CatalogComponent, type CatalogSetting } from '../../flowtinus.core/src/index';
 
 const ROOT = join(import.meta.dir, '..', '..');
 const COMPONENTS_DIR = import.meta.dir;
@@ -189,6 +189,57 @@ function flowFormatDoc(): string {
         ...catalog.patterns.flatMap(p => [`### ${p.name}`, p.when, p.steps.map(s => `- ${s}`).join('\n')]),
         '## Example',
         '```yaml\n' + f.example + '```',
+        repoFormatDoc(),
+    ].join('\n\n');
+}
+
+function repoFormatDoc(): string {
+    const schemaRows = REPO_SCHEMAS.map(
+        s =>
+            `| [\`${s.file}\`](schemas/${s.file}) | ${s.fileMatch.map(m => `\`${m}\``).join(', ')} | ${(s.schema.title as string).replace('Flowtinus ', '')} |`,
+    );
+    const vscode = JSON.stringify(
+        { 'yaml.schemas': Object.fromEntries(REPO_SCHEMAS.map(s => [`${REPO_SCHEMA_BASE_URL}${s.file}`, s.fileMatch])) },
+        null,
+        4,
+    );
+    return [
+        '## In a git repository',
+        `A workspace mirrored to git is a folder of its own on the environment's branch, in a public format (version ${REPO_FORMAT}) that the app, a person or another tool can write. The name of a project, folder, flow, connection or script is its path; its identity (\`id\`) is in its file, so a rename or a move is a move of the file. Every name is a valid file name everywhere (no \`\\ / : * ? " < > |\`, no name Windows reserves, at most ${NAME_MAX} characters, unique among its siblings whatever the case) and a path in the repository has at most ${REPO_PATH_MAX} characters, so a clone on Windows works.`,
+        '```text\n' +
+            [
+                `.gitattributes                         # ${GITATTRIBUTES.trim()}, written on the first export`,
+                '<workspace>/',
+                `  workspace.yaml                       # format: ${REPO_FORMAT}`,
+                '  connections/<connection name>.yaml   # id, type',
+                '  projects/<project name>/',
+                '    project.yaml                       # id, description, icon, color',
+                '    flows/<folder>/<flow name>.flow.yaml',
+                '    scripts/<script path>.ts',
+            ].join('\n') +
+            '\n```',
+        'An empty folder of flows or of scripts keeps a `.gitkeep`. A file anywhere else is not part of the format.',
+        '### workspace.yaml',
+        `\`format: ${REPO_FORMAT}\`, the version of the format. A change to the format gets a new number.`,
+        '### A connection',
+        '`connections/<connection name>.yaml` declares a connection: its `id` and its `type` only. Its configuration and credentials stay on each server, so no secret reaches git; a connection that arrives on a server from git is not configured there until someone configures it. Secrets and variables are not in the repository: a flow names them only.',
+        '```yaml\nid: 0b6f3c1e-2a7d-4f0e-9c4b-5d8e1a2f3b4c\ntype: sqlserver\n```',
+        '### project.yaml',
+        "The project's `id`, and its `description`, `icon` and `color`, each optional.",
+        '### A flow',
+        "`flows/<folder>/<flow name>.flow.yaml` is the flow file described above, with three differences: it has the flow's `id` (required); it has no `name`, which is the file name without `.flow.yaml`; it has no `pinned` outputs, which are test data and stay on the server. It may say `deployed: false` when the flow is not deployed; absent means `true`. A flow names the connections and the flows it calls by id, and scripts by path.",
+        '### A script',
+        "`scripts/<script path>.ts`: the project's script, as it is. A script is identified by its path.",
+        '### The stable order',
+        "Every file the app writes is in one canonical order: a flow's nodes by id, its edges by source, target and then ports, its groups by id, and every key of a node's `config` from a to z (at every depth; lists keep their order). So writing a file the app read gives no diff, and two branches that each add a node rarely conflict. The app reads any order and any YAML formatting (flow style, quotes, CRLF line endings).",
+        "Comments are not part of the format: the app drops them when it writes a file. What a comment would say goes in a node's `notes`.",
+        '### Versions',
+        "A deploy makes a new version only when what the engine runs changed. A version's content hash leaves out `deployed`, the name, the canvas (positions, groups, notes), the pinned outputs, the order of nodes, edges and keys, and line endings (LF or CRLF): changing only `deployed` makes no new version.",
+        '### JSON Schemas',
+        'A JSON Schema for each file, for an editor to check the files as they are written:',
+        ['| Schema | Files | For |', '| --- | --- | --- |', ...schemaRows].join('\n'),
+        'In VS Code, with the YAML extension, in the settings:',
+        '```json\n' + vscode + '\n```',
     ].join('\n\n');
 }
 
@@ -223,16 +274,18 @@ for (const c of catalog.components) {
 outputs.set(join(COMPONENTS_DIR, 'README.md'), componentsIndex());
 outputs.set(join(ROOT, 'docs', 'connections.md'), connectionsDoc());
 outputs.set(join(ROOT, 'docs', 'flow-format.md'), flowFormatDoc());
+for (const { file, schema } of REPO_SCHEMAS) {
+    outputs.set(join(ROOT, 'docs', 'schemas', file), JSON.stringify(schema));
+}
 
 // a component that was removed: its page goes too
 const removed = readdirSync(COMPONENTS_DIR)
     .filter(file => file.endsWith('.md') && !outputs.has(join(COMPONENTS_DIR, file)))
     .map(file => join(COMPONENTS_DIR, file));
 
-const options = (await resolveConfig(join(ROOT, 'README.md'))) ?? {};
 const formatted = new Map<string, string>();
 for (const [path, text] of outputs) {
-    formatted.set(path, await format(text + '\n', { ...options, filepath: path }));
+    formatted.set(path, await format(text + '\n', { ...(await resolveConfig(path)), filepath: path }));
 }
 formatted.set(join(ROOT, 'llms.txt'), llmsTxt());
 formatted.set(
@@ -257,6 +310,7 @@ if (CHECK) {
     console.log(`The ${formatted.size} generated files match the code.`);
 } else {
     mkdirSync(COMPONENTS_DIR, { recursive: true });
+    mkdirSync(join(ROOT, 'docs', 'schemas'), { recursive: true });
     for (const path of removed) {
         rmSync(path);
     }

@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/flowtinus-hub/flowtinus/main/docs/schemas/project.schema.json",
+  "title": "Flowtinus project",
+  "description": "A project; its name is its folder's.",
+  "type": "object",
+  "required": ["id"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "description": "the identity: stays the same across renames and moves" },
+    "description": { "type": "string" },
+    "icon": { "type": "string" },
+    "color": { "type": "string" }
+  }
+}
