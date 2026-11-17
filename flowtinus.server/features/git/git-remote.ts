@@ -48,11 +48,9 @@ function gitEnv(access: GitAccess | null, extra: Record<string, string> = {}): R
     };
 }
 
-async function runGit(
-    cwd: string,
-    args: string[],
-    options: { access?: GitAccess | null; input?: string; env?: Record<string, string> } = {},
-): Promise<string> {
+type RunOptions = { access?: GitAccess | null; input?: string; env?: Record<string, string> };
+
+async function runGitBytes(cwd: string, args: string[], options: RunOptions = {}): Promise<Uint8Array> {
     const child = Bun.spawn(['git', ...args], {
         cwd,
         env: gitEnv(options.access ?? null, options.env),
@@ -61,13 +59,16 @@ async function runGit(
         stderr: 'pipe',
         timeout: TIMEOUT_MS,
     });
-    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    const [out, err, code] = await Promise.all([new Response(child.stdout).bytes(), new Response(child.stderr).text(), child.exited]);
     if (code !== 0) {
         throw new GitError(args, child.signalCode ? `git ${args[0]} took longer than ${TIMEOUT_MS / 1000} s.` : err);
     }
 
     return out;
 }
+
+const runGit = async (cwd: string, args: string[], options: RunOptions = {}) =>
+    new TextDecoder().decode(await runGitBytes(cwd, args, options));
 
 const exists = (path: string) =>
     stat(path).then(
@@ -136,6 +137,35 @@ export class GitRemote {
 
             throw e;
         }
+    }
+
+    /** the files at a commit under these paths (folders or files), by path: one git process for all their contents */
+    async files(commit: string, paths: string[]): Promise<Record<string, string>> {
+        const listed = (await this.run(['ls-tree', '-r', '-z', commit, '--', ...paths]))
+            .split('\0')
+            .filter(Boolean)
+            .map(line => {
+                const [meta, path] = line.split('\t') as [string, string];
+                const [mode, type, sha] = meta.split(' ') as [string, string, string];
+                return { mode, type, sha, path };
+            })
+            .filter(entry => entry.type === 'blob' && entry.mode !== '120000');
+        if (listed.length === 0) {
+            return {};
+        }
+
+        const out = await runGitBytes(this.dir, ['cat-file', '--batch'], { input: listed.map(e => `${e.sha}\n`).join('') });
+        const decoder = new TextDecoder();
+        const files: Record<string, string> = {};
+        let at = 0;
+        for (const { path } of listed) {
+            const header = out.indexOf(10, at);
+            const size = Number(decoder.decode(out.subarray(at, header)).split(' ')[2]);
+            files[path] = decoder.decode(out.subarray(header + 1, header + 1 + size));
+            at = header + 1 + size + 1;
+        }
+
+        return files;
     }
 
     /**
