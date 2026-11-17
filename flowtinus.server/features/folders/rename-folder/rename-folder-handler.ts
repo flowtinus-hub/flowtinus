@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { isFolderVisible, siblingNames, validateName, withFolder } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -40,7 +41,9 @@ export class RenameFolderHandler implements UseCaseHandler<FolderView> {
             return tooLong;
         }
 
-        const renamed = await repository.update(folder.id, { name });
+        const renamed = await mirrorGitChange(ctx, `Rename folder ${folder.name} to ${name}`, db =>
+            new FolderRepository(db, ctx.workspaceId).update(folder.id, { name }),
+        );
         return renamed ? success(toFolderView(renamed)) : fail('not-found', 'Folder not found.');
     }
 }

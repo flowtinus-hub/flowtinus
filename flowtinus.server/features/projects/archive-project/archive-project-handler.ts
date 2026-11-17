@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -24,7 +25,8 @@ export class ArchiveProjectHandler implements UseCaseHandler<{ id: string }> {
 
         const { id } = parsed.value;
         const archive = { deletedAt: new Date(), deletedBy: ctx.userId };
-        const archived = await ctx.db.transaction(async tx => {
+        const name = (await new ProjectRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
+        const archived = await mirrorGitChange(ctx, `Archive project ${name}`, async tx => {
             if (!(await new ProjectRepository(tx, ctx.workspaceId).update(id, archive))) {
                 return false;
             }

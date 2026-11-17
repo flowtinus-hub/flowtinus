@@ -14,6 +14,10 @@ export type GitSyncView = { pending: number; reason: string | null; since: strin
 
 const SYNC_SETTING = 'git-sync';
 
+/** the workspace's commits queued one transaction at a time, each on what the one before it left */
+export const lockGitCommits = (db: Database, workspaceId: string) =>
+    db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`git:${workspaceId}`]);
+
 /**
  * a commit on the environment's branch, in the transaction of the change it mirrors (ctx.db), pushed by
  * pushPendingCommits; nothing when the workspace has no git configured

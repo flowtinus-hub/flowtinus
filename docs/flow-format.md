@@ -243,6 +243,8 @@ The project's `id`, and its `description`, `icon` and `color`, each optional.
 
 `flows/<folder>/<flow name>.flow.yaml` is the flow file described above, with three differences: it has the flow's `id` (required); it has no `name`, which is the file name without `.flow.yaml`; it has no `pinned` outputs, which are test data and stay on the server. It may say `deployed: false` when the flow is not deployed; absent means `true`. A flow names the connections and the flows it calls by id, and scripts by path.
 
+The server writes a flow once it has been deployed: the deployed version, or, after an undeploy, the version deployed last with `deployed: false`. A draft never reaches the repository, and an archived flow, folder or project leaves it.
+
 ### A script
 
 `scripts/<script path>.ts`: the project's script, as it is. A script is identified by its path.

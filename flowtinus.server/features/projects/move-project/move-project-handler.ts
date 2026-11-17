@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, nameKey, type FlowFile } from '@flowtinus/core';
-import { longRepoPath } from '#features/folders/project-tree';
+import { longRepoPath, workspaceSlug } from '#features/folders/project-tree';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { undeployArchived } from '#features/deployments/deployments';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -149,59 +150,65 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
 
         const flowIds = flows.map(f => f.id);
         const deployed = flows.filter(f => f.deployed).length;
-        await ctx.db.transaction(async tx => {
-            await undeployArchived(tx, ctx, flowIds);
+        const message = `Move project ${project.name} from ${await workspaceSlug(ctx)} to ${toWorkspace}`;
+        await mirrorGitChange(
+            ctx,
+            message,
+            async tx => {
+                await undeployArchived(tx, ctx, flowIds);
 
-            for (const flow of flows) {
-                if (!flow.draft?.flow?.nodes) {
-                    continue;
-                }
-                let changed = false;
-                const nodes = flow.draft.flow.nodes.map(node => {
-                    const config = { ...node.config };
-                    for (const setting of componentSettings(node.type)) {
-                        const key = setting.key ?? CONNECTION_KEY;
-                        const value = config[key];
-                        if (setting.kind !== 'connection' || typeof value !== 'string' || !value || value === DYNAMIC_CONNECTION) {
-                            continue;
-                        }
-                        const name = sourceName.get(value);
-                        const to = name ? targetIdByName.get(name.toLowerCase()) : undefined;
-                        if (to && to !== value) {
-                            config[key] = to;
-                            changed = true;
-                        }
+                for (const flow of flows) {
+                    if (!flow.draft?.flow?.nodes) {
+                        continue;
                     }
-                    return { ...node, config };
-                });
-                if (changed) {
-                    const draft = { ...flow.draft, flow: { ...flow.draft.flow, nodes } };
-                    await tx.orm.update(flowsTable).set({ draftDefinition: draft }).where(eq(flowsTable.id, flow.id));
+                    let changed = false;
+                    const nodes = flow.draft.flow.nodes.map(node => {
+                        const config = { ...node.config };
+                        for (const setting of componentSettings(node.type)) {
+                            const key = setting.key ?? CONNECTION_KEY;
+                            const value = config[key];
+                            if (setting.kind !== 'connection' || typeof value !== 'string' || !value || value === DYNAMIC_CONNECTION) {
+                                continue;
+                            }
+                            const name = sourceName.get(value);
+                            const to = name ? targetIdByName.get(name.toLowerCase()) : undefined;
+                            if (to && to !== value) {
+                                config[key] = to;
+                                changed = true;
+                            }
+                        }
+                        return { ...node, config };
+                    });
+                    if (changed) {
+                        const draft = { ...flow.draft, flow: { ...flow.draft.flow, nodes } };
+                        await tx.orm.update(flowsTable).set({ draftDefinition: draft }).where(eq(flowsTable.id, flow.id));
+                    }
                 }
-            }
 
-            // the code the runs took, for the destination's runs to keep reading it
-            await tx.query(
-                `INSERT INTO script_blobs (workspace_id, hash, content)
+                // the code the runs took, for the destination's runs to keep reading it
+                await tx.query(
+                    `INSERT INTO script_blobs (workspace_id, hash, content)
          SELECT $3, b.hash, b.content FROM script_blobs b
           WHERE b.workspace_id = $2 AND b.hash IN (
             SELECT s.value FROM runs r, jsonb_each_text(coalesce(r.scripts, '{}'::jsonb)) s WHERE r.project_id = $1
             UNION SELECT s.value FROM test_runs r, jsonb_each_text(coalesce(r.scripts, '{}'::jsonb)) s WHERE r.project_id = $1)
          ON CONFLICT DO NOTHING`,
-                [id, ctx.workspaceId, target.id],
-            );
+                    [id, ctx.workspaceId, target.id],
+                );
 
-            await tx.orm.update(projects).set({ workspaceId: target.id }).where(eq(projects.id, id));
-            for (const table of BY_PROJECT) {
-                await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE project_id = $1`, [id, target.id]);
-            }
-            for (const table of BY_FLOW) {
-                await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE flow_id IN (SELECT id FROM flows WHERE project_id = $1)`, [
-                    id,
-                    target.id,
-                ]);
-            }
-        });
+                await tx.orm.update(projects).set({ workspaceId: target.id }).where(eq(projects.id, id));
+                for (const table of BY_PROJECT) {
+                    await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE project_id = $1`, [id, target.id]);
+                }
+                for (const table of BY_FLOW) {
+                    await tx.query(`UPDATE ${table} SET workspace_id = $2 WHERE flow_id IN (SELECT id FROM flows WHERE project_id = $1)`, [
+                        id,
+                        target.id,
+                    ]);
+                }
+            },
+            [target.id],
+        );
 
         return success({ id, workspace: toWorkspace, undeployed: deployed });
     }

@@ -48,9 +48,10 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
     });
 
     // the MCP (Streamable HTTP, stateless) for agents: outside the editor's api too, a personal access token says who calls
-    app.all('/mcp', ...mcpRoute(db, keyring, mcp));
+    const gitConfig = gitOptions(environment, git);
+    app.all('/mcp', ...mcpRoute(db, keyring, mcp, gitConfig));
 
-    app.use('*', requestContext(db, keyring));
+    app.use('*', requestContext(db, keyring, gitConfig));
     app.get('/me', async c => toHttpResult(c, await new GetMeHandler().handle({}, c.get('useCase'))));
     app.get('/workspaces', async c => toHttpResult(c, await new ListWorkspacesHandler().handle(c.req.query(), c.get('useCase'))));
     app.post('/workspaces', async c =>
@@ -82,13 +83,12 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
             }
         }),
     );
-    const gitConfig = gitOptions(environment, git);
     const workspace = new Hono<AppEnv>();
     workspace.use('*', workspaceContext());
     workspace.route('/', workspaceRoutes());
     workspace.route('/projects', projectsRoutes());
     workspace.route('/folders', foldersRoutes());
-    workspace.route('/flows', flowsRoutes(gitConfig));
+    workspace.route('/flows', flowsRoutes());
     workspace.route('/schedules', schedulesRoutes());
     workspace.route('/webhooks', webhooksRoutes());
     workspace.route('/', projectResourcesRoutes());

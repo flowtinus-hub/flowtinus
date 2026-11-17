@@ -4,8 +4,6 @@ import { pgJson } from '#shared/database/jsonb';
 import type { Flow } from '#features/flows/flow';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
 import { withUpdatedByName } from '#features/users/user-names';
-import { queueGitCommit } from '#features/git/git-commits';
-import { flowFileChange } from '#features/git/flow-files';
 import { SCHEDULES_CHANNEL } from '#features/schedules/schedules';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 
@@ -151,28 +149,6 @@ export async function setDeployed(
     await db.query(
         `INSERT INTO deployment_history (workspace_id, flow_id, from_version_id, to_version_id, action, by_user) VALUES ($1, $2, $3, $4, $5, $6)`,
         [ctx.workspaceId, flowId, from, to, action, ctx.userId],
-    );
-}
-
-/** the flow's file on the environment's branch, holding the version, deployed or not; in the deploy's transaction */
-export async function queueFlowFile(
-    db: Database,
-    ctx: UseCaseContext,
-    flow: Flow,
-    versionId: string,
-    { message, deployed }: { message: string; deployed: boolean },
-): Promise<void> {
-    await queueGitCommit(
-        { ...ctx, db },
-        {
-            message,
-            changes: async () => {
-                const [version] = await db.query<{ definition: FlowFile }>('SELECT definition FROM flow_versions WHERE id = $1', [
-                    versionId,
-                ]);
-                return flowFileChange(db, ctx.workspaceId, flow, version!.definition, deployed);
-            },
-        },
     );
 }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { isFolderVisible, siblingNames, validateName, withFlow } from '@flowtinus/core';
+import { mirrorGitChange } from '#features/git/git-mirror';
+import { folderPath, isFolderVisible, siblingNames, validateName, withFlow } from '@flowtinus/core';
 import { FlowRepository, loadTree, location, nameTaken, pathTooLong, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -43,7 +44,14 @@ export class MoveFlowHandler implements UseCaseHandler<FlowView> {
             return tooLong;
         }
 
-        const moved = await repository.update(id, { folderId, updatedAt: new Date(), updatedBy: ctx.userId });
+        const to = folderId
+            ? folderPath(tree.folders, folderId)
+                  .map(f => f.name)
+                  .join('/')
+            : 'the top';
+        const moved = await mirrorGitChange(ctx, `Move flow ${flow.name} to ${to}`, db =>
+            new FlowRepository(db, ctx.workspaceId).update(id, { folderId, updatedAt: new Date(), updatedBy: ctx.userId }),
+        );
         return moved ? success(toFlowView(moved)) : fail('not-found', 'Flow not found.');
     }
 }

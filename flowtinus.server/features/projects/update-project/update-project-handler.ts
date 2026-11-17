@@ -1,3 +1,4 @@
+import { mirrorGitChange } from '#features/git/git-mirror';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -5,6 +6,7 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { validate } from '#shared/use-cases/validate';
 import { toProjectView } from '../project-fields';
 import { pathTooLong } from '#features/folders/project-tree';
+import type { Project } from '../project';
 import { ProjectRepository } from '../project-repository';
 import { UpdateProjectCommand, type UpdateProjectResponse } from './update-project-command';
 
@@ -33,7 +35,11 @@ export class UpdateProjectHandler implements UseCaseHandler<UpdateProjectRespons
             }
         }
 
-        const project = await projects.update(id, changes);
+        const project = await mirrorGitChange<Project | null>(
+            ctx,
+            updated => `Update project ${updated?.name ?? ''}`,
+            db => new ProjectRepository(db, ctx.workspaceId).update(id, changes),
+        );
         if (!project) {
             return fail('not-found', 'Project not found.');
         }

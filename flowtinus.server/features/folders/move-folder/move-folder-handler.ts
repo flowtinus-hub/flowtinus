@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { canMoveFolder, isFolderVisible, siblingNames, validateName, withFolder } from '@flowtinus/core';
+import { mirrorGitChange } from '#features/git/git-mirror';
+import { canMoveFolder, folderPath, isFolderVisible, siblingNames, validateName, withFolder } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -47,7 +48,14 @@ export class MoveFolderHandler implements UseCaseHandler<FolderView> {
             return tooLong;
         }
 
-        const moved = await repository.update(id, { parentId });
+        const to = parentId
+            ? folderPath(tree.folders, parentId)
+                  .map(f => f.name)
+                  .join('/')
+            : 'the top';
+        const moved = await mirrorGitChange(ctx, `Move folder ${folder.name} to ${to}`, db =>
+            new FolderRepository(db, ctx.workspaceId).update(id, { parentId }),
+        );
         return moved ? success(toFolderView(moved)) : fail('not-found', 'Folder not found.');
     }
 }

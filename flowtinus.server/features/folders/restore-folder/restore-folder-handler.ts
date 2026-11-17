@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { eq } from 'drizzle-orm';
 import { isFolderVisible, siblingNames, subtreeIds, validateName } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -58,7 +59,7 @@ export class RestoreFolderHandler implements UseCaseHandler<FolderView> {
         if (tooLong) {
             return tooLong;
         }
-        await ctx.db.transaction(async tx => {
+        await mirrorGitChange(ctx, `Restore folder ${folder.name}`, async tx => {
             const folderRepository = new FolderRepository(tx, ctx.workspaceId);
             const flowRepository = new FlowRepository(tx, ctx.workspaceId);
             for (const item of tree.folders.filter(f => subtree.has(f.id) && f.id !== id && together(f))) {
