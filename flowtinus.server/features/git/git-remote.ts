@@ -152,13 +152,15 @@ export class GitRemote {
         const index = { GIT_INDEX_FILE: join(temp, 'index') };
         try {
             await this.run(options.parent ? ['read-tree', options.parent] : ['read-tree', '--empty'], { env: index });
+            const entries: string[] = [];
             for (const [path, content] of Object.entries(options.changes)) {
-                if (content === null) {
-                    await this.run(['update-index', '--force-remove', '--', path], { env: index });
-                } else {
-                    const blob = (await this.run(['hash-object', '-w', '--stdin'], { input: content })).trim();
-                    await this.run(['update-index', '--add', '--cacheinfo', `100644,${blob},${path}`], { env: index });
-                }
+                // mode 0 takes the path out of the index: update-index --force-remove wants a work tree, which a bare clone has not
+                const blob =
+                    content === null ? '0'.repeat(40) : (await this.run(['hash-object', '-w', '--stdin'], { input: content })).trim();
+                entries.push(`${content === null ? '0' : '100644'} ${blob}\t${path}\n`);
+            }
+            if (entries.length > 0) {
+                await this.run(['update-index', '--index-info'], { env: index, input: entries.join('') });
             }
 
             const tree = (await this.run(['write-tree'], { env: index })).trim();

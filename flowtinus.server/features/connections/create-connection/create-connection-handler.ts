@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { insertSecret } from '#features/secrets/secret-store';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -32,7 +33,7 @@ export class CreateConnectionHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const id = crypto.randomUUID();
-        await ctx.db.transaction(async tx => {
+        await mirrorGitChange(ctx, `Create connection ${checked.value.name}`, async tx => {
             for (const secret of usedSecrets(checked.value, newSecrets)) {
                 await insertSecret(tx, ctx, secret.name, secret.value);
             }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { isFolderVisible, siblingNames, validateName, withFolder } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -47,7 +48,9 @@ export class CreateFolderHandler implements UseCaseHandler<{ id: string }> {
             return tooLong;
         }
 
-        const folder = await new FolderRepository(ctx.db, ctx.workspaceId).insert({ id, projectId, parentId, name });
+        const folder = await mirrorGitChange(ctx, `Create folder ${name}`, db =>
+            new FolderRepository(db, ctx.workspaceId).insert({ id, projectId, parentId, name }),
+        );
         return success({ id: folder.id });
     }
 }

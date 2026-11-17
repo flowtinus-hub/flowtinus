@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { isFolderVisible, siblingNames, validateName, withFlow } from '@flowtinus/core';
 import { FlowRepository, invalidName, loadTree, nameTaken, pathTooLong, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -38,7 +39,9 @@ export class RenameFlowHandler implements UseCaseHandler<FlowView> {
             return tooLong;
         }
 
-        const renamed = await repository.update(flow.id, { name, updatedAt: new Date(), updatedBy: ctx.userId });
+        const renamed = await mirrorGitChange(ctx, `Rename flow ${flow.name} to ${name}`, db =>
+            new FlowRepository(db, ctx.workspaceId).update(flow.id, { name, updatedAt: new Date(), updatedBy: ctx.userId }),
+        );
         return renamed ? success(toFlowView(renamed)) : fail('not-found', 'Flow not found.');
     }
 }

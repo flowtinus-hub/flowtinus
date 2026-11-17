@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { eq } from 'drizzle-orm';
 import { isFolderVisible, siblingNames, validateName, withFlow } from '@flowtinus/core';
 import { FlowRepository, loadTree, nameTaken, pathTooLong, projectArchived, toFlowView, type FlowView } from '#features/folders/project-tree';
@@ -50,7 +51,7 @@ export class RestoreFlowHandler implements UseCaseHandler<FlowView> {
             return tooLong;
         }
 
-        const restored = await ctx.db.transaction(async tx => {
+        const restored = await mirrorGitChange(ctx, `Restore flow ${flow.name}`, async tx => {
             const inTx = new FlowRepository(tx, ctx.workspaceId);
             await inTx.restore(id);
             return folderId === flow.folderId ? inTx.findById(id) : inTx.update(id, { folderId });

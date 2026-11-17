@@ -4,22 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
 
 setDefaultTimeout(30_000);
-
-function git(cwd: string, ...args: string[]): string {
-    const done = Bun.spawnSync(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
-    if (done.exitCode !== 0) {
-        throw new Error(`git ${args.join(' ')}: ${done.stderr.toString()}`);
-    }
-
-    return done.stdout.toString().trim();
-}
-
-const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 describe("a flow's deploy is a commit on the environment's branch", () => {
     let db: Database;
@@ -39,6 +29,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
             });
             return { status: response.status, body: (await response.json()) as any };
         };
+        const projectId = (await call('POST', '/projects', { name: 'Sales' })).body.id as string;
         const repo = join(dir, `${id}.git`);
         git(dir, 'init', '--bare', '--quiet', '--initial-branch=main', repo);
         if (options.git !== false) {
@@ -50,26 +41,10 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
             createBranch(repo, 'dev');
         }
 
-        const projectId = (await call('POST', '/projects', { name: 'Sales' })).body.id as string;
         const newFlow = async (name: string, folderId?: string) =>
             (await call('POST', `/projects/${projectId}/flows`, { name, ...(folderId ? { folderId } : {}) })).body.id as string;
         const flowPath = (...path: string[]) => `${slugOf(id)}/projects/Sales/flows/${path.join('/')}.flow.yaml`;
         return { id, call, repo, projectId, newFlow, flowPath };
-    }
-
-    function createBranch(repo: string, branch: string) {
-        const commit = git(
-            repo,
-            '-c',
-            'user.name=Someone',
-            '-c',
-            'user.email=someone@example.com',
-            'commit-tree',
-            EMPTY_TREE,
-            '-m',
-            'start',
-        );
-        git(repo, 'update-ref', `refs/heads/${branch}`, commit);
     }
 
     const show = (repo: string, path: string) => git(repo, 'show', `dev:${path}`);
@@ -97,7 +72,11 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect(file).toStartWith(`version: 1\nid: ${flowId}\nnodes:\n`);
         expect(file).not.toContain('name:');
         expect(file).not.toContain('deployed:');
-        expect(commits(repo)).toEqual([`Ana <${ANA}@example.com>|Deploy Orders v1`, 'Someone <someone@example.com>|start']);
+        expect(commits(repo)).toEqual([
+            `Ana <${ANA}@example.com>|Deploy Orders v1`,
+            `Ana <${ANA}@example.com>|Create folder Imports`,
+            'Someone <someone@example.com>|start',
+        ]);
     });
 
     test('an undeploy writes the file with deployed: false; deploying it again makes no new version', async () => {

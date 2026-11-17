@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { undeployArchived } from '#features/deployments/deployments';
 import { FlowRepository } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -26,7 +27,8 @@ export class ArchiveFlowHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
-        const archived = await ctx.db.transaction(async tx => {
+        const name = (await new FlowRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
+        const archived = await mirrorGitChange(ctx, `Archive flow ${name}`, async tx => {
             if (!(await new FlowRepository(tx, ctx.workspaceId).softDelete(id, ctx.userId))) {
                 return false;
             }
