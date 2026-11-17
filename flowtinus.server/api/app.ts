@@ -82,16 +82,17 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
             }
         }),
     );
+    const gitConfig = gitOptions(environment, git);
     const workspace = new Hono<AppEnv>();
     workspace.use('*', workspaceContext());
     workspace.route('/', workspaceRoutes());
     workspace.route('/projects', projectsRoutes());
     workspace.route('/folders', foldersRoutes());
-    workspace.route('/flows', flowsRoutes());
+    workspace.route('/flows', flowsRoutes(gitConfig));
     workspace.route('/schedules', schedulesRoutes());
     workspace.route('/webhooks', webhooksRoutes());
     workspace.route('/', projectResourcesRoutes());
-    workspace.route('/git', gitRoutes(gitOptions(environment, git)));
+    workspace.route('/git', gitRoutes(gitConfig));
     app.route('/w/:workspace', workspace);
 
     app.onError((error, c) => {

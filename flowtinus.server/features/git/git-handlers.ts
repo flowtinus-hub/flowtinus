@@ -9,6 +9,7 @@ import { findTokenSecret, gitAccess, gitAuthorOf, gitConfigSchema, readGitConfig
 import { GitError, withThrowawayClone, withWorkspaceClone, type GitRemote } from './git-remote';
 import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type EnvironmentDecl } from './topology';
 import { readTopology, type TopologyView } from './workspace-topology';
+import { clearPendingCommits, gitSyncStatus, type GitSyncView } from './git-commits';
 
 export class GetGitConfigHandler implements UseCaseHandler<{ config: GitConfig | null }> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ config: GitConfig | null }>> {
@@ -216,6 +217,19 @@ export class CreateTopologyHandler implements UseCaseHandler<{ topology: Topolog
     }
 }
 
+/** whether git is behind what is deployed: the commits not pushed yet and why (null: no git configured) */
+export class GetGitStatusHandler implements UseCaseHandler<{ status: GitSyncView | null }> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ status: GitSyncView | null }>> {
+        const denied = requireRole(ctx, 'viewer');
+        if (denied) {
+            return denied;
+        }
+
+        const config = await readGitConfig(ctx.db, ctx.workspaceId);
+        return success({ status: config ? await gitSyncStatus(ctx.db, ctx.workspaceId) : null });
+    }
+}
+
 export class RemoveGitConfigHandler implements UseCaseHandler<{ config: null }> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ config: null }>> {
         const denied = requireRole(ctx, 'admin');
@@ -224,6 +238,7 @@ export class RemoveGitConfigHandler implements UseCaseHandler<{ config: null }> 
         }
 
         await removeGitConfig(ctx);
+        await clearPendingCommits(ctx);
         return success({ config: null });
     }
 }

@@ -28,11 +28,12 @@ import { StartRunHandler } from '#features/runs/start-run/start-run-handler';
 import type { RunProgress, RunRecord } from '@flowtinus/core';
 import { workspaceRunEvents, runEvents, type RunEvent } from '#features/runs/run-events';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
+import type { GitOptions } from '#features/git/git-config';
 import type { AppEnv } from '../app-env';
 import { bodyWith, jsonBody } from './request-input';
 import { memberWorkspaces, runContext } from '../middlewares/run-context';
 
-export function flowsRoutes() {
+export function flowsRoutes(git: GitOptions) {
     return new Hono<AppEnv>()
         .get('/:id', async c => {
             const result = await new GetFlowHandler().handle({ id: c.req.param('id') }, c.get('useCase'));
@@ -78,15 +79,20 @@ export function flowsRoutes() {
         .get('/:id/deployments', async c =>
             toHttpResult(c, await new GetDeploymentsHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
-        .post('/:id/deploy', async c => toHttpResult(c, await new DeployFlowHandler().handle({ id: c.req.param('id') }, c.get('useCase'))))
+        .post('/:id/deploy', async c =>
+            toHttpResult(c, await new DeployFlowHandler(git).handle({ id: c.req.param('id') }, c.get('useCase'))),
+        )
         .post('/:id/versions/:versionId/deploy', async c =>
             toHttpResult(
                 c,
-                await new DeployVersionHandler().handle({ id: c.req.param('id'), versionId: c.req.param('versionId') }, c.get('useCase')),
+                await new DeployVersionHandler(git).handle(
+                    { id: c.req.param('id'), versionId: c.req.param('versionId') },
+                    c.get('useCase'),
+                ),
             ),
         )
         .post('/:id/undeploy', async c =>
-            toHttpResult(c, await new UndeployFlowHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
+            toHttpResult(c, await new UndeployFlowHandler(git).handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
         .post('/:id/versions/:versionId/restore-draft', async c =>
             toHttpResult(

@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useResource } from '@/data/use-resource';
 import { listSecrets } from '@/data/secrets/secrets-api';
-import { CONFIG_BRANCH, createTopology, getGitConfig, getTopology, removeGitConfig, saveGitConfig, testGitAccess, type AccessTest, type GitConfig, type Topology } from '@/data/git/git-api';
+import { formatDateTime } from '@/lib/format';
+import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, getTopology, removeGitConfig, saveGitConfig, testGitAccess, type AccessTest, type GitConfig, type Topology } from '@/data/git/git-api';
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
@@ -33,6 +34,7 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                         readOnly={readOnly}
                         onChanged={saved.reload}
                     />
+                    {saved.state.value.config && <SyncStatus key={JSON.stringify(saved.state.value.config)} slug={slug} />}
                     {saved.state.value.config && (
                         <TopologyPanel
                             key={JSON.stringify(saved.state.value.config)}
@@ -230,6 +232,34 @@ function AccessTestResult({ test, environment }: { test: AccessTest; environment
                 </Check>
             )}
             <p className="text-xs text-muted-foreground">{test.note}</p>
+        </div>
+    );
+}
+
+function SyncStatus({ slug }: { slug: string }) {
+    const status = useResource(`git-status:${slug}`, () => getGitStatus(slug));
+    const value = status.state.status === 'ready' ? status.state.value.status : null;
+    if (!value) {
+        return null;
+    }
+
+    if (value.pending === 0) {
+        return (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <CircleCheck className="size-4 text-emerald-600" /> Git has every deploy.
+            </p>
+        );
+    }
+
+    return (
+        <div className="grid gap-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm" role="status">
+            <p className="flex items-start gap-2 font-medium">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                Git is behind: {value.pending} {value.pending === 1 ? 'commit' : 'commits'} not pushed
+                {value.since && <span className="font-normal text-muted-foreground"> since {formatDateTime(new Date(value.since))}</span>}
+            </p>
+            {value.reason && <p className="break-words pl-6 text-muted-foreground">{value.reason}</p>}
+            <p className="pl-6 text-xs text-muted-foreground">The deploys stand; the next deploy or undeploy pushes them.</p>
         </div>
     );
 }
