@@ -1,7 +1,14 @@
 import { z } from 'zod';
+import { validateName } from '@flowtinus/core';
 import type { Project } from './project';
 
-export const projectName = z.string().trim().min(1, 'Required').max(100, 'At most 100 characters');
+export const projectName = z.string().transform((name, ctx) => {
+    const { value, error } = validateName(name, [], 'project');
+    if (error) {
+        ctx.addIssue({ code: 'custom', message: error });
+    }
+    return value;
+});
 
 export const projectDescription = z.string().trim().max(500, 'At most 500 characters');
 

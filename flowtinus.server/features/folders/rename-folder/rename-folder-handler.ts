@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { isFolderVisible, siblingNames, validateName } from '@flowtinus/core';
+import { isFolderVisible, siblingNames, validateName, withFolder } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { FolderRepository, invalidName, loadTree, nameTaken, toFolderView, type FolderView } from '../project-tree';
+import { FolderRepository, invalidName, loadTree, nameTaken, pathTooLong, toFolderView, type FolderView } from '../project-tree';
 
 export const RenameFolderCommand = z.object({ id: z.uuid('Invalid'), name: z.string() });
 
@@ -28,9 +28,16 @@ export class RenameFolderHandler implements UseCaseHandler<FolderView> {
             return fail('not-found', 'Folder not found.');
         }
 
-        const { value: name, error } = validateName(parsed.value.name, siblingNames(tree, 'folder', folder.parentId, folder.id));
+        const { value: name, error } = validateName(parsed.value.name, siblingNames(tree, 'folder', folder.parentId, folder.id), 'folder');
         if (error) {
             return error === 'Already in use' ? nameTaken('folder', name) : invalidName(error);
+        }
+
+        const tooLong = await pathTooLong(ctx, folder.projectId, {
+            tree: withFolder(tree, { id: folder.id, parentId: folder.parentId, name }),
+        });
+        if (tooLong) {
+            return tooLong;
         }
 
         const renamed = await repository.update(folder.id, { name });

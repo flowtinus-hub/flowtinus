@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { canMoveFolder, isFolderVisible, siblingNames, validateName } from '@flowtinus/core';
+import { canMoveFolder, isFolderVisible, siblingNames, validateName, withFolder } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { FolderRepository, loadTree, location, nameTaken, toFolderView, type FolderView } from '../project-tree';
+import { FolderRepository, loadTree, location, nameTaken, pathTooLong, toFolderView, type FolderView } from '../project-tree';
 
 export const MoveFolderCommand = z.object({ id: z.uuid('Invalid'), parentId: location });
 
@@ -38,8 +38,13 @@ export class MoveFolderHandler implements UseCaseHandler<FolderView> {
             return fail('validation', 'A folder cannot move into itself or into a folder under it.', { parentId: 'Invalid' });
         }
 
-        if (validateName(folder.name, siblingNames(tree, 'folder', parentId, id)).error === 'Already in use') {
+        if (validateName(folder.name, siblingNames(tree, 'folder', parentId, id), 'folder').error === 'Already in use') {
             return nameTaken('folder', folder.name);
+        }
+
+        const tooLong = await pathTooLong(ctx, folder.projectId, { tree: withFolder(tree, { id, parentId, name: folder.name }) });
+        if (tooLong) {
+            return tooLong;
         }
 
         const moved = await repository.update(id, { parentId });

@@ -2,23 +2,9 @@ export type TreeFolder = { id: string; parentId: string | null; name: string; ar
 export type TreeFlow = { id: string; folderId: string | null; name: string; archivedAt: unknown };
 export type TreeContents<F extends TreeFolder = TreeFolder, W extends TreeFlow = TreeFlow> = { folders: F[]; flows: W[] };
 
-export const NAME_MAX = 100;
-
 const isActive = (item: { archivedAt: unknown }) => item.archivedAt === null || item.archivedAt === undefined;
 
 export const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
-
-export function validateName(name: string, siblings: { name: string }[]): { value: string; error?: string } {
-    const value = name.trim();
-    if (value === '') {
-        return { value, error: 'Required' };
-    }
-    if (value.length > NAME_MAX) {
-        return { value, error: `At most ${NAME_MAX} characters` };
-    }
-    const taken = siblings.some(sibling => sibling.name.toLowerCase() === value.toLowerCase());
-    return taken ? { value, error: 'Already in use' } : { value };
-}
 
 export function folderPath<F extends TreeFolder>(folders: F[], folderId: string | null): F[] {
     const path: F[] = [];
@@ -97,3 +83,13 @@ export function canMoveFolder(folders: TreeFolder[], folderId: string, targetId:
     }
     return isFolderVisible(folders, targetId);
 }
+
+export const withFolder = (tree: TreeContents, folder: Omit<TreeFolder, 'archivedAt'>): TreeContents => ({
+    ...tree,
+    folders: [...tree.folders.filter(f => f.id !== folder.id), { ...folder, archivedAt: null }],
+});
+
+export const withFlow = (tree: TreeContents, flow: Omit<TreeFlow, 'archivedAt'>): TreeContents => ({
+    ...tree,
+    flows: [...tree.flows.filter(f => f.id !== flow.id), { ...flow, archivedAt: null }],
+});

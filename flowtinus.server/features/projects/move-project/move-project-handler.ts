@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, type FlowFile } from '@flowtinus/core';
+import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, nameKey, type FlowFile } from '@flowtinus/core';
+import { longRepoPath } from '#features/folders/project-tree';
 import { undeployArchived } from '#features/deployments/deployments';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -70,14 +71,19 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
         if (target.id === ctx.workspaceId) {
             return fail('validation', 'The project is already in this workspace.', { toWorkspace: 'Same workspace' });
         }
-        const nameTaken = await ctx.db.orm.$count(
-            projects,
-            and(eq(projects.workspaceId, target.id), sql`lower(${projects.name}) = lower(${project.name})`, isNull(projects.deletedAt)),
-        );
-        if (nameTaken > 0) {
+        const namesThere = await ctx.db.orm
+            .select({ name: projects.name })
+            .from(projects)
+            .where(and(eq(projects.workspaceId, target.id), isNull(projects.deletedAt)));
+        if (namesThere.some(other => nameKey(other.name) === nameKey(project.name))) {
             return fail('conflict', `"${toWorkspace}" already has a project named "${project.name}".`, {
                 toWorkspace: 'Name in use there',
             });
+        }
+
+        const tooLong = await longRepoPath(ctx, id, { project: project.name, workspaceId: target.id });
+        if (tooLong) {
+            return fail('validation', `${tooLong} in "${toWorkspace}".`, { toWorkspace: 'Path too long there' });
         }
 
         const flows = await ctx.db.query<{ id: string; draft: Draft | null; deployed: FlowFile | null }>(

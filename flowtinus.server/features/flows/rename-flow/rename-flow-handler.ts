@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { isFolderVisible, siblingNames, validateName } from '@flowtinus/core';
-import { FlowRepository, invalidName, loadTree, nameTaken, toFlowView, type FlowView } from '#features/folders/project-tree';
+import { isFolderVisible, siblingNames, validateName, withFlow } from '@flowtinus/core';
+import { FlowRepository, invalidName, loadTree, nameTaken, pathTooLong, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -28,9 +28,14 @@ export class RenameFlowHandler implements UseCaseHandler<FlowView> {
             return fail('not-found', 'Flow not found.');
         }
 
-        const { value: name, error } = validateName(parsed.value.name, siblingNames(tree, 'flow', flow.folderId, flow.id));
+        const { value: name, error } = validateName(parsed.value.name, siblingNames(tree, 'flow', flow.folderId, flow.id), 'flow');
         if (error) {
             return error === 'Already in use' ? nameTaken('flow', name) : invalidName(error);
+        }
+
+        const tooLong = await pathTooLong(ctx, flow.projectId, { tree: withFlow(tree, { id: flow.id, folderId: flow.folderId, name }) });
+        if (tooLong) {
+            return tooLong;
         }
 
         const renamed = await repository.update(flow.id, { name, updatedAt: new Date(), updatedBy: ctx.userId });

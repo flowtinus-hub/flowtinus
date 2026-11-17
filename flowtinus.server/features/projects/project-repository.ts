@@ -1,4 +1,4 @@
-import { and, ne, sql } from 'drizzle-orm';
+import { nameKey } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { WorkspaceRepository } from '#shared/database/repository';
 import { projects } from './project';
@@ -12,8 +12,8 @@ export class ProjectRepository extends WorkspaceRepository<typeof projects> {
         super(db, projects, workspaceId);
     }
 
-    existsByName(name: string, exceptId?: string): Promise<boolean> {
-        const sameName = sql`lower(${projects.name}) = lower(${name})`;
-        return this.exists(exceptId ? and(sameName, ne(projects.id, exceptId))! : sameName);
+    async existsByName(name: string, exceptId?: string): Promise<boolean> {
+        const key = nameKey(name);
+        return (await this.findMany()).some(project => project.id !== exceptId && nameKey(project.name) === key);
     }
 }

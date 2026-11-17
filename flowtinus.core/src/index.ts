@@ -18,6 +18,7 @@ export * from './catalog/catalog';
 export * from '#errors/normalize-error';
 export * from '#errors/error-origin';
 export * from './folders/folder-tree';
+export * from './names/file-name';
 export * from './connections/types/connection-types';
 export { COMPONENT_TYPE, type ComponentType } from './components/component-types';
 export * from './connections/connection-access';

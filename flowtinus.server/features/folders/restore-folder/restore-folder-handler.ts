@@ -7,7 +7,7 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { folders } from '../folder';
-import { FlowRepository, FolderRepository, loadTree, nameTaken, projectArchived, toFolderView, type FolderView } from '../project-tree';
+import { FlowRepository, FolderRepository, loadTree, nameTaken, pathTooLong, projectArchived, toFolderView, type FolderView } from '../project-tree';
 
 export const RestoreFolderCommand = z.object({ id: z.uuid('Invalid') });
 
@@ -41,13 +41,23 @@ export class RestoreFolderHandler implements UseCaseHandler<FolderView> {
 
         const tree = await loadTree(ctx.db, ctx.workspaceId, folder.projectId);
         const parentId = isFolderVisible(tree.folders, folder.parentId) ? folder.parentId : null;
-        if (validateName(folder.name, siblingNames(tree, 'folder', parentId, id)).error === 'Already in use') {
+        if (validateName(folder.name, siblingNames(tree, 'folder', parentId, id), 'folder').error === 'Already in use') {
             return nameTaken('folder', folder.name);
         }
 
         const archivedAt = folder.deletedAt.getTime();
         const together = (item: { deletedAt: Date | null }) => item.deletedAt?.getTime() === archivedAt;
         const subtree = subtreeIds(tree.folders, id);
+        const restoredTree = {
+            folders: tree.folders.map(f =>
+                f.id === id ? { ...f, parentId, archivedAt: null } : subtree.has(f.id) && together(f) ? { ...f, archivedAt: null } : f,
+            ),
+            flows: tree.flows.map(f => (f.folderId !== null && subtree.has(f.folderId) && together(f) ? { ...f, archivedAt: null } : f)),
+        };
+        const tooLong = await pathTooLong(ctx, folder.projectId, { tree: restoredTree });
+        if (tooLong) {
+            return tooLong;
+        }
         await ctx.db.transaction(async tx => {
             const folderRepository = new FolderRepository(tx, ctx.workspaceId);
             const flowRepository = new FlowRepository(tx, ctx.workspaceId);
