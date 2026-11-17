@@ -9,7 +9,10 @@ import { findTokenSecret, gitAccess, gitAuthorOf, gitConfigSchema, readGitConfig
 import { GitError, withThrowawayClone, withWorkspaceClone, type GitRemote } from './git-remote';
 import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type EnvironmentDecl } from './topology';
 import { readTopology, type TopologyView } from './workspace-topology';
-import { clearPendingCommits, gitSyncStatus, type GitSyncView } from './git-commits';
+import { clearPendingCommits, gitSyncStatus, lockGitCommits, type GitSyncView } from './git-commits';
+import { holdsWorkspace, importWorkspace, isWorkspaceEmpty, readBranchWorkspace, validateImport } from './workspace-import';
+import { workspaceSlug } from '#features/folders/project-tree';
+import type { TreeIssue } from '@flowtinus/core';
 
 export class GetGitConfigHandler implements UseCaseHandler<{ config: GitConfig | null }> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ config: GitConfig | null }>> {
@@ -213,6 +216,65 @@ export class CreateTopologyHandler implements UseCaseHandler<{ topology: Topolog
             });
             await remote.push(commit, CONFIG_BRANCH, null);
             return success({ topology: await readTopology(remote, config.environment) });
+        });
+    }
+}
+
+export type ImportResult = { branch: string; commit: string; warnings: TreeIssue[] };
+
+/**
+ * an empty workspace takes the workspace its environment's branch holds; a tree with any error is refused whole, its
+ * errors by path in the error's fields
+ */
+export class ImportWorkspaceHandler implements UseCaseHandler<ImportResult> {
+    constructor(private readonly options: GitOptions) {}
+
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ImportResult>> {
+        const denied = requireRole(ctx, 'admin');
+        if (denied) {
+            return denied;
+        }
+
+        return onWorkspaceRepository(ctx, this.options, async (remote, config) => {
+            const branches = await remote.branches();
+            const topology = await readTopology(remote, config.environment, branches);
+            if (!topology.exists) {
+                return fail('conflict', `The repository has no ${CONFIG_BRANCH} branch.`);
+            }
+            if (!topology.environment) {
+                return fail('conflict', `${config.environment} is not in the topology.`);
+            }
+
+            const branch = topology.environment.branch;
+            const commit = await remote.fetch(branch, branches);
+            if (!commit) {
+                return fail('conflict', `The branch ${branch} does not exist yet.`);
+            }
+
+            const slug = await workspaceSlug(ctx);
+            const files = await readBranchWorkspace(remote, commit, slug);
+            if (!holdsWorkspace(files, slug)) {
+                return fail('conflict', `The branch ${branch} has no workspace ${slug}.`);
+            }
+
+            return ctx.db.transaction(async tx => {
+                await lockGitCommits(tx, ctx.workspaceId);
+                if (!(await isWorkspaceEmpty(tx, ctx.workspaceId))) {
+                    return fail('conflict', 'The workspace is not empty: only an empty workspace imports from git.');
+                }
+
+                const { errors, warnings } = await validateImport(tx, ctx.workspaceId, slug, files);
+                if (errors.length > 0) {
+                    const fields: Record<string, string> = {};
+                    for (const { path, message } of errors) {
+                        fields[path] = fields[path] ? `${fields[path]}\n${message}` : message;
+                    }
+                    return fail('validation', `The workspace on ${branch} is not valid: nothing was imported.`, fields);
+                }
+
+                await importWorkspace({ ...ctx, db: tx }, slug, files);
+                return success({ branch, commit, warnings });
+            });
         });
     }
 }
