@@ -18,7 +18,10 @@ if (config.environment === 'DEV') {
 const keyring = appKeyring(config, line => logger.warn(line));
 // the runs go on in the supervisor (another process): what they do reaches the editor through Postgres NOTIFY
 await followRunEvents(db);
-const app = createApp(db, config.environment, keyring, logger, { editorUrl: config.editorUrl });
+const app = createApp(db, config.environment, keyring, logger, {
+    editorUrl: config.editorUrl,
+    git: { clonesDir: config.gitClonesDir },
+});
 
 logger.info(`api on :${config.port}`, {
     port: config.port,

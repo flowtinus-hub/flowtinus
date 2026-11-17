@@ -79,8 +79,8 @@
       "name": "@flowtinus/server",
       "version": "0.1.0",
       "dependencies": {
-        "@flowtinus/core": "workspace:*",
         "@electric-sql/pglite": "^0.5.15",
+        "@flowtinus/core": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.32.2",
         "croner": "^10.0.1",
         "drizzle-orm": "^0.45.4",
@@ -89,6 +89,7 @@
         "mssql": "^12.7.13",
         "pg": "^8.23.1",
         "pg-cursor": "^2.22.1",
+        "yaml": "^2.9.1",
         "zod": "^4.6.7",
       },
       "devDependencies": {
@@ -199,14 +200,6 @@
 
     "@dagrejs/graphlib": ["@dagrejs/graphlib@4.0.6", "", {}, "sha512-Hjv7hbfmSBMP4nVXMFt4gusqWWHghQF0qNT4V5KHo4Jatvd+2L5VHKFnnIjXVuDnaHIRz7ZuHSnlf0RuZkOwWA=="],
 
-    "@flowtinus/core": ["@flowtinus/core@workspace:flowtinus.core"],
-
-    "@flowtinus/editor": ["@flowtinus/editor@workspace:flowtinus.editor"],
-
-    "@flowtinus/perf": ["@flowtinus/perf@workspace:flowtinus.perf"],
-
-    "@flowtinus/server": ["@flowtinus/server@workspace:flowtinus.server"],
-
     "@dotenvx/dotenvx": ["@dotenvx/dotenvx@1.75.1", "", { "dependencies": { "@dotenvx/primitives": "^0.8.0", "commander": "^11.1.0", "conf": "^10.2.0", "dotenv": "^17.2.1", "enquirer": "^2.4.1", "env-paths": "^2.2.1", "execa": "^5.1.1", "fdir": "^6.2.0", "ignore": "^5.3.0", "object-treeify": "1.1.33", "open": "^8.4.2", "picomatch": "^4.0.4", "systeminformation": "^5.22.11", "undici": "^7.11.0", "which": "^4.0.0", "yocto-spinner": "^1.1.0" }, "bin": { "dotenvx": "src/cli/dotenvx.js" } }, "sha512-/BITOC9dmS/edY2zQwZNicQ059O6RKabtQfyEafV0nGtfYRNHYy1DIPiYVcov40+tob9hfmBnbR963dS+EQ1DQ=="],
 
     "@dotenvx/primitives": ["@dotenvx/primitives@0.8.0", "", {}, "sha512-VYJy0uhFm9zTJ1TxBaW/pA8bjbOM/OttaNMwZ1RHG4JKyRG7DhSdiqD1ipQoAyoD22olUtxbP78W9xY3Wd11bg=="],
@@ -220,6 +213,14 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.9", "", { "dependencies": { "@floating-ui/dom": "^1.8.0" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-JDjEFGCpImxDCA7JJKviA0M9+RtmJdj0m/NVU5IMgBK+AmZouAQQ7/+2GLH0GXXY0YMw9oXPB8hKdbPYg5QLYg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
+
+    "@flowtinus/core": ["@flowtinus/core@workspace:flowtinus.core"],
+
+    "@flowtinus/editor": ["@flowtinus/editor@workspace:flowtinus.editor"],
+
+    "@flowtinus/perf": ["@flowtinus/perf@workspace:flowtinus.perf"],
+
+    "@flowtinus/server": ["@flowtinus/server@workspace:flowtinus.server"],
 
     "@fontsource-variable/geist": ["@fontsource-variable/geist@5.3.0", "", {}, "sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA=="],
 

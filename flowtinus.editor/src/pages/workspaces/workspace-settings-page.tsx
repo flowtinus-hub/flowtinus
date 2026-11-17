@@ -12,6 +12,7 @@ import { useResource } from '@/data/use-resource';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { ROLE_LABEL, type Member, type Workspace, type WorkspaceRole } from '@/data/workspaces/workspace';
 import { addMember, archiveWorkspace, getWorkspace, listMembers, removeMember, restoreWorkspace, updateMember, updateWorkspace } from '@/data/workspaces/workspaces-api';
+import { GitSection } from './git-section';
 import { WorkspacePage } from './workspace-page';
 
 const ROLES: WorkspaceRole[] = ['viewer', 'editor', 'admin'];
@@ -24,7 +25,7 @@ const ROLE_HELP: Record<WorkspaceRole, string> = {
 
 /**
  * A workspace's settings (/w/:ws/settings): its name and description (its ID never changes), archiving it (only once all
- * its projects are archived) or restoring it, and its members with their roles. Only its admins change anything here.
+ * its projects are archived) or restoring it, its members with their roles, and its git configuration. Only its admins change anything here.
  */
 export function WorkspaceSettingsPage() {
     // the role from the workspace itself: an archived one is not in /me, and its admins restore it here
@@ -42,6 +43,7 @@ export function WorkspaceSettingsPage() {
                             onSaved={workspace.reload}
                         />
                         <Members slug={slug} readOnly={value.role !== 'admin' || value.archivedAt !== null} />
+                        <GitSection slug={slug} readOnly={value.role !== 'admin' || value.archivedAt !== null} />
                         {value.role === 'admin' && <ArchiveSection workspace={value} onChanged={workspace.reload} />}
                     </div>
                 )}
