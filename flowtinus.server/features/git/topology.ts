@@ -23,7 +23,6 @@ export const topologyYaml = (environments: EnvironmentDecl[]): string =>
         environments: environments.map(({ env, label, branch, promotesTo, mode }) => ({ env, label, branch, promotesTo, mode })),
     });
 
-/** reads topology.yaml as it is (written by the app or anyone): the environments it declares and what is wrong with it */
 export function parseTopology(text: string): { environments: EnvironmentDecl[]; problems: string[] } {
     let doc: unknown;
     try {

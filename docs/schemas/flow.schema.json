@@ -8,7 +8,11 @@
   "additionalProperties": false,
   "properties": {
     "version": { "const": 1 },
-    "id": { "type": "string", "minLength": 1, "description": "the identity: stays the same across renames and moves" },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "the identity, a UUID in lower case: stays the same across renames and moves"
+    },
     "deployed": { "type": "boolean", "description": "false: the flow is not deployed (absent means true)" },
     "nodes": {
       "type": "array",

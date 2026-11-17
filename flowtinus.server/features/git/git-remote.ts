@@ -76,14 +76,12 @@ const exists = (path: string) =>
         () => false,
     );
 
-/** A bare clone of a repository: what the server reads from it and writes to it. */
 export class GitRemote {
     private constructor(
         readonly dir: string,
         private readonly access: GitAccess,
     ) {}
 
-    /** the bare clone at `dir` (made when missing), with `origin` pointing at the repository */
     static async open(dir: string, access: GitAccess): Promise<GitRemote> {
         if (!(await exists(join(dir, 'HEAD')))) {
             await mkdir(dir, { recursive: true });
@@ -100,7 +98,6 @@ export class GitRemote {
         return runGit(this.dir, args, { ...options, access: this.access });
     }
 
-    /** the repository's branches and their commits, as it has them now */
     async branches(): Promise<Map<string, string>> {
         const out = await this.run(['ls-remote', '--heads', 'origin']);
         const branches = new Map<string, string>();
@@ -112,10 +109,6 @@ export class GitRemote {
         return branches;
     }
 
-    /**
-     * brings the branch's commit into the clone: its sha, or null when the repository has no such branch (`branches`:
-     * what branches() just answered, to spare asking again)
-     */
     async fetch(branch: string, branches?: Map<string, string>): Promise<string | null> {
         const sha = (branches ?? (await this.branches())).get(branch);
         if (!sha) {
@@ -126,7 +119,6 @@ export class GitRemote {
         return sha;
     }
 
-    /** a file's content at a commit, or null when the commit has no such file */
     async readFile(commit: string, path: string): Promise<string | null> {
         try {
             return await this.run(['cat-file', 'blob', `${commit}:${path}`]);
@@ -139,7 +131,6 @@ export class GitRemote {
         }
     }
 
-    /** the files at a commit under these paths (folders or files), by path: one git process for all their contents */
     async files(commit: string, paths: string[]): Promise<Record<string, string>> {
         const listed = (await this.run(['ls-tree', '-r', '-z', commit, '--', ...paths]))
             .split('\0')
@@ -168,10 +159,6 @@ export class GitRemote {
         return files;
     }
 
-    /**
-     * a commit in the clone (not pushed): the parent's tree (none: empty) with the files written (content) or removed
-     * (null), by the author; when that leaves the parent's tree as it was, no commit: the parent comes back
-     */
     async commit(options: {
         parent: string | null;
         changes: Record<string, string | null>;
@@ -212,10 +199,6 @@ export class GitRemote {
         }
     }
 
-    /**
-     * moves the repository's branch to the commit, only from where it was expected (`from`: its commit, or null when it
-     * must not exist yet); a provider's refusal or a branch that moved meanwhile throws GitError
-     */
     async push(commit: string, branch: string, from: string | null): Promise<void> {
         await this.run([
             'push',
@@ -234,7 +217,6 @@ export class GitRemote {
 
 const queues = new Map<string, Promise<unknown>>();
 
-/** runs `work` on the workspace's clone once the work queued before it on that clone is done */
 export function withWorkspaceClone<T>(
     clonesDir: string,
     workspaceId: string,
@@ -255,7 +237,6 @@ export function withWorkspaceClone<T>(
     return next;
 }
 
-/** runs `work` on a clone of its own, removed after it: for a repository that is not (or not yet) the workspace's */
 export async function withThrowawayClone<T>(clonesDir: string, access: GitAccess, work: (remote: GitRemote) => Promise<T>): Promise<T> {
     await mkdir(clonesDir, { recursive: true });
     const dir = await mkdtemp(join(clonesDir, 'throwaway-'));

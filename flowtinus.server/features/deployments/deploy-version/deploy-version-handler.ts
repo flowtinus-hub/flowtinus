@@ -30,33 +30,31 @@ export class DeployVersionHandler implements UseCaseHandler<FlowDeploymentsView>
             return fail('not-found', 'Flow not found.');
         }
 
-        let message = '';
-        const refused = await mirrorGitChange(
+        const [version] = await ctx.db.query<{ id: string; number: number }>(
+            'SELECT id, number FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 AND id = $3',
+            [ctx.workspaceId, row.id, parsed.value.versionId],
+        );
+        if (!version) {
+            return fail('not-found', 'Version not found.');
+        }
+
+        const action = await mirrorGitChange(
             ctx,
-            () => message,
+            done => (done === 'rollback' ? `Roll back ${row.name} to v${version.number}` : `Deploy ${row.name} v${version.number}`),
             async tx => {
                 await lockFlowDeployments(tx, row.id);
-                const [version] = await tx.query<{ id: string; number: number }>(
-                    'SELECT id, number FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 AND id = $3',
-                    [ctx.workspaceId, row.id, parsed.value.versionId],
-                );
-                if (!version) {
-                    return { code: 'not-found' as const, message: 'Version not found.' };
-                }
-
                 const current = await currentDeployment(tx, ctx.workspaceId, row.id);
                 if (current?.id === version.id) {
-                    return { code: 'validation' as const, message: `v${version.number} is already deployed.` };
+                    return null;
                 }
 
                 const action = current && version.number < current.number ? 'rollback' : 'deploy';
                 await setDeployed(tx, ctx, row.id, action, current?.id ?? null, version.id);
-                message = action === 'rollback' ? `Roll back ${row.name} to v${version.number}` : `Deploy ${row.name} v${version.number}`;
-                return null;
+                return action;
             },
         );
-        if (refused) {
-            return fail(refused.code, refused.message);
+        if (!action) {
+            return fail('validation', `v${version.number} is already deployed.`);
         }
 
         return success(await loadDeployments(ctx.db, ctx.workspaceId, row.id));

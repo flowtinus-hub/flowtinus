@@ -17,7 +17,6 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
     let dir: string;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    /** a workspace with a project, git on for a new repository whose topology has DEV on the branch dev */
     async function newWorkspace(options: { branch?: boolean; git?: boolean } = {}) {
         const id = crypto.randomUUID();
         await insertWorkspace(db, id);
@@ -182,6 +181,38 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect((await call('GET', '/git/status')).body.status).toEqual({ pending: 0, reason: null, since: null });
         expect(commits(repo).map(c => c.split('|')[1])).toEqual(['Deploy Invoices v1', 'Deploy Orders v1', firstExport, 'start']);
         expect(show(repo, flowPath('Orders'))).toContain(`id: ${orders}`);
+    });
+
+    test('a deploy stands when the clone cannot be opened or the token not decrypted: git is behind, with why', async () => {
+        const { id, call, repo, newFlow } = await newWorkspace();
+        const [orders, invoices, refunds] = [await newFlow('Orders'), await newFlow('Invoices'), await newFlow('Refunds')];
+        const clone = join(dir, 'clones', id);
+        await rm(clone, { recursive: true, force: true });
+        await Bun.write(join(clone, 'HEAD'), 'not a repository\n');
+
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
+        expect((await call('GET', '/git/status')).body.status).toMatchObject({ pending: 1, reason: expect.any(String) });
+        await rm(clone, { recursive: true, force: true });
+
+        const otherKeys = createApp(db, 'DEV', new Keyring([{ version: 'u', key: new Uint8Array(32).fill(9) }]), undefined, {
+            git: { clonesDir: join(dir, 'clones') },
+        });
+        const deployed = await otherKeys.request(wsPath(id, `/flows/${invoices}/deploy`), {
+            method: 'POST',
+            headers: { 'x-user-id': ANA },
+        });
+        expect(deployed.status).toBe(200);
+        const behind = (await call('GET', '/git/status')).body.status;
+        expect(behind).toMatchObject({ pending: 2 });
+        expect(behind.reason).toContain('SECRETS_KEYS');
+
+        expect((await call('POST', `/flows/${refunds}/deploy`)).status).toBe(200);
+        expect((await call('GET', '/git/status')).body.status).toEqual({ pending: 0, reason: null, since: null });
+        expect(
+            commits(repo)
+                .map(c => c.split('|')[1])
+                .slice(0, 3),
+        ).toEqual(['Deploy Refunds v1', 'Deploy Invoices v1', 'Deploy Orders v1']);
     });
 
     test('a branch deleted once git is on is not created again: git stays behind until it is, or git is turned off', async () => {

@@ -9,19 +9,13 @@ import { readTopology } from './workspace-topology';
 
 export type GitChanges = Record<string, string | null>;
 
-/** git behind: commits not pushed yet, and why the last push failed */
 export type GitSyncView = { pending: number; reason: string | null; since: string | null };
 
 const SYNC_SETTING = 'git-sync';
 
-/** the workspace's commits queued one transaction at a time, each on what the one before it left */
 export const lockGitCommits = (db: Database, workspaceId: string) =>
     db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`git:${workspaceId}`]);
 
-/**
- * a commit on the environment's branch, in the transaction of the change it mirrors (ctx.db), pushed by
- * pushPendingCommits; nothing when git is not on
- */
 export async function queueGitCommit(
     ctx: UseCaseContext,
     commit: { message: string; changes: () => Promise<GitChanges> },
@@ -59,7 +53,6 @@ export async function clearPendingCommits(ctx: UseCaseContext): Promise<void> {
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, SYNC_SETTING);
 }
 
-/** the queued commits on top of the environment's branch, pushed; a failure leaves them queued with the reason */
 export async function pushPendingCommits(ctx: UseCaseContext, options: GitOptions): Promise<GitSyncView | null> {
     const state = await readGitState(ctx.db, ctx.workspaceId);
     if (!state?.on) {
@@ -68,16 +61,17 @@ export async function pushPendingCommits(ctx: UseCaseContext, options: GitOption
 
     const { config } = state;
 
-    const access = await gitAccess(ctx, config);
-    const failure = !access.ok
-        ? access.error.message
-        : await withWorkspaceClone(options.clonesDir, ctx.workspaceId, access.value, async remote => {
-              const rows = await pendingCommits(ctx.db, ctx.workspaceId);
-              if (rows.length === 0) {
-                  return null;
-              }
+    let failure: string | null;
+    try {
+        const access = await gitAccess(ctx, config);
+        failure = !access.ok
+            ? access.error.message
+            : await withWorkspaceClone(options.clonesDir, ctx.workspaceId, access.value, async remote => {
+                  const rows = await pendingCommits(ctx.db, ctx.workspaceId);
+                  if (rows.length === 0) {
+                      return null;
+                  }
 
-              try {
                   const refused = await pushOnBranch(remote, config.environment, rows);
                   if (!refused) {
                       await ctx.db.query('DELETE FROM git_pending_commits WHERE workspace_id = $1 AND id <= $2', [
@@ -87,14 +81,10 @@ export async function pushPendingCommits(ctx: UseCaseContext, options: GitOption
                   }
 
                   return refused;
-              } catch (e) {
-                  if (e instanceof GitError) {
-                      return `The repository answered: ${e.message}`;
-                  }
-
-                  throw e;
-              }
-          });
+              });
+    } catch (e) {
+        failure = e instanceof GitError ? `The repository answered: ${e.message}` : (e as Error).message;
+    }
 
     if (failure) {
         const behind = (await readWorkspaceSetting(ctx.db, ctx.workspaceId, SYNC_SETTING)) as { since: string } | null;
@@ -112,7 +102,6 @@ export async function pushPendingCommits(ctx: UseCaseContext, options: GitOption
     return gitSyncStatus(ctx.db, ctx.workspaceId);
 }
 
-/** null once pushed, or why the branch cannot take them */
 async function pushOnBranch(remote: GitRemote, environment: string, rows: PendingRow[]): Promise<string | null> {
     const branches = await remote.branches();
     const topology = await readTopology(remote, environment, branches);

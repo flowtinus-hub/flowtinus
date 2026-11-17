@@ -27,7 +27,6 @@ function gitWith(cwd: string, args: string[], input: string, env: Record<string,
     return done.stdout.toString().trim();
 }
 
-/** the branch (made when missing) on a commit by Someone holding exactly these files */
 export function commitFiles(repo: string, branch: string, files: Record<string, string>, message = 'files'): string {
     const index = { GIT_INDEX_FILE: join(repo, `index-${crypto.randomUUID()}`) };
     try {
@@ -52,7 +51,6 @@ export function commitFiles(repo: string, branch: string, files: Record<string, 
     }
 }
 
-/** the branch, on a commit of nothing by Someone */
 export function createBranch(repo: string, branch: string): void {
     const commit = git(repo, '-c', 'user.name=Someone', '-c', 'user.email=someone@example.com', 'commit-tree', EMPTY_TREE, '-m', 'start');
     git(repo, 'update-ref', `refs/heads/${branch}`, commit);

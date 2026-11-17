@@ -16,7 +16,6 @@ export type NameDialogTarget = {
     kind?: 'folder' | 'flow';
     /** the names next to it, for the instant "Already in use" check */
     siblings: { name: string }[];
-    /** the path in the repository this name would make too long */
     pathIssue?: (name: string) => string | undefined;
     onSave: (name: string) => Promise<ApiResult<unknown>>;
 };

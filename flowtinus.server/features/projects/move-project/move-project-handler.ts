@@ -153,7 +153,7 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
         const message = `Move project ${project.name} from ${await workspaceSlug(ctx)} to ${toWorkspace}`;
         await mirrorGitChange(
             ctx,
-            message,
+            () => message,
             async tx => {
                 await undeployArchived(tx, ctx, flowIds);
 

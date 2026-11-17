@@ -20,7 +20,6 @@ export type AppSettings = {
     editorUrl?: string;
     /** the keys that encrypt the secrets (SECRETS_KEYS, the last one encrypts); empty = DEV's fixed key, refused elsewhere */
     secretsKeys: KeyEntry[];
-    /** where each workspace's private git clone lives (default: a folder in the OS temp folder) */
     gitClonesDir?: string;
     logLevel: ServerLogLevel;
     logFormat: LogFormat;

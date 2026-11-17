@@ -25,7 +25,7 @@ const ROLE_HELP: Record<WorkspaceRole, string> = {
 
 /**
  * A workspace's settings (/w/:ws/settings): its name and description (its ID never changes), archiving it (only once all
- * its projects are archived) or restoring it, its members with their roles, and its git configuration. Only its admins change anything here.
+ * its projects are archived) or restoring it, and its members with their roles. Only its admins change anything here.
  */
 export function WorkspaceSettingsPage() {
     // the role from the workspace itself: an archived one is not in /me, and its admins restore it here

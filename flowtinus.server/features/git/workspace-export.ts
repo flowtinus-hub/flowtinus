@@ -5,11 +5,25 @@ import type { GitChanges } from './git-commits';
 
 export type RepoFiles = Record<string, string>;
 
-/**
- * the whole workspace as the environment's branch holds it: `.gitattributes`, `workspace.yaml`, the connections'
- * declarations and every active project with its scripts and the flows ever deployed (the deployed version, or the one
- * last deployed with `deployed: false`); drafts, configurations and values stay out
- */
+export type FlowInRepo = { flow_id: string; deployed: boolean; definition: FlowFile; content_hash: string };
+
+// a flow not deployed is at the version last deployed, or at a newer one git brought with deployed: false (a version no
+// deploy ever reached, made with or after the last change of what is deployed)
+export const flowsInRepo = (db: Database, workspaceId: string, flowIds: string[] | null = null) =>
+    db.query<FlowInRepo>(
+        `SELECT f.id AS flow_id, d.flow_version_id IS NOT NULL AS deployed, v.definition, v.content_hash
+       FROM flows f
+       LEFT JOIN deployments d ON d.flow_id = f.id
+       JOIN flow_versions v ON v.id = coalesce(
+         d.flow_version_id,
+         (SELECT n.id FROM flow_versions n WHERE n.flow_id = f.id
+           AND NOT EXISTS (SELECT 1 FROM deployment_history h WHERE h.flow_id = f.id AND (h.from_version_id = n.id OR h.to_version_id = n.id OR h.at > n.created_at))
+          ORDER BY n.number DESC LIMIT 1),
+         (SELECT coalesce(h.to_version_id, h.from_version_id) FROM deployment_history h WHERE h.flow_id = f.id ORDER BY h.id DESC LIMIT 1))
+      WHERE f.workspace_id = $1 AND f.deleted_at IS NULL AND f.removed_at IS NULL AND ($2::uuid[] IS NULL OR f.id = ANY($2::uuid[]))`,
+        [workspaceId, flowIds],
+    );
+
 export async function exportWorkspace(db: Database, workspaceId: string): Promise<RepoFiles> {
     const [[workspace], connections, projects, flowVersions, scripts, scriptFolders] = await Promise.all([
         db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]),
@@ -20,17 +34,7 @@ export async function exportWorkspace(db: Database, workspaceId: string): Promis
             'SELECT id, name, description, icon, color FROM projects WHERE workspace_id = $1 AND deleted_at IS NULL',
             [workspaceId],
         ),
-        db.query<{ flow_id: string; deployed: boolean; definition: FlowFile }>(
-            `SELECT f.id AS flow_id, d.flow_version_id IS NOT NULL AS deployed, v.definition
-       FROM flows f
-       LEFT JOIN deployments d ON d.flow_id = f.id
-       JOIN flow_versions v ON v.id = coalesce(
-         d.flow_version_id,
-         (SELECT coalesce(h.to_version_id, h.from_version_id) FROM deployment_history h WHERE h.flow_id = f.id ORDER BY h.id DESC LIMIT 1),
-         (SELECT n.id FROM flow_versions n WHERE n.flow_id = f.id ORDER BY n.number DESC LIMIT 1))
-      WHERE f.workspace_id = $1 AND f.deleted_at IS NULL AND f.removed_at IS NULL`,
-            [workspaceId],
-        ),
+        flowsInRepo(db, workspaceId),
         db.query<{ project_id: string; path: string; content: string }>(
             'SELECT project_id, path, content FROM scripts WHERE workspace_id = $1',
             [workspaceId],
@@ -89,7 +93,6 @@ export async function exportWorkspace(db: Database, workspaceId: string): Promis
     return Object.fromEntries(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
-/** what turns the files `before` into `after`: each file written or changed, with its content, and each removed, as null */
 export function repoChanges(before: RepoFiles, after: RepoFiles): GitChanges {
     const changes: GitChanges = {};
     for (const [path, content] of Object.entries(after)) {

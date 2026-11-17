@@ -26,16 +26,20 @@ export class UndeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> 
             return fail('not-found', 'Flow not found.');
         }
 
-        const undeployed = await mirrorGitChange(ctx, `Undeploy ${row.name}`, async tx => {
-            await lockFlowDeployments(tx, row.id);
-            const current = await currentDeployment(tx, ctx.workspaceId, row.id);
-            if (!current) {
-                return false;
-            }
+        const undeployed = await mirrorGitChange(
+            ctx,
+            () => `Undeploy ${row.name}`,
+            async tx => {
+                await lockFlowDeployments(tx, row.id);
+                const current = await currentDeployment(tx, ctx.workspaceId, row.id);
+                if (!current) {
+                    return false;
+                }
 
-            await setDeployed(tx, ctx, row.id, 'undeploy', current.id, null);
-            return true;
-        });
+                await setDeployed(tx, ctx, row.id, 'undeploy', current.id, null);
+                return true;
+            },
+        );
         if (!undeployed) {
             return fail('validation', 'The flow is not deployed.');
         }

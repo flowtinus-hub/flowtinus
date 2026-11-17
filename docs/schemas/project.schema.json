@@ -7,7 +7,11 @@
   "required": ["id"],
   "additionalProperties": false,
   "properties": {
-    "id": { "type": "string", "minLength": 1, "description": "the identity: stays the same across renames and moves" },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "the identity, a UUID in lower case: stays the same across renames and moves"
+    },
     "description": { "type": "string" },
     "icon": { "type": "string" },
     "color": { "type": "string" }

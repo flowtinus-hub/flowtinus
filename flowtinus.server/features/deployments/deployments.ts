@@ -152,7 +152,6 @@ export async function setDeployed(
     );
 }
 
-/** the flow's newest version, when it is the same flow as the definition (a deploy of it makes no new version) */
 export async function newestVersionLike(
     db: Database,
     workspaceId: string,

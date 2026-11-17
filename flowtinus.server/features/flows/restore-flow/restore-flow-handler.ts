@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { mirrorGitChange } from '#features/git/git-mirror';
 import { eq } from 'drizzle-orm';
-import { isFolderVisible, siblingNames, validateName, withFlow } from '@flowtinus/core';
-import { FlowRepository, loadTree, nameTaken, pathTooLong, projectArchived, toFlowView, type FlowView } from '#features/folders/project-tree';
+import { isFolderVisible } from '@flowtinus/core';
+import { FlowRepository, loadTree, nameInTree, projectArchived, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -42,20 +42,20 @@ export class RestoreFlowHandler implements UseCaseHandler<FlowView> {
 
         const tree = await loadTree(ctx.db, ctx.workspaceId, flow.projectId);
         const folderId = isFolderVisible(tree.folders, flow.folderId) ? flow.folderId : null;
-        if (validateName(flow.name, siblingNames(tree, 'flow', folderId, id), 'flow').error === 'Already in use') {
-            return nameTaken('flow', flow.name);
+        const named = await nameInTree(ctx, flow.projectId, tree, { kind: 'flow', id, parentId: folderId, name: flow.name });
+        if (!named.ok) {
+            return named;
         }
 
-        const tooLong = await pathTooLong(ctx, flow.projectId, { tree: withFlow(tree, { id, folderId, name: flow.name }) });
-        if (tooLong) {
-            return tooLong;
-        }
-
-        const restored = await mirrorGitChange(ctx, `Restore flow ${flow.name}`, async tx => {
-            const inTx = new FlowRepository(tx, ctx.workspaceId);
-            await inTx.restore(id);
-            return folderId === flow.folderId ? inTx.findById(id) : inTx.update(id, { folderId });
-        });
+        const restored = await mirrorGitChange(
+            ctx,
+            () => `Restore flow ${flow.name}`,
+            async tx => {
+                const inTx = new FlowRepository(tx, ctx.workspaceId);
+                await inTx.restore(id);
+                return folderId === flow.folderId ? inTx.findById(id) : inTx.update(id, { folderId });
+            },
+        );
 
         return restored ? success(toFlowView(restored)) : fail('not-found', 'Archived flow not found.');
     }

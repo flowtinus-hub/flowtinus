@@ -34,20 +34,25 @@ export class UpdateConnectionHandler implements UseCaseHandler<ConnectionView> {
             return checked.failure;
         }
 
-        const updated = await mirrorGitChange(ctx, `Update connection ${checked.value.name}`, async tx => {
-            for (const secret of usedSecrets(checked.value, newSecrets)) {
-                await insertSecret(tx, ctx, secret.name, secret.value);
-            }
+        const updated = await mirrorGitChange(
+            ctx,
+            () => `Update connection ${checked.value.name}`,
+            async tx => {
+                for (const secret of usedSecrets(checked.value, newSecrets)) {
+                    await insertSecret(tx, ctx, secret.name, secret.value);
+                }
 
-            // another type or other fields may reach another server: what the last test found no longer holds
-            const moved = current.type !== checked.value.type || JSON.stringify(current.config) !== JSON.stringify(checked.value.config);
-            return new ConnectionRepository(tx, ctx.workspaceId).update(id, {
-                ...checked.value,
-                ...(moved ? { server: null } : {}),
-                updatedAt: new Date(),
-                updatedBy: ctx.userId,
-            });
-        });
+                // another type or other fields may reach another server: what the last test found no longer holds
+                const moved =
+                    current.type !== checked.value.type || JSON.stringify(current.config) !== JSON.stringify(checked.value.config);
+                return new ConnectionRepository(tx, ctx.workspaceId).update(id, {
+                    ...checked.value,
+                    ...(moved ? { server: null } : {}),
+                    updatedAt: new Date(),
+                    updatedBy: ctx.userId,
+                });
+            },
+        );
 
         return updated ? success(toConnectionView(updated)) : fail('not-found', 'Connection not found.');
     }

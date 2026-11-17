@@ -18,8 +18,8 @@ const flow = (id: string, nodes: FlowFileNode[] = []): FlowFile => ({
     ],
 });
 
-const LOAD_ORDERS = flow('f1', [
-    { id: 'read', type: 'sqlserver', position: at(100), config: { connection: 'c1', query: 'SELECT 1' } },
+const LOAD_ORDERS = flow('00000000-0000-4000-8000-00000000f001', [
+    { id: 'read', type: 'sqlserver', position: at(100), config: { connection: '00000000-0000-4000-8000-00000000c001', query: 'SELECT 1' } },
     {
         id: 'ts',
         type: 'typescript',
@@ -28,18 +28,18 @@ const LOAD_ORDERS = flow('f1', [
             code: "import { total } from '@myproject/scripts/lib/totals';\nasync function process($input: Data) {\n  return $SECRETS.token + VARIABLES.region;\n}\n",
         },
     },
-    { id: 'call', type: 'flow', position: at(300), config: { flowId: 'f2' } },
+    { id: 'call', type: 'flow', position: at(300), config: { flowId: '00000000-0000-4000-8000-00000000f002' } },
 ]);
 
-const NOTIFY = flow('f2', [{ id: 'log', type: 'log', position: at(100), config: { message: 'done' } }]);
+const NOTIFY = flow('00000000-0000-4000-8000-00000000f002', [{ id: 'log', type: 'log', position: at(100), config: { message: 'done' } }]);
 
 const W = 'acme';
 
 const validTree = (): Record<string, string> => ({
     '.gitattributes': GITATTRIBUTES,
     'acme/workspace.yaml': workspaceToYaml(),
-    'acme/connections/Warehouse.yaml': connectionToYaml({ id: 'c1', type: 'sqlserver' }),
-    'acme/projects/Sales/project.yaml': projectToYaml({ id: 'p1', description: '' }),
+    'acme/connections/Warehouse.yaml': connectionToYaml({ id: '00000000-0000-4000-8000-00000000c001', type: 'sqlserver' }),
+    'acme/projects/Sales/project.yaml': projectToYaml({ id: '00000000-0000-4000-8000-00000000b001', description: '' }),
     'acme/projects/Sales/flows/Daily/Load orders.flow.yaml': repoFlowToYaml(LOAD_ORDERS),
     'acme/projects/Sales/flows/Notify.flow.yaml': repoFlowToYaml(NOTIFY),
     'acme/projects/Sales/flows/Empty/.gitkeep': '',
@@ -47,7 +47,7 @@ const validTree = (): Record<string, string> => ({
     'other/workspace.yaml': 'format: 9\n',
 });
 
-const HERE = { connections: ['c1'], secrets: ['token'], variables: ['region'] };
+const HERE = { connections: ['00000000-0000-4000-8000-00000000c001'], secrets: ['token'], variables: ['region'] };
 
 const validate = (files: Record<string, string>, here = HERE) => validateWorkspaceTree({ workspace: W, files, environment: here });
 
@@ -75,7 +75,7 @@ describe('errors, which refuse the tree', () => {
             path: NOTIFY_PATH,
             message: expect.stringContaining('Not valid YAML'),
         });
-        expect(errorsOf({ 'acme/connections/Warehouse.yaml': 'id: c1\ntype: oracle\n' })).toEqual([
+        expect(errorsOf({ 'acme/connections/Warehouse.yaml': 'id: 00000000-0000-4000-8000-00000000c001\ntype: oracle\n' })).toEqual([
             { path: 'acme/connections/Warehouse.yaml', message: 'Unknown connection type "oracle".' },
         ]);
         expect(errorsOf({ 'acme/workspace.yaml': 'format: 2\n' })).toEqual([
@@ -87,9 +87,9 @@ describe('errors, which refuse the tree', () => {
     });
 
     test('a key its schema does not have, at any depth', () => {
-        expect(errorsOf({ 'acme/connections/Warehouse.yaml': 'id: c1\ntype: sqlserver\nhost: db1\n' })).toEqual([
-            { path: 'acme/connections/Warehouse.yaml', message: 'Unknown key "host".' },
-        ]);
+        expect(
+            errorsOf({ 'acme/connections/Warehouse.yaml': 'id: 00000000-0000-4000-8000-00000000c001\ntype: sqlserver\nhost: db1\n' }),
+        ).toEqual([{ path: 'acme/connections/Warehouse.yaml', message: 'Unknown key "host".' }]);
         const notify = repoFlowToYaml(NOTIFY)
             .replace('version: 1', 'version: 1\nname: Notify')
             .replace('  - id: log\n', '  - id: log\n    colour: red\n');
@@ -100,20 +100,48 @@ describe('errors, which refuse the tree', () => {
     });
 
     test('an id missing, or the same id in two files of a kind', () => {
-        expect(errorsOf({ [NOTIFY_PATH]: repoFlowToYaml(NOTIFY).replace('id: f2\n', '') })).toContainEqual({
+        expect(
+            errorsOf({ [NOTIFY_PATH]: repoFlowToYaml(NOTIFY).replace('id: 00000000-0000-4000-8000-00000000f002\n', '') }),
+        ).toContainEqual({
             path: NOTIFY_PATH,
             message: expect.stringMatching(/^The flow has no id/),
         });
         expect(
             errorsOf({
                 'acme/projects/Sales/flows/Copy.flow.yaml': repoFlowToYaml(NOTIFY),
-                'acme/projects/Billing/project.yaml': projectToYaml({ id: 'p1', description: '' }),
-                'acme/connections/Backup.yaml': connectionToYaml({ id: 'c1', type: 'sqlserver' }),
+                'acme/projects/Billing/project.yaml': projectToYaml({ id: '00000000-0000-4000-8000-00000000b001', description: '' }),
+                'acme/connections/Backup.yaml': connectionToYaml({ id: '00000000-0000-4000-8000-00000000c001', type: 'sqlserver' }),
             }),
         ).toEqual([
-            { path: 'acme/projects/Sales/flows/Copy.flow.yaml', message: `The id "f2" is also in ${NOTIFY_PATH}.` },
-            { path: 'acme/projects/Billing/project.yaml', message: 'The id "p1" is also in acme/projects/Sales/project.yaml.' },
-            { path: 'acme/connections/Backup.yaml', message: 'The id "c1" is also in acme/connections/Warehouse.yaml.' },
+            {
+                path: 'acme/projects/Sales/flows/Copy.flow.yaml',
+                message: `The id "00000000-0000-4000-8000-00000000f002" is also in ${NOTIFY_PATH}.`,
+            },
+            {
+                path: 'acme/projects/Billing/project.yaml',
+                message: 'The id "00000000-0000-4000-8000-00000000b001" is also in acme/projects/Sales/project.yaml.',
+            },
+            {
+                path: 'acme/connections/Backup.yaml',
+                message: 'The id "00000000-0000-4000-8000-00000000c001" is also in acme/connections/Warehouse.yaml.',
+            },
+        ]);
+    });
+
+    test('an id that is not a UUID in lower case', () => {
+        const upper = '00000000-0000-4000-8000-00000000F002';
+        expect(
+            errorsOf({
+                [NOTIFY_PATH]: repoFlowToYaml(flow(upper, NOTIFY.nodes.slice(1, 2))),
+                'acme/projects/Sales/project.yaml': projectToYaml({ id: 'sales', description: '' }),
+            }),
+        ).toEqual([
+            { path: 'acme/projects/Sales/project.yaml', message: 'The id "sales" is not a UUID in lower case.' },
+            { path: NOTIFY_PATH, message: `The id "${upper}" is not a UUID in lower case.` },
+            {
+                path: 'acme/projects/Sales/flows/Daily/Load orders.flow.yaml',
+                message: 'Node "call" calls the flow "00000000-0000-4000-8000-00000000f002", which is not in the workspace.',
+            },
         ]);
     });
 
@@ -127,12 +155,15 @@ describe('errors, which refuse the tree', () => {
     test('a call to a flow that is not in the workspace, or to a script that is not in the project', () => {
         const LOAD_ORDERS_PATH = 'acme/projects/Sales/flows/Daily/Load orders.flow.yaml';
         expect(errorsOf({ [NOTIFY_PATH]: undefined })).toEqual([
-            { path: LOAD_ORDERS_PATH, message: 'Node "call" calls the flow "f2", which is not in the workspace.' },
+            {
+                path: LOAD_ORDERS_PATH,
+                message: 'Node "call" calls the flow "00000000-0000-4000-8000-00000000f002", which is not in the workspace.',
+            },
         ]);
         expect(
             errorsOf({
                 'acme/projects/Sales/scripts/lib/totals.ts': undefined,
-                'acme/projects/Billing/project.yaml': projectToYaml({ id: 'p2', description: '' }),
+                'acme/projects/Billing/project.yaml': projectToYaml({ id: '00000000-0000-4000-8000-00000000b002', description: '' }),
                 'acme/projects/Billing/scripts/lib/totals.ts': 'export const total = 1;\n',
                 'acme/projects/Billing/scripts/lib/tax.ts': "import { rate } from '@myproject/scripts/lib/rates';\n",
             }),
@@ -149,7 +180,8 @@ describe('errors, which refuse the tree', () => {
         expect(errorsOf({ 'acme/connections/Warehouse.yaml': undefined }, { ...HERE, connections: [] })).toEqual([
             {
                 path: 'acme/projects/Sales/flows/Daily/Load orders.flow.yaml',
-                message: 'Node "read" uses the connection "c1", which is not declared in acme/connections.',
+                message:
+                    'Node "read" uses the connection "00000000-0000-4000-8000-00000000c001", which is not declared in acme/connections.',
             },
         ]);
     });
@@ -159,9 +191,13 @@ describe('errors, which refuse the tree', () => {
         const nfd = nfc.normalize('NFD');
         expect(
             errorsOf({
-                'acme/projects/Sales/flows/daily/A.flow.yaml': repoFlowToYaml(flow('f3', NOTIFY.nodes.slice(1, 2))),
-                'acme/projects/Sales/flows/daily/B.flow.yaml': repoFlowToYaml(flow('f4', NOTIFY.nodes.slice(1, 2))),
-                'acme/connections/WAREHOUSE.yaml': connectionToYaml({ id: 'c2', type: 'sqlserver' }),
+                'acme/projects/Sales/flows/daily/A.flow.yaml': repoFlowToYaml(
+                    flow('00000000-0000-4000-8000-00000000f003', NOTIFY.nodes.slice(1, 2)),
+                ),
+                'acme/projects/Sales/flows/daily/B.flow.yaml': repoFlowToYaml(
+                    flow('00000000-0000-4000-8000-00000000f004', NOTIFY.nodes.slice(1, 2)),
+                ),
+                'acme/connections/WAREHOUSE.yaml': connectionToYaml({ id: '00000000-0000-4000-8000-00000000c002', type: 'sqlserver' }),
                 [`acme/projects/Sales/scripts/${nfc}.ts`]: '',
                 [`acme/projects/Sales/scripts/${nfd}.ts`]: '',
             }).filter(e => !e.message.startsWith('The script path')),
@@ -182,10 +218,12 @@ describe('errors, which refuse the tree', () => {
                 [NOTIFY_PATH]: undefined,
                 'acme/projects/Sales/flows/nul.flow.yaml': repoFlowToYaml(NOTIFY),
                 'acme/projects/Sales/flows/x.flow.yaml/.gitkeep': '',
-                'acme/connections/con.yaml': connectionToYaml({ id: 'c2', type: 'sqlserver' }),
-                'acme/projects/Sales./project.yaml': projectToYaml({ id: 'p2', description: '' }),
+                'acme/connections/con.yaml': connectionToYaml({ id: '00000000-0000-4000-8000-00000000c002', type: 'sqlserver' }),
+                'acme/projects/Sales./project.yaml': projectToYaml({ id: '00000000-0000-4000-8000-00000000b002', description: '' }),
                 'acme/projects/Sales/scripts/lib/bad name.ts': '',
-                [`acme/projects/Sales/flows/${long}/${long}.flow.yaml`]: repoFlowToYaml(flow('f3', NOTIFY.nodes.slice(1, 2))),
+                [`acme/projects/Sales/flows/${long}/${long}.flow.yaml`]: repoFlowToYaml(
+                    flow('00000000-0000-4000-8000-00000000f003', NOTIFY.nodes.slice(1, 2)),
+                ),
             }),
         ).toEqual([
             {

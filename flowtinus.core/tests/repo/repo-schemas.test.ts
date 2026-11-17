@@ -8,7 +8,7 @@ const schemaOf = (file: string) => REPO_SCHEMAS.find(s => s.file === file)!;
 const valid = (file: string, text: string) => ajv.validate(schemaOf(file).schema, parse(text));
 
 const flow: FlowFile = {
-    ...newFlowFile('Load orders', 'f1'),
+    ...newFlowFile('Load orders', '00000000-0000-4000-8000-00000000f001'),
     nodes: [
         ...newFlowFile('x').nodes,
         {
@@ -44,22 +44,32 @@ describe('a JSON Schema for each file of the format', () => {
     test('what the app writes is valid', () => {
         expect(valid('flow.schema.json', repoFlowToYaml(flow))).toBe(true);
         expect(valid('flow.schema.json', repoFlowToYaml(flow, { deployed: false }))).toBe(true);
-        expect(valid('project.schema.json', projectToYaml({ id: 'p', description: 'd', icon: 'cart', color: 'red' }))).toBe(true);
-        expect(valid('connection.schema.json', connectionToYaml({ id: 'c', type: 'postgresql' }))).toBe(true);
+        expect(
+            valid(
+                'project.schema.json',
+                projectToYaml({ id: '00000000-0000-4000-8000-00000000b001', description: 'd', icon: 'cart', color: 'red' }),
+            ),
+        ).toBe(true);
+        expect(valid('connection.schema.json', connectionToYaml({ id: '00000000-0000-4000-8000-00000000c001', type: 'postgresql' }))).toBe(
+            true,
+        );
         expect(valid('workspace.schema.json', workspaceToYaml())).toBe(true);
     });
 
     test('what is not the format is not', () => {
         const text = repoFlowToYaml(flow);
-        expect(valid('flow.schema.json', text.replace('id: f1\n', ''))).toBe(false);
-        expect(valid('flow.schema.json', text.replace('id: f1\n', 'id: f1\nname: Load orders\n'))).toBe(false);
-        expect(valid('flow.schema.json', text.replace('id: f1\n', 'id: f1\ndeployed: maybe\n'))).toBe(false);
+        const id = 'id: 00000000-0000-4000-8000-00000000f001\n';
+        expect(valid('flow.schema.json', text.replace(id, ''))).toBe(false);
+        expect(valid('flow.schema.json', text.replace(id, `${id}name: Load orders\n`))).toBe(false);
+        expect(valid('flow.schema.json', text.replace(id, `${id}deployed: maybe\n`))).toBe(false);
         expect(valid('flow.schema.json', text.replace('type: mapper', 'type: no-such-component'))).toBe(false);
         expect(valid('flow.schema.json', text.replace('    notes: n\n', '    pinned: {}\n'))).toBe(false);
         expect(valid('flow.schema.json', text.replace('version: 1', 'version: 2'))).toBe(false);
+        expect(valid('flow.schema.json', text.replace(id, id.toUpperCase().replace('ID', 'id')))).toBe(false);
         expect(valid('project.schema.json', 'description: d\n')).toBe(false);
-        expect(valid('connection.schema.json', 'id: c\ntype: oracle\n')).toBe(false);
-        expect(valid('connection.schema.json', 'id: c\ntype: postgresql\nhost: db\n')).toBe(false);
+        expect(valid('project.schema.json', 'id: sales\ndescription: d\n')).toBe(false);
+        expect(valid('connection.schema.json', 'id: 00000000-0000-4000-8000-00000000c001\ntype: oracle\n')).toBe(false);
+        expect(valid('connection.schema.json', 'id: 00000000-0000-4000-8000-00000000c001\ntype: postgresql\nhost: db\n')).toBe(false);
         expect(valid('workspace.schema.json', 'format: 2\n')).toBe(false);
     });
 });

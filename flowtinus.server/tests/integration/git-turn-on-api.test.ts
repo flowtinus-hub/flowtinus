@@ -8,7 +8,7 @@ import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { exportWorkspace } from '#features/git/workspace-export';
-import { repoFlowFromYaml, repoFlowToYaml, type FlowFile } from '@flowtinus/core';
+import { GITATTRIBUTES, projectToYaml, repoFlowFromYaml, repoFlowToYaml, workspaceToYaml, type FlowFile } from '@flowtinus/core';
 import { createApp } from '../../api/app';
 
 setDefaultTimeout(30_000);
@@ -19,7 +19,6 @@ describe('turning git on', () => {
     let dir: string;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    /** a workspace configured for a new repository whose topology has DEV on the branch dev, git not on yet */
     async function newWorkspace() {
         const id = crypto.randomUUID();
         const slug = slugOf(id);
@@ -122,7 +121,24 @@ describe('turning git on', () => {
         expect((await call('GET', '/git/status')).body).toEqual({ status: null });
     });
 
-    /** a server with Sales (Orders deployed, a draft-only flow) and a branch whose Sales has Invoices instead of Orders */
+    test('a workspace with projects and connections but no flows is empty: the branch imports, no choice asked', async () => {
+        const { slug, call, repo, newProject } = await newWorkspace();
+        await newProject('Ops');
+        const kafka = { bootstrapServers: 'b:9092', security: 'SASL_SSL', mechanism: 'PLAIN', user: 'u', password: 'kafka-pass' };
+        const stream = { name: 'Stream', type: 'kafka', config: kafka, newSecrets: [{ name: 'kafka-pass', value: 's' }] };
+        expect((await call('POST', '/connections', stream)).status).toBe(201);
+        const sales = crypto.randomUUID();
+        commitFiles(repo, 'dev', {
+            '.gitattributes': GITATTRIBUTES,
+            [`${slug}/workspace.yaml`]: workspaceToYaml(),
+            [`${slug}/projects/Sales/project.yaml`]: projectToYaml({ id: sales, description: '' }),
+        });
+
+        expect((await call('GET', '/git/on')).body).toMatchObject({ case: 'import', errors: [] });
+        expect((await call('POST', '/git/on', {})).body).toMatchObject({ outcome: 'imported' });
+        expect((await call('GET', '/projects')).body.items.map((p: { id: string }) => p.id)).toEqual([sales]);
+    });
+
     async function bothWithContent() {
         const workspace = await newWorkspace();
         const { id, slug, repo, newProject, newFlow, deploy } = workspace;
@@ -243,10 +259,67 @@ describe('turning git on', () => {
         expect((await call('GET', '/connections')).body.items).toEqual([]);
     });
 
+    test('git replaces the server: the preview says a connection git does not declare is deleted with its configuration', async () => {
+        const { slug, call } = await bothWithContent();
+        const kafka = { bootstrapServers: 'b:9092', security: 'SASL_SSL', mechanism: 'PLAIN', user: 'u', password: 'kafka-pass' };
+        await call('POST', '/connections', {
+            name: 'Stream',
+            type: 'kafka',
+            config: kafka,
+            newSecrets: [{ name: 'kafka-pass', value: 's' }],
+        });
+
+        expect((await call('GET', '/git/on')).body.toServer).toContainEqual({
+            path: `${slug}/connections/Stream.yaml`,
+            change: 'removed',
+            note: 'The connection Stream is deleted from this server, with its configuration and credentials (the secrets it names stay).',
+        });
+    });
+
+    test('git replaces the server: a flow with deployed: false and other content gets a new version and no deploy', async () => {
+        const { id, call, repo, orders, ordersFile, flows, onBranch } = await bothWithContent();
+        const read = repoFlowFromYaml(ordersFile, 'Orders');
+        if (!read.ok) {
+            throw new Error(read.errors.join(' '));
+        }
+        const flow = { ...read.value.flow, nodes: read.value.flow.nodes.map(n => (n.type === 'start' ? { ...n, label: 'From git' } : n)) };
+        const files = { ...onBranch, [`${flows}/Orders.flow.yaml`]: repoFlowToYaml({ ...flow, id: orders }, { deployed: false }) };
+        commitFiles(repo, 'dev', files);
+
+        expect((await call('POST', '/git/on', { choice: 'git' })).body).toMatchObject({ outcome: 'git-replaced-server' });
+        const deployments = (await call('GET', `/flows/${orders}/deployments`)).body;
+        expect(deployments.versions.map((v: { number: number }) => v.number)).toEqual([2, 1]);
+        expect(deployments.deployed).toBeNull();
+        expect(deployments.history.map((h: any) => [h.action, h.fromNumber, h.toNumber])).toEqual([
+            ['undeploy', 1, null],
+            ['deploy', null, 1],
+        ]);
+        expect(await exportWorkspace(db, id)).toEqual(files);
+    });
+
+    test('the files the format does not know are left out: neither side deletes them', async () => {
+        const { slug, call, repo, tree, onBranch } = await bothWithContent();
+        const unknown = [`${slug}/README.md`, `${slug}/projects/Sales/notes.txt`];
+        commitFiles(repo, 'dev', { ...onBranch, [unknown[0]!]: '# Flows\n', [unknown[1]!]: 'todo\n' });
+
+        const plan = (await call('GET', '/git/on')).body;
+        const paths = [...plan.toGit, ...plan.toServer].map((c: { path: string }) => c.path);
+        expect(paths.filter((path: string) => unknown.includes(path))).toEqual([]);
+
+        expect((await call('POST', '/git/on', { choice: 'git' })).body).toMatchObject({ outcome: 'git-replaced-server' });
+        expect(tree()).toEqual(expect.arrayContaining(unknown));
+    });
+
     test('git replaces the server is refused, changing nothing, when a draft here has the name of a flow git brings', async () => {
-        const { call, newFlow, sales, orders } = await bothWithContent();
+        const { call, newFlow, sales, orders, flows } = await bothWithContent();
         await newFlow(sales, 'invoices');
 
+        expect((await call('GET', '/git/on')).body.errors).toEqual([
+            {
+                path: `${flows}/Invoices.flow.yaml`,
+                message: 'The flow Invoices in git has the name of a draft here, invoices: rename the draft first.',
+            },
+        ]);
         expect((await call('POST', '/git/on', { choice: 'git' })).body.error).toEqual({
             code: 'conflict',
             message: 'The flow Invoices in git has the name of a draft here, invoices: rename the draft first.',
