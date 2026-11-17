@@ -306,6 +306,10 @@ Comments are not part of the format: the app drops them when it writes a file. W
 
 A deploy makes a new version only when what the engine runs changed. A version's content hash leaves out `deployed`, the name, the canvas (positions, groups, notes), the pinned outputs, the order of nodes, edges and keys, and line endings (LF or CRLF): changing only `deployed` makes no new version.
 
+### Validation of a tree
+
+The app checks a whole workspace tree before applying it (`validateWorkspaceTree` in the core). An error refuses the tree whole, with the reasons listed: a file that is not valid YAML or does not match its schema (an unknown key included); an `id` missing or in two files of a kind; a `workspace.yaml` or a `project.yaml` missing; an edge to a node that does not exist; a call to a flow that is not in the workspace or to a script that is not in the project; a connection a flow uses and the workspace does not declare; a name breaking the rule above or a path too long; two names that differ only in case or Unicode normalization. A warning does not: a declared connection not configured on this server; a secret or variable a flow reads with no value on this server; a comment in a flow file; a repository without `.gitattributes`; a file that is not part of the format (it is left out).
+
 ### JSON Schemas
 
 A JSON Schema for each file, for an editor to check the files as they are written:
