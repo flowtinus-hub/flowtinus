@@ -1,8 +1,8 @@
 # Git sync: brainstorm
 
-Where the discussion on git sync stands. Not a spec: it records what was decided, why, and what is still open, so the spec and its tickets can be written from it.
+Where the discussion on git sync stands. Not a spec: it records what was decided and why, so the spec and its tickets can be written from it.
 
-Status: first round. This branch (`feature/git-sync-prototype`) is the base for a second round of refinement, after the mock of the screens and the git simulation are reviewed. Nothing here is to be implemented or published to the issue tracker before that round.
+Status: second round closed, ready for the third. Every point the git simulation and the first mock of the screens raised has a decision below, and the prototype follows them. "For round 3" lists what adjusting the prototype turned up. Nothing here is to be implemented or published to the issue tracker until the maintainer says so.
 
 ## Goal
 
@@ -14,209 +14,269 @@ Flow definitions live only in Postgres today. With git sync on:
 
 All of it sits behind a setting. With no git configured, the app behaves as it does today.
 
+Later, and the reason the repo is shaped the way it is: a VS Code extension that renders and edits flows and scripts, creates folders and so on, and a Flowtinus running locally in Docker, so that a developer works the way they do today. They run the app locally, create their branches, test locally, push to the remote, and merge there into the environments' branches; a protected environment only takes pull requests. Nothing of that is built now, but the repo has to be as git friendly as possible so it fits later without changing the format.
+
 ## Where the code is today
 
 - `flows.draft_definition`: one draft per flow, with a revision; a concurrent save is refused (409).
 - `flow_versions`: immutable versions, with `content_hash` and `received_from`. `deployments` holds the deployed one, `deployment_history` its changes (the `promote` action and `source_env` already exist).
-- `promotions` (a package sent between instances) is only a table and `.keep` folders: no code.
+- `promotions` (a package sent between instances) is only a table and `.keep` folders under `flowtinus.server/features/promotions`: no code.
 - A flow file names secrets and variables by name and scripts by path, but connections and called flows by id.
 - Scripts are the project's and are not frozen: a change applies at once to every deployed flow. `script_blobs` holds content by hash, and each run keeps a snapshot of the scripts it used.
 - There is no feature flag system. `workspace_settings` is a key/value table.
 
-## Decisions
+## Principles
 
-### One repo, one branch per environment
+The repo is a public format, written by the app, by hand, or by another tool (the future extension, a script, a merge). Four rules follow, and the decisions below apply them:
 
-- One repository, with one folder per workspace.
-- Each environment is a branch (`dev`, `staging`, `prod`; the names are configurable). A server knows its own branch, whether it can be edited directly, and which branches it may promote to.
-- The topology is each server's configuration, not a file in the repo: a versioned file would have one copy per branch and would be promoted with the flows.
-- The provider enforces the rules (protected branches, reviewers). Protection is the job of each environment's manager.
+1. Any valid tree is accepted, in any order and formatting. The server never rewrites a branch to normalize it. The stable order is what the app writes, not what it requires to read.
+2. The tree explains itself: nothing outside the repo is needed to read it. A name is in the path, an identity (`id`) is in the file.
+3. The app copes with branches it did not create, of any name.
+4. The format is a contract: it carries a version, and the core publishes a JSON Schema of its files.
 
-Considered and dropped: one repo with a single `main` and a moving ref per environment; one repo per environment (works only if the repos share history, and makes every promotion a cross-repo operation).
+## Environments and topology
 
-### Git holds what exists, the environment holds the values
+- One repository, with one folder per workspace. Each environment is a branch (`dev`, `staging`, `prod`; the names are free).
+- The topology is a file in the repo, on a branch of its own that is not part of the pipeline (for example `flowtinus/config`). For each environment it gives a label (`PROD`), the branch, the environments it promotes to, and a mode. Every server reads the same file in the same fetch it already does, and a change to the topology is a commit, protected by the provider like any other.
+- A server's own configuration (a `git` key in `workspace_settings`) keeps only the repo, the workspace secret that holds the token, and which environment the server is. Absent: today's behavior.
+- The topology is a tree: an environment has one source at most and may promote to several. A topology where an environment has two sources is refused.
+- An environment's mode:
 
-| Item             | In git (promoted)                                                | In the environment (Postgres)            |
-| ---------------- | ---------------------------------------------------------------- | ---------------------------------------- |
-| Flow             | the flow file, with its id and a `deployed` field                | runs                                     |
-| Script           | the file                                                         | nothing                                  |
-| Connection       | id, name, type                                                   | config and credentials                   |
-| Schedule         | id, flow, name; cron, timezone, parameters and input as defaults | an override of any of those, and enabled |
-| Webhook          | id, flow, name, response mode                                    | token, and enabled                       |
-| Secret, variable | the name only, as the flows read it                              | the value                                |
+| Mode           | Who writes to its branch                                                  |
+| -------------- | ------------------------------------------------------------------------- |
+| `direct`       | edits straight in the editor (the shared working copy), and pull requests |
+| `pull-request` | only pull requests from work branches                                     |
+| `protected`    | only promotion and hotfix pull requests                                   |
 
-- What arrives by promotion starts off or incomplete: a new schedule is disabled until someone in that environment reviews and enables it; a new connection shows as not configured (the engine already treats a missing connection as a warning).
+- The provider enforces the rules (protected branches, reviewers); the mode says what the app offers. Where they disagree, see "Turning git on".
+
+Considered and dropped: one repo with a single `main` and a moving ref per environment; one repo per environment (works only if the repos share history, and makes every promotion a cross-repo operation); the topology in each server's configuration (each server sees only its neighbours, and nothing catches two servers that disagree); a topology file inside the pipeline's branches (one copy per branch, promoted with the flows).
+
+## Git holds what exists, the environment holds the values
+
+| Item             | In git (promoted)                                                              | In the environment (Postgres)            |
+| ---------------- | ------------------------------------------------------------------------------ | ---------------------------------------- |
+| Flow             | the flow file, with its id and an optional `deployed` field                    | runs, pinned outputs                     |
+| Script           | the file                                                                       | nothing                                  |
+| Connection       | its file: id and type, the name in the path                                    | config and credentials                   |
+| Schedule         | in the flow's file: id, name; cron, timezone, parameters and input as defaults | an override of any of those, and enabled |
+| Webhook          | in the flow's file: id, name, response mode                                    | token, and enabled                       |
+| Secret, variable | the name only, as the flows read it                                            | the value                                |
+
+- What arrives by the reconcile starts off or incomplete, everywhere, including the environment where it was written: a new schedule or webhook is disabled until someone in that environment enables it (a webhook's token is made when it is enabled); a new connection shows as not configured (the engine already treats a missing connection as a warning). The editor says so on a new schedule, and the environment lists what arrived disabled.
 - A local override never goes back to git.
 - Connection ids stay in the flow file, so the engine does not change.
+- A new connection exists in the environment as soon as it is created; only its declaration is a change of the branch. Discarding the change leaves an unused connection behind. On a `protected` environment's server a connection can only be created inside a hotfix branch; anywhere else it is refused, pointing to the root environment, where it would arrive from as not configured. Configuring a declared connection is allowed everywhere.
 
-### Merging into the environment's branch is the deploy
+## Merging into the environment's branch is the deploy
 
-- When the environment's branch moves (a merged PR or a direct commit), the server reconciles git into Postgres in one transaction: a new `flow_versions` row (with the commit sha) for each flow whose content changed, `deployments` pointed at it, `deployment_history` written, and the environment's deployed set of scripts updated.
-- Schedules and webhooks keep reading `deployments`. Nothing changes for them.
-- The Deploy button goes away in this mode. A flow that is in git but must not run has `deployed: false` in its file, so an undeploy is a commit too and is promoted.
+- When the environment's branch moves (a merged pull request or a direct commit), the server reconciles git into Postgres in one transaction: a new `flow_versions` row (with the commit sha) for each flow whose content changed, `deployments` pointed at it, `deployment_history` written, and the environment's deployed set of scripts updated.
+- Schedules and webhooks keep reading `deployments`.
+- The Deploy button goes away in this mode. `deployed` is optional in a flow's file and absent means `true`: a new flow runs once it is merged. The editor writes `deployed: false` on an undeploy, so an undeploy is a commit too and is promoted.
+- A flow's content hash leaves out `deployed` and is taken over normalized line endings: changing only `deployed` makes no new version, only a deploy or an undeploy in `deployment_history`.
+- Version numbers belong to each server (`v3` in DEV and `v2` in STAGING can be the same content). What the environments share, and what the screens compare, is the commit sha and the content hash.
 - Scripts become versioned: triggers resolve them from the environment's deployed set, the editor's Run from the working copy.
 
-### Promotion
+### Validation and identity
 
-- Two hops: the user's branch into the environment's branch (PR), then one environment into the next (promotion PR).
-- A promotion carries everything committed up to a commit. Drafts never go.
-- To promote a commit that is not the tip, the app creates `promote/<source>-<sha>` and opens the PR from it.
-- PRs are opened on the provider; approving inside the app comes later.
-- A promotion PR is never squashed or rebased: only a merge commit or a fast-forward. A squash breaks ancestry and every later promotion conflicts on the same files.
-- A commit on an environment that did not come from a promotion (a hotfix in `prod`) marks that environment as ahead of its source, and the app offers a backport PR. Not automatic.
+- One validation of the whole tree, in the core. It runs in the editor before a commit, in the pre-flight of a pull request or a promotion (on the merge result the app works out), and in the reconcile as the last barrier. Later, the same function is a `flowtinus validate` command for CI and the extension.
+- Git merges cleanly into trees that are not valid together, so the reconcile never applies an invalid tree. It refuses the commit whole: the environment stays on the last good commit and shows that git is at X, the deploy at Y, and why. The next commit is tried again. A protected environment can then differ from git until someone fixes it; that is preferred to running an invalid tree.
+- Errors, which refuse the commit: YAML or schema not valid; an `id` missing or in two files; an edge to a node that does not exist; a call to a script or flow that does not exist; a connection referenced and not declared. Warnings, which apply: a declared connection not configured in this environment; a secret or variable with no value.
+- A flow and a project are identified by the `id` in their file, never by git's rename detection (which read a deleted flow and an unrelated new one as a rename). The same `id` at another path is a rename. Whoever creates the file makes the `id` (the editor, the extension); the server never writes one back.
+- A script and a folder are identified by their path. A renamed script is a delete and an add.
+- A name lives only in the path: a flow's file has no `name:`. Renaming the file, in git or in VS Code, renames the flow; the same for a project, a folder and a connection.
 
-### The editor as a small source control client
+### Emergency rollback
 
-A branch picker above the canvas, next to the worker choice, and a changes panel. Five actions:
+- The fix is a commit like any other: the app can open it as `hotfix/revert-<sha>`, reviewed and then back-ported.
+- To stop the damage before that review, an environment can pin a flow: `deployments` goes back to a version that already ran in that environment, without git. It is written to `deployment_history`, shown on every screen as differing from git, and cleared when a commit changes that flow's content. It is the one way the deploy differs from git on purpose, and it is per flow only.
 
-1. Switch or create a branch (`users/<slug>/<name>`, cut from the environment's branch).
-2. See the changes: flows, scripts and the manifest, with a diff.
+## Promotion
+
+- Two hops: a work branch into the environment's branch (pull request), then one environment into the next (promotion pull request).
+- A promotion carries everything committed up to a commit. Drafts and the working copy never go.
+- Only a commit on the source's first-parent line can be chosen: one that came in through a merge was never a state of the source environment, and goes with its merge.
+- Every promotion is opened from `promote/<source>-<sha>`, for the tip too, so the pull request stays what was chosen. A pull request opened from the environment's branch would grow with every later commit.
+- A server promotes only along the edges that leave its own environment, never on behalf of another.
+- A promotion pull request is never squashed or rebased: only a merge commit or a fast-forward. Where there is an adapter, it is opened with squash off, and the app refuses to open it on a project that forces squash.
+- After the target's reconcile, the app checks that the promoted sha is an ancestor of the target. If not (a squash or rebase on the provider), the target's lineage is broken: promotions into and out of it are blocked until a repair pull request, a commit whose parents are the target and the promoted sha and whose tree is the promoted sha's. That is the right content because a promotion only happens when the target is contained in its source (see below). The deploy follows git meanwhile.
+- "To promote" shows the files that change (a tree diff), not a count of commits: a merge commit that changes nothing is not work to promote.
+
+### Hotfix and backport
+
+- A `protected` environment takes a hotfix as a pull request from `hotfix/<name>`, cut from its branch and reviewed like a promotion.
+- An environment is ahead of its source when merging it into the source would change the source's tree (`git merge-tree --write-tree`). Not a count of commits: promotion merge commits would count, and a change back-ported by cherry-pick would be flagged for ever.
+- While an environment is ahead of its source, the promotion from that source into it is blocked. So a promotion never conflicts inside a protected branch, and environments never differ in silence.
+- The backport goes to the root of the pipeline, from `backport/<env>-<sha>` cut from the root's branch, opened on the root's server. A conflict is resolved in that branch, in the editor or with git locally. From there the hotfix moves forward through the ordinary promotions, and each edge unblocks when it reaches that edge's source.
+- A backport is always a merge, never a cherry-pick or a squash, for the same reason as a promotion.
+- The cost: until the hotfix is back at the source, nothing is promoted into the environment that had it. A second emergency there is a second hotfix.
+
+## The editor as a small source control client
+
+The screens are the prototype's, layout B: the branch picker in the sidebar and a Source control page; on the canvas, the branch is picked inside the Changes drawer, which is wide enough for a diff. Six actions:
+
+1. Switch or create a branch.
+2. See the changes: flows, scripts, connections and the manifest, with a diff.
 3. Commit: a message and which files go in.
-4. Update: shows how many commits behind, and merges the environment's branch into the current one. On a conflict, mine or theirs per file.
-5. Open a PR to the environment's branch.
+4. Discard: per file or all. A discarded rename goes back to the old path; a new connection stays in the environment, only its declaration goes.
+5. Update (on a user's own branch only): shows how far behind and merges the environment's branch into the current one. Refused, as git does, while a file it brings has an uncommitted change: commit or discard it first.
+6. Open a pull request to the environment's branch.
 
-Out: stash, rebase, a history graph, a visual merge editor.
+Out: stash, rebase, a visual merge editor beyond the conflict screen.
 
-- The working copy (uncommitted changes) lives in Postgres and belongs to the branch, not to the user. On a user's branch only that user writes. On the environment's branch it is shared, as the draft is today.
-- The configuration says whether an environment accepts direct edits or only a branch and a PR.
-- A new connection exists in the environment as soon as it is created; only its declaration is a change of the branch. Discarding the branch leaves an unused connection behind.
+### Branches
 
-### Generic git
+The app tells a branch's kind by its name and the topology, with nothing stored:
 
-- Plain git protocol (clone, fetch, push) with polling: works with any server.
-- One generic webhook endpoint that ignores the payload and triggers a fetch.
-- A provider adapter only to open a PR, GitLab first. Without one, the app pushes the branch and shows the link.
+| Branch                                    | Kind                                                                                                        |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| an environment's branch (in the topology) | environment                                                                                                 |
+| `promote/…`, `backport/…`, `hotfix/…`     | the app's own; not offered as work branches (on a `protected` server the picker shows only hotfix branches) |
+| `users/<slug>/…`                          | a user's: only that user writes; the owner comes from the name                                              |
+| any other (`fix/x`, pushed from a laptop) | a shared work branch: anyone may edit it, and its working copy works as the environment's does              |
 
-### The repo layout
+- The app creates `users/<slug>/<name>`. A branch can be cut from any branch, another user's included. A pull request from a branch cut from another user's branch says that it includes N commits from that branch not yet in the environment; they leave the diff once that branch is merged.
+- A pull request from a work branch goes to the environment of the server it is opened on. Only a `direct` or `pull-request` environment's server opens one; a `protected` environment's server opens only promotions and hotfixes, and its editor edits flows only inside a hotfix branch.
+- Where there is an adapter, the app opens a pull request with "remove the source branch" on, and always for its own branches. Whatever the provider, the picker hides a branch that is contained in the environment's branch and has no uncommitted change, behind "show merged".
+- A branch removed on the remote while this server has uncommitted changes on it: the changes are kept, marked as such, and the user either creates a branch with them or discards them.
+
+### The working copy
+
+- The working copy (uncommitted changes) lives in Postgres and belongs to a branch on one server. A branch opened on two servers has two working copies; uncommitted work does not travel, as with a checkout. On a user's branch only that user writes; on the environment's branch, and on a shared work branch, it is shared, as the draft is today.
+- Each file of the working copy keeps the blob it was based on and who edited it last.
+- When the branch moves under it (a merged pull request, a push), each changed file is merged three ways: base, what arrived, the pending edit. Clean: the base moves on, silently. A conflict: the file is marked and cannot be committed until it is resolved. It is today's revision check on a draft, per file, and it is what stops a pending edit from reverting a merged pull request.
+- Creating a branch takes the uncommitted changes along to the new branch, as `git switch -c` does, and they leave the branch they were on. From an environment's or a shared branch it takes only the files whose last editor is the user creating it; from one's own branch, all of them.
+- Switching to another branch does not take them: each branch keeps its own working copy, so a switch is never refused and there is no stash. Moving changes to a branch that already exists would be an action of its own, if it is ever needed.
+
+### Conflicts
+
+- A content conflict is resolved per hunk, never as "mine or theirs" for the whole file, which lost a teammate's merged work in silence. What did not conflict is already merged, as in git. Each conflicting hunk takes mine, theirs, both, or an edit. The result must parse and pass the validation before it can be committed. With nodes in a stable order a hunk is usually one node; a merge per node may come later.
+- A conflict that is not about content is a choice between outcomes:
+
+| Conflict                                     | Choice                        |
+| -------------------------------------------- | ----------------------------- |
+| both renamed the same flow                   | one of the two names          |
+| one edited, the other deleted                | keep with the edit, or delete |
+| both added the same path, with different ids | rename one                    |
+
+- Wherever the app merges it sets `merge.directoryRenames=true`, so a flow added to a folder another branch renamed follows the folder instead of raising a conflict.
+- The same screen resolves a working copy file marked by a moved branch, an Update, and a backport.
+- Whoever works with git locally resolves conflicts with git.
+
+### Environments page
+
+The page follows the redesign in the prototype: a promotion pipeline of cards (branch, reconciled commit, source with behind and ahead, backport), a promote panel (one tab per edge that leaves this server, the commit graph, the selection's size, pre-flight checks, the impact on the target's flows), a "what runs where" table that marks what differs from this server, then pull requests and activity.
+
+- The commits to promote are a graph (dots and lines), not a list. Choosing a commit dims what stays behind; only first-parent commits can be chosen.
+- The pre-flight shows: the validation of the merge result; a target ahead of its source (which blocks); a broken lineage (which blocks); connections not configured; schedules and webhooks arriving disabled; drafts left behind.
+
+## The repo layout
 
 ```
-<workspace slug>/
-  workspace.yaml            # declared connections: id, name, type
-  <project name>/
-    project.yaml            # id, description, icon, color
-    flows/
-      <folder name>/
-        <flow name>.yaml
-    scripts/
-      <script path>
+flowtinus/config branch:
+  topology.yaml                        # environments: label, branch, promotesTo, mode
+each environment's branch:
+  .gitattributes                       # eol=lf, written on the first export
+  <workspace slug>/
+    workspace.yaml                     # format: 1
+    connections/
+      <connection name>.yaml           # id, type
+    projects/
+      <project name>/
+        project.yaml                   # id, description, icon, color
+        flows/
+          <folder>/
+            <flow name>.flow.yaml
+        scripts/
+          <script path>
 ```
 
-- A path is the name itself, not a slug: a renamed flow is found in the repo under its new name. A rename is a file move in git.
-- So a name of a project, folder, flow or script must be a valid file name everywhere: none of `\ / : * ? " < > |` or control characters, no leading or trailing space, no trailing dot, not a name Windows reserves (`CON`, `PRN`, `AUX`, `NUL`, `COM1`…, `LPT1`…), not `.` or `..`. One rule in the core, checked by the editor and the server, git on or off.
-- Names are already unique among siblings whatever the case, which is what a case-insensitive file system needs. They are written in NFC.
-- A flow file is the core's `flowToYaml`, with the flow's id, without the pinned outputs (test data, which stays in Postgres), with the canvas positions and groups. Nodes, edges and config keys are written in a stable order, so a save that changes nothing gives no diff.
+- A path is the name itself, not a slug. A rename is a file move in git.
+- So a name of a project, folder, flow, script segment or connection must be a valid file name everywhere: none of `\ / : * ? " < > |` or control characters, no leading or trailing space, no trailing dot, not `.` or `..`, not a name Windows reserves (`CON`, `PRN`, `AUX`, `NUL`, `COM1`…, `LPT1`…) even with an extension (`nul.txt`). A folder's name may not end in `.flow.yaml`. One rule in the core, checked by the editor and the server, git on or off.
+- Projects sit under `projects/`, so no project name collides with the workspace's own files; flows end in `.flow.yaml`, so a folder `X` and a flow `X` never collide, and VS Code can tie the JSON Schema to `**/*.flow.yaml`.
+- One file per connection: a list in `workspace.yaml` conflicted whenever two branches each added one, sorted or not; separate files did not.
+- Schedules and webhooks live in their flow's file: they move and are deleted with it, and two branches adding one to the same flow at once is rare and an ordinary conflict.
+- Names are unique among siblings whatever the case, which a case-insensitive file system needs. They are written in NFC.
+- A flow file is the core's `flowToYaml`, with the flow's id, without its name and without the pinned outputs (test data, which stays in Postgres), with the canvas positions and groups. The app writes nodes by id, edges by source and target and config keys a to z, so a save that changes nothing gives no diff and two branches adding nodes rarely conflict (13 to 18% of trials sorted, against all of them in insertion order). Reading accepts any order.
 - A folder is identified by its path. An empty one is kept with a `.gitkeep`.
+- Renaming a script changes every flow that calls it, since flows name scripts by path: the editor does it as one change, in one commit; done by hand, the validation points at the flows left behind.
 - The app was never published, so no existing name needs handling.
-- Schedules and webhooks are not in step 1.
 
-Considered and dropped: a stored slug per project, folder and flow (a rename would not move the file, but the file would no longer be found by the flow's name).
+Considered and dropped: a stored slug per project, folder and flow (a rename would not move the file, but the file would no longer be found by the flow's name); an id per script (a `.py` has nowhere to keep one but a second file).
 
-### The setting
+## Turning git on
 
-A `git` key in `workspace_settings`: repo, the server's branch, whether it is editable, credentials, and the branches it may promote to. Absent: today's behavior.
+- What happens depends on what each side has:
 
-## Findings of the git simulation (for the second round)
+| The branch has the workspace | Postgres has flows | Result                                                                                                        |
+| ---------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| no                           | either             | first export: what is deployed is the first commit                                                            |
+| yes                          | no                 | import: the reconcile                                                                                         |
+| yes                          | yes                | refused until an explicit choice, "git replaces the server" or "the server replaces git", each with a preview |
 
-Nine scenarios run with real git (2.54) on fake flows written by the core's `flowToYaml`, in a local repo: `git merge --no-ff` for a merged PR, `--squash` for a squashed one. GitLab's server-side merge was not tested and may differ. Nothing below is decided: each point is a question for the second round.
+- A draft is an uncommitted change: each draft that differs from the deployed version becomes a file of the environment's working copy, with whoever saved it as its last editor. A `protected` environment has no working copy, so git cannot be turned on there while drafts exist; they are listed.
+- A branch that does not exist is created only on confirmation: empty for the root, from its source's tip otherwise, which the screen says is a promotion of everything. The topology branch is created the same way, by the first admin, from the app.
+- The access test proves reading and writing (it pushes a throwaway branch), not a given branch's protection, and the screen says so. With an adapter, the app reads the branches' protection and shows where it disagrees with the topology's modes. Without one, the disagreement shows at the first refused push: the changes stay in the working copy, the message names both sides, and the user can create a branch with them.
 
-The script and its evidence are in `docs/git-sync-simulation/`: `sim.ts` (run `bun sim.ts` in that folder, about 90 seconds; `bun sim.ts 5` runs one scenario; it rebuilds `repos/` there, which git ignores, and rewrites `out/`), `out/results.md` (every command, output and conflict hunk) and `out/summary.json` (one line per scenario). Temporary: delete the folder, and this paragraph, once the git sync decisions are closed and implemented.
+## Generic git
 
-Held up:
+- Plain git protocol (clone, fetch, push) with polling: works with any server. HTTP(S) with a token first; SSH later.
+- One generic webhook endpoint that ignores the payload and triggers a fetch.
+- A provider adapter for what plain git cannot do: open a pull request (squash off, remove the source branch), read the project's merge settings, read the branches' protection, read a pull request's state. GitLab first, GitHub next. It uses the same workspace secret. Without one, the app pushes the branch and shows the link, and the checks that need the provider happen after the fact.
+- Pull requests are approved on the provider; approving inside the app comes later.
 
-- One branch per environment with merge commits or fast-forwards: three rounds of promotion stayed clean, and ancestry (`git log staging..dev`) says what is not promoted yet.
-- `promote/<source>-<sha>` for a commit that is not the tip, then the tip later: clean.
-- A backport by merge: the next promotion is clean and the trees end identical.
-- The stable order (nodes by id, edges by source and target, config keys a to z). Two branches each adding a node conflicted in 13 to 18% of 150 random trials with sorted nodes, and in all 150 with nodes in insertion order.
-- Canvas positions inside the node: moving every node did not conflict with a config or label change to the same nodes.
-- A rename as a file move: git followed it, even with a heavy rework in the same branch.
+## Evidence
 
-Broke:
+Nine scenarios run with real git (2.54) on fake flows written by the core's `flowToYaml`, in a local repo, with `git merge --no-ff` for a merged pull request and `--squash` for a squashed one; GitLab's server-side merge was not tested. Most of the rules above on promotion, backport, identity, conflicts and file granularity come from what broke there. The script and its evidence are in `docs/git-sync-simulation/`: `sim.ts` (run `bun sim.ts` in that folder, about 90 seconds; `bun sim.ts 5` runs one scenario; it rebuilds `repos/` there, which git ignores, and rewrites `out/`), `out/results.md` (every command, output and conflict hunk) and `out/summary.json`. Temporary: delete the folder, and this paragraph, once git sync is implemented.
 
-1. **"Mine or theirs" per file loses merged work in silence.** One conflicting SQL line, "mine" for the whole file, and the 12 changes a teammate had already merged were gone (11 of them never conflicted); the PR then merged cleanly. Resolved per hunk, 11 of 12 and 3 of 3 were kept. On `workspace.yaml`, "mine" dropped the other side's connection while keeping the flow that uses it.
-2. **A squashed promotion can also merge cleanly to the wrong content**, not only conflict: a node deleted in dev stayed in staging and prod, in a flow that is still valid. The app cannot control the provider's merge method, so it would have to check after a promotion that the source's tip is an ancestor of the target.
-3. **Git merges cleanly into a workspace that is not valid.** An edge to a deleted node, a call to a renamed script, a connection no longer declared, a Flow Invoker calling a deleted flow: all exit 0, each branch valid on its own. Only the first is caught by `validateFlowFile`; the others need the whole tree. The design has no validation step before the reconcile deploys, nor says what happens when it fails.
-4. **A hotfix not back-ported** makes the next promotion conflict inside the protected branch when dev touched the same line, and otherwise leaves the environments different with nothing saying so. A promotion cannot conflict when the target is contained in the source: should the backport block the promotion instead of being offered?
-5. **"Ahead of its source" cannot be a commit count**: promotion merge commits count too (3 after three clean rounds), and a hotfix back-ported by cherry-pick is flagged forever. What was right in every case: would merging the environment into its source change the source's tree (`git merge-tree --write-tree`)? A backport by cherry-pick or squash has the same problems as a squashed promotion.
-6. **Git's rename detection is not a flow's identity.** A flow deleted and an unrelated one added in the same branch were read as a rename (70% similar as text), and another branch's edit of the deleted flow became a conflict inside the unrelated one. The reconcile has to match flows by the `id` in the file and refuse a tree where one id is in two files.
-7. **Connections as a list in `workspace.yaml` conflict** whenever two branches each add one (150 of 150 appended; 17 to 49 of 150 sorted by id, as a list or as a map). One file per connection did not. Schedules and webhooks will be lists of the same kind.
-8. **A folder renamed while another branch adds a flow in it** depends on `merge.directoryRenames`: git's default raises a "file location" conflict, `true` moves the new flow along, `false` brings the old folder back. Wherever the app merges, it has to set it. That conflict and a rename/rename one (both branches rename the same flow) are not "both edited one file": the conflict screen needs a way out for them.
-9. **A flow's name is in two places** (the file name and `name:` in the file). A move made by hand in git leaves them different: which one wins, or `name:` stays out of the git file.
+The clickable prototype, with mocked data only, is in the editor under `src/pages/prototype-git-sync` (dev builds only): `bun run editor`, then `/prototype/git-sync?variant=B`. Its bottom bar switches the server it runs as and the user, simulates another user's change or a push straight in git, shows the raw state and resets it. It is the reference for the screens and follows the decisions above: the layout, the topology on `flowtinus/config` (edited in Settings), the three modes, hotfix branches on a protected server, the backport into the root, the block on a promotion while the target is ahead, the lineage check and its repair (squash a promotion on the mock provider to see it), the reconcile refusing an invalid tree (Simulate), the working copy's base and last editor with the three-way merge when its branch moves, the conflict screen per hunk, branches of any name (Simulate pushes one from a laptop), merged branches hidden, the emergency pin (Versions on the canvas), and the three cases of turning git on. It does not show webhooks, the GitHub adapter, the CLI, or the local mode.
 
-## Findings of the mock of the screens (for the second round)
+## For round 3
 
-A clickable prototype with mocked data only, in the editor under `src/pages/prototype-git-sync` (dev builds only): `bun run editor`, then `/prototype/git-sync` (`?variant=A`: branch picker and changes in the top bar; `?variant=B`: in the sidebar, with a Source control page). Its bottom bar switches the server it runs as (DEV, STAGING, PROD, SANDBOX) and the user, simulates another user's change or a push straight in git, shows the raw state and resets it. Webhooks are not in it. Nothing below is decided.
+What adjusting the prototype to the decisions turned up. Nothing below is decided.
 
-Decided on seeing it:
-
-- Layout B (branch picker in the sidebar, a Source control page) is the preferred one. A stays in the mock for now.
-- Creating a branch takes the uncommitted changes along to the new branch, as `git switch -c` does: they leave the branch they were on.
-- A user's branch can be cut from any branch, another user's included, not only from the environment's.
-- Switching to another branch does not take the uncommitted changes along, unlike git: each branch keeps its own working copy, so a switch is never refused and there is no need for a stash. Only creating a branch takes them. Moving changes to a branch that already exists would be an action of its own, if it is ever needed.
-- Update exists only on a user's own branch. On an environment's branch it would be a merge of one environment into another: a promotion without a PR.
-- On the canvas the branch is picked inside the Changes drawer; the canvas toolbar has no branch picker of its own.
-
-- On the canvas, Changes always opens the drawer (in both layouts), and the drawer is wide enough for a diff.
-- The commits to promote are shown as a graph (dots and lines, as Sourcetree does), not a flat list: with merges, a commit lower in the list is not always contained in one above it. Choosing a commit dims what stays behind. Only a commit the environment's branch was at (its first-parent line) can be chosen; one that came in through a merge goes with that merge. That last rule is the mock's, to confirm.
-
-- The Environments page follows a redesign the maintainer brought from v0.dev: a promotion pipeline of cards (branch, reconciled commit, source with behind and ahead counts, backport), a promote panel (one tab per edge, the commit graph, the selection's size, pre-flight checks, the impact on the target's flows), a "what runs where" table that marks what differs from the server one is on, then pull requests and activity. The pre-flight shows only what the mock can work out (conflicts, a target ahead of its source, connections not configured, schedules arriving disabled, direct pushes, drafts left behind); the "CI green" line of the redesign has nothing behind it in the design and was left out. The pipeline shows every edge, but the promote panel only has the edges that leave the server one is on: a server promotes to its own next environments, never on behalf of another.
-
-The first two raise a question the mock does not answer: the environment's branch has one working copy shared by everyone, so creating a branch from it takes the other users' pending changes along too. And a branch cut from another user's branch still opens its PR to the environment's branch, carrying that user's commits.
-
-What building and clicking it turned up:
-
-1. **A backport that conflicts has no way to be resolved.** Update merges the environment's branch into the user's branch; for a backport that would merge the source into the later environment and bring unpromoted work. A `backport/<env>-<sha>` branch cut from the target, where the conflict is resolved?
-2. **A promotion PR opened from the environment's branch keeps growing**: commits that land after it was opened join it. "Everything up to a commit" only holds from a `promote/<source>-<sha>` branch. Always create one, for the tip too?
-3. **A server does not know its source.** It stores only where it promotes to, but "ahead of its source" and the graph need who promotes to it. A "receives from" in the configuration, or the topology worked out from somewhere shared?
-4. **`promotesTo` lists branches, the screens want to say PROD.** A label per target, or branch names only?
-5. **A working copy belongs to a server, not to the repo.** A user's branch opened on another server has another working copy there, and nothing records which environment's branch it was cut from (opened on PROD's server, its PR would go to prod).
-6. **The shared working copy of the environment's branch can undo a merged PR.** A pending edit to a file stays on top when a PR that changes the same file is merged; the next direct commit reverts the PR's change. Today's draft refuses a concurrent save by its revision; the design has nothing like it (a base sha per file of the working copy?).
-7. **There is no Discard** among the five actions, and Update needs a rule for uncommitted changes to files it brings. The mock added Discard per file and refuses the Update in that case.
-8. **A merged user branch stays "behind" for ever.** Delete it on merge, offer to, or hide merged branches?
-9. **After a backport, "to promote" counts merge commits that change nothing**, and a version number differs between environments for the same content (v3 in DEV, v2 in STAGING). Count changed files, and show the commit sha as what the environments share?
-10. **A new schedule also "arrives" by the reconcile in the environment where it was written**, so it starts disabled there too. Enabled where its commit was made? How does the server tell?
-11. **A new connection on a branch the user cannot write** (a protected environment): it should exist at once, but its declaration has nowhere to go. The mock refuses it.
-12. **Names that collide with the layout's own files**: a project named `workspace.yaml`, a folder `X.yaml` beside a flow `X`; `nul.txt` is reserved even with an extension; a script's path needs the rule on each segment.
-13. **Renaming a script changes every flow that calls it** (they name it by path): more changed files in the same commit.
-14. **"Direct edits allowed" with a branch the provider protects** is a contradiction the app can only see by testing the access.
-15. **Turning git on where drafts exist, or naming a branch that does not exist**: the mock drops the drafts and creates the branch, both guesses.
-
-Assumed in the mock, to confirm: schedules inside the flow's file; changing `deployed` makes no new version; a new flow starts with `deployed: false`; the flow's name only in its path.
-
-## Open
-
-- The GitLab adapter.
-- Emergency rollback from the app: it would have to produce a revert commit, or the environment differs from git.
-- What the existing `promotions` table and folders become.
+1. **A backport into the root drags the source's unpromoted work along.** To unblock STAGING → PROD after a hotfix in PROD, the hotfix has to reach STAGING by a promotion from DEV. The backport merge commit on `dev` contains everything `dev` had before it, so STAGING receives all of DEV's pending work, ready or not, before anything can be promoted to PROD again. Choosing an earlier commit does not help: only commits after the backport carry it. The alternative set aside in the second round, a backport one hop at a time (PROD into STAGING by a pull request on the protected branch, then STAGING into DEV), unblocks STAGING → PROD at once and drags nothing, at the cost of a reviewed pull request in each protected branch on the way. Back to decision 3 with this in hand.
+2. **The tree measure of "ahead" held in a case the doc did not name.** A hotfix whose content the source already had (the same fix made in DEV and promoted) leaves PROD not ahead, and nothing is blocked. That is the intended behavior.
+3. **The lineage check does not need the adapter.** The promoted sha is in the `promote/<source>-<sha>` branch the app created, so the app knows it from what it opened, provider or not. It does need the app to keep the promotions it opened: the new table of 11.3 is part of the promotion step, not a later one.
+4. **Squash only matters for promotions and backports.** The mock provider lets a change or hotfix pull request be squashed: the work branch is removed on merge and nothing later depends on its ancestry.
 
 ## Step 1
 
-The smallest piece everything else stands on, with Postgres still the source of truth and one branch only:
+The smallest piece everything else stands on. Postgres stays the source of truth and the Deploy button stays: git is a mirror of what is deployed, on one environment's branch, and the reconcile only imports into an empty workspace. That fixes the format, the validation and the configuration, which everything after builds on, without touching how a flow is edited or run.
 
-1. The `git` setting in `workspace_settings`.
-2. The canonical repo layout.
-3. An export to the server's branch on every deploy.
-4. The reconcile from git into Postgres, tested by round trip: export, import, same state.
-
-No user branches and no promotion yet.
+No working copy, no user branches, no promotion, no schedules or webhooks in the files, no reacting to commits yet.
 
 ### Tickets (draft, not published)
 
-Kept here only: nothing goes to the issue tracker before the mock of the screens is reviewed.
-
-| #   | Ticket                           | Blocked by | What it delivers                                                                                                                                                            |
-| --- | -------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Names valid as file names        | none       | A project, folder, flow or script refuses an invalid name, with the same rule in the editor and on the server                                                               |
-| 2   | A workspace's git configuration  | none       | An admin gives the repo, the branch and the credential; the server tests the access and shows the result. With none, everything as today                                    |
-| 3   | A flow's deploy becomes a commit | 1, 2       | On deploy, the flow's file is on the branch, at the path its name gives, as YAML in a stable order and without the pinned outputs                                           |
-| 4   | The whole workspace exported     | 3          | `project.yaml`, folders, scripts and `workspace.yaml` go to the repo; a rename, move, archive or undeploy moves or removes the files; turning git on makes the first export |
-| 5   | Reconcile from git into Postgres | 4          | An empty workspace pointed at the repo gets its projects, folders, flows (with a version and a deploy) and scripts; exporting again gives the same tree                     |
+| #   | Ticket                           | Blocked by | What it delivers                                                                                                                                                                                                                                                                                                                                            |
+| --- | -------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Names valid as file names        | none       | A project, folder, flow, connection or script path segment refuses an invalid name (the full rule, reserved names with an extension, a folder ending in `.flow.yaml`), with the same rule in the editor and on the server                                                                                                                                   |
+| 2   | Drop the old promotions          | none       | The `promotions` table and the `features/promotions` folders are gone                                                                                                                                                                                                                                                                                       |
+| 3   | The repo format in the core      | 1          | The core writes and reads every file of the layout (flow, project, connection, `workspace.yaml` with `format: 1`): the flow without its name, with its id and optional `deployed`; written in a stable order, read in any; the content hash without `deployed` and over normalized line endings; a JSON Schema per file. `docs/flow-format.md` describes it |
+| 4   | Validation of a whole tree       | 3          | The core says, for a whole workspace tree, its errors and warnings: schema, ids missing or duplicated, edges, calls to scripts and flows, connections referenced and not declared, connections not configured, secrets without a value                                                                                                                      |
+| 5   | A workspace's git configuration  | none       | An admin gives the repo, the token's secret and which environment the server is; the app reads the topology branch, or creates it on confirmation with one environment; the access test pushes a throwaway branch and shows the result. With none, everything as today                                                                                      |
+| 6   | A flow's deploy becomes a commit | 3, 5       | On deploy and undeploy, the flow's file is on the environment's branch at the path its name gives, with `deployed: false` on an undeploy; the commit's author is the user who acted                                                                                                                                                                         |
+| 7   | The whole workspace exported     | 6          | `.gitattributes`, `workspace.yaml`, connection files, `project.yaml`, folders and scripts go to the repo; a rename or a move moves the files, an archive removes them                                                                                                                                                                                       |
+| 8   | Reconcile from git into Postgres | 4, 7       | An empty workspace pointed at the repo gets its projects, folders, flows (with a version and a deploy, or none when `deployed: false`), scripts and declared connections (not configured); an invalid tree is refused whole, with the reasons shown; exporting again gives the same tree                                                                    |
+| 9   | Turning git on                   | 8          | The three cases: a branch without the workspace gets the first export, an empty Postgres gets the import, both sides with content are refused until an explicit choice with a preview; a missing branch is created only on confirmation                                                                                                                     |
 
 Assumed:
 
-- The configuration names a workspace secret that holds the token. HTTP(S) only; SSH later.
-- A commit's author is the name and email of the user who did the action.
+- HTTP(S) with a token only; SSH later.
+- Drafts stay drafts: there is no working copy in step 1, so turning git on leaves them in Postgres as today. They become the working copy in the step that brings it.
 - Tests run against a local git repository (`file://`) and Postgres, with no GitLab container. `omc-solutions/test` is for checking by hand.
-- Reacting to a commit made straight in git (webhook or polling) is not in step 1: it calls the reconcile of ticket 5 and is the first ticket of step 2.
+
+### After step 1
+
+In the order they depend on each other, to be cut into tickets when step 1 is done:
+
+1. React to a commit (polling and the generic webhook) with the reconcile, the environment's branch becomes the source of truth and the Deploy button goes; scripts become versioned; the environment shows when git is ahead of its deploy and why.
+2. The working copy and the editor's source control client: branches, changes, commit, discard, update, pull request, the three-way merge on a moved branch, the conflict screen; the environment modes.
+3. Schedules and webhooks in the flow's file, arriving disabled.
+4. Promotion: `promote/` branches, first-parent choice, the pre-flight, the lineage check and its repair; the Environments page.
+5. Hotfix and backport, and the block on promotion while the target is ahead.
+6. The GitLab adapter, then GitHub.
+7. The emergency pin.
 
 ### Local test setup
 
