@@ -31,7 +31,6 @@ describe('database', () => {
                     'workspace_settings',
                     'workspaces',
                     'projects',
-                    'promotions',
                     'runs',
                     'schema_migrations',
                     'script_blobs',
