@@ -30,7 +30,6 @@ const flow = (id: string, nodes: FlowFileNode[] = []): FlowFile => ({
     ],
 });
 
-/** a workspace tree as the app writes it: a connection, a project with folders, a deployed flow and one not deployed, scripts */
 function sampleTree(slug: string) {
     const ids = {
         warehouse: crypto.randomUUID(),
@@ -71,7 +70,6 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
     let dir: string;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    /** an empty workspace pointed at a new repository whose topology has DEV on the branch dev */
     async function newWorkspace() {
         const id = crypto.randomUUID();
         const slug = slugOf(id);
@@ -180,7 +178,7 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
         expect(refused.body.error.message).toBe('The workspace on dev is not valid: nothing was imported.');
         expect(refused.body.error.fields).toEqual({
             [warehouse]: 'Unknown connection type "oracle".',
-            [notify]: `The id "f2" is not a UUID in lower case, as this server's ids are.`,
+            [notify]: 'The id "f2" is not a UUID in lower case.',
             [loadOrders]: `Unknown key "owner".\nNode "call" calls the flow "${ids.notify}", which is not in the workspace.`,
         });
         expect((await call('GET', '/projects')).body.items).toEqual([]);

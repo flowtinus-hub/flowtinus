@@ -66,7 +66,6 @@ export function deployState(deployments: FlowDeployments, draft: FlowFile | null
     return { kind: 'deployed', version, changed: draft !== null && !sameFlow(draft, version.definition) };
 }
 
-/** the number deploying the draft gives: the newest version's when the draft is the same flow (no new version) */
 export function nextNumber(deployments: FlowDeployments, draft: FlowFile | null): number {
     const newest = deployments.versions[0];
     return newest && draft && sameFlow(draft, newest.definition) ? newest.number : (newest?.number ?? 0) + 1;

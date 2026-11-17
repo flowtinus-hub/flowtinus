@@ -40,7 +40,6 @@ async function validConfig(input: unknown, ctx: UseCaseContext, options: GitOpti
     );
 }
 
-/** git stays on while the repository and the environment stay the same (a new token secret); otherwise it turns off */
 export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig; on: boolean }> {
     constructor(private readonly options: GitOptions) {}
 
@@ -76,7 +75,6 @@ const ACCESS_NOTE =
 
 const reason = (e: unknown) => (e instanceof GitError ? e.message : (e as Error).message);
 
-/** the access of a configuration, saved or not: what it reads, a throwaway branch pushed and deleted, the topology */
 export class TestGitAccessHandler implements UseCaseHandler<AccessTestResult> {
     constructor(private readonly options: GitOptions) {}
 
@@ -96,9 +94,13 @@ export class TestGitAccessHandler implements UseCaseHandler<AccessTestResult> {
             return access;
         }
 
-        return success(
-            await withThrowawayClone(this.options.clonesDir, access.value, remote => testAccess(remote, config.value.environment)),
-        );
+        try {
+            return success(
+                await withThrowawayClone(this.options.clonesDir, access.value, remote => testAccess(remote, config.value.environment)),
+            );
+        } catch (e) {
+            return fail('unavailable', `The clone could not be made: ${reason(e)}`);
+        }
     }
 }
 
@@ -141,7 +143,6 @@ async function testAccess(remote: GitRemote, environment: string): Promise<Acces
     return result(await readTopology(remote, environment, branches).catch(() => null));
 }
 
-/** the saved configuration's repository, on the workspace's own clone; a git failure is the repository's answer */
 async function onWorkspaceRepository<T>(
     ctx: UseCaseContext,
     options: GitOptions,
@@ -196,7 +197,6 @@ export const CreateTopologyCommand = z.object({
         .optional(),
 });
 
-/** creates the topology branch, which must not exist yet, with this server's environment alone (direct) */
 export class CreateTopologyHandler implements UseCaseHandler<{ topology: TopologyView }> {
     constructor(private readonly options: GitOptions) {}
 
@@ -250,7 +250,6 @@ export const TurnGitOnCommand = z.object({
 
 export type TurnOnResult = { outcome: TurnOnOutcome; branch: string; warnings: TreeIssue[]; status: GitSyncView | null };
 
-/** turns git on (turnGitOn), then pushes the commit it queued */
 export class TurnGitOnHandler implements UseCaseHandler<TurnOnResult> {
     constructor(private readonly options: GitOptions) {}
 
@@ -274,7 +273,6 @@ export class TurnGitOnHandler implements UseCaseHandler<TurnOnResult> {
     }
 }
 
-/** whether git is behind what is deployed: the commits not pushed yet and why (null: git is not on) */
 export class GetGitStatusHandler implements UseCaseHandler<{ status: GitSyncView | null }> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ status: GitSyncView | null }>> {
         const denied = requireRole(ctx, 'viewer');

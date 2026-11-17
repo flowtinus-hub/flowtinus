@@ -4,7 +4,7 @@ import { flowResources } from '../flows/flow-resources';
 import { fileNameIssue, nameKey, REPO_PATH_MAX, type NameKind } from '../names/file-name';
 import { scriptPathIssue } from '../scripts/script-path';
 import { flowCalls, flowScriptUses, scriptLinks } from '../validation/flow-dependencies';
-import { connectionFromYaml, projectFromYaml, repoFlowFromYaml, workspaceFromYaml, type RepoFileResult } from './repo-files';
+import { connectionFromYaml, isRepoId, projectFromYaml, repoFlowFromYaml, workspaceFromYaml, type RepoFileResult } from './repo-files';
 import { repoEntry } from './repo-layout';
 import { REPO_SCHEMAS } from './repo-schemas';
 
@@ -79,6 +79,9 @@ export function validateWorkspaceTree({ workspace, files, environment }: Workspa
         const id = isObject(data) && typeof data.id === 'string' && data.id !== '' ? data.id : undefined;
         if (id === undefined) {
             return;
+        }
+        if (!isRepoId(id)) {
+            errors.push({ path, message: `The id "${id}" is not a UUID in lower case.` });
         }
         const first = ids[kind].get(id);
         if (first === undefined) {

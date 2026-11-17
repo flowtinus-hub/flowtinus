@@ -24,7 +24,11 @@ export class DeleteConnectionHandler implements UseCaseHandler<{ id: string }> {
 
         const { id } = parsed.value;
         const name = (await new ConnectionRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
-        return (await mirrorGitChange(ctx, `Delete connection ${name}`, db => new ConnectionRepository(db, ctx.workspaceId).remove(id)))
+        return (await mirrorGitChange(
+            ctx,
+            () => `Delete connection ${name}`,
+            db => new ConnectionRepository(db, ctx.workspaceId).remove(id),
+        ))
             ? success({ id })
             : fail('not-found', 'Connection not found.');
     }

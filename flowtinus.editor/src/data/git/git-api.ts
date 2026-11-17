@@ -1,3 +1,4 @@
+import type { TreeIssue } from '@flowtinus/core';
 import { api } from '@/lib/api';
 
 export type GitConfig = { repository: string; tokenSecret: string; environment: string };
@@ -24,12 +25,10 @@ export type AccessTest = {
     note: string;
 };
 
-/** git behind what is deployed: the commits not pushed yet, and why the last push failed */
 export type GitStatus = { pending: number; reason: string | null; since: string | null };
 
 export const CONFIG_BRANCH = 'flowtinus/config';
 
-/** on: the workspace is mirrored; a saved configuration is off until git is turned on */
 export const getGitConfig = (ws: string) => api<{ config: GitConfig | null; on: boolean }>(`/w/${ws}/git`);
 
 export const saveGitConfig = (ws: string, config: GitConfig) =>
@@ -37,7 +36,6 @@ export const saveGitConfig = (ws: string, config: GitConfig) =>
 
 export const removeGitConfig = (ws: string) => api<{ config: null }>(`/w/${ws}/git`, { method: 'DELETE' });
 
-/** a configuration, saved or not: pushes and deletes a throwaway branch */
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
 
 export const getGitStatus = (ws: string) => api<{ status: GitStatus | null }>(`/w/${ws}/git/status`);
@@ -47,18 +45,15 @@ export const getTopology = (ws: string) => api<{ topology: Topology }>(`/w/${ws}
 export const createTopology = (ws: string, environment: { label?: string; branch?: string }) =>
     api<{ topology: Topology }>(`/w/${ws}/git/topology`, { method: 'POST', body: { confirm: true, ...environment } });
 
-export type FileChange = { path: string; change: 'added' | 'changed' | 'removed' };
+export type FileChange = { path: string; change: 'added' | 'changed' | 'removed'; note?: string };
 
-export type TreeIssue = { path: string; message: string };
+export type { TreeIssue } from '@flowtinus/core';
 
-/** export: the branch has no workspace; import: this workspace is empty; choice: both have one */
 export type TurnOnPlan = {
     branch: string;
     branchExists: boolean;
     case: 'export' | 'import' | 'choice';
-    /** what the server's side writes on the branch: the first export, or "the server replaces git" */
     toGit: FileChange[];
-    /** what git's side changes in what this server holds: the import, or "git replaces the server" */
     toServer: FileChange[];
     errors: TreeIssue[];
     warnings: TreeIssue[];
@@ -71,7 +66,6 @@ export type TurnOnResult = {
     status: GitStatus | null;
 };
 
-/** what turning git on would do, changing nothing */
 export const getTurnOnPlan = (ws: string) => api<TurnOnPlan>(`/w/${ws}/git/on`);
 
 export const turnGitOn = (ws: string, options: { createBranch?: boolean; choice?: 'git' | 'server' }) =>

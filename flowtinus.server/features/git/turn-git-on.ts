@@ -1,4 +1,4 @@
-import { repoPath, type TreeIssue } from '@flowtinus/core';
+import { repoEntry, repoPath, type TreeIssue } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
@@ -7,23 +7,19 @@ import { lockGitCommits, queueGitCommit, type GitChanges } from './git-commits';
 import type { GitRemote } from './git-remote';
 import { CONFIG_BRANCH } from './topology';
 import { exportWorkspace, repoChanges, type RepoFiles } from './workspace-export';
-import { holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, readBranchWorkspace, validateImport } from './workspace-import';
+import { draftClashes, holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, readBranchWorkspace, validateImport } from './workspace-import';
 import { readTopology } from './workspace-topology';
 
-export type FileChange = { path: string; change: 'added' | 'changed' | 'removed' };
+export type FileChange = { path: string; change: 'added' | 'changed' | 'removed'; note?: string };
 
-/** export: the branch has no workspace; import: this server's workspace is empty; choice: both have one */
 export type TurnOnCase = 'export' | 'import' | 'choice';
 
 export type TurnOnPlan = {
     branch: string;
     branchExists: boolean;
     case: TurnOnCase;
-    /** what the server's side writes on the branch: the first export, or "the server replaces git" */
     toGit: FileChange[];
-    /** what git's side changes in what this server holds: the import, or "git replaces the server" */
     toServer: FileChange[];
-    /** the branch's workspace checked as an import checks it */
     errors: TreeIssue[];
     warnings: TreeIssue[];
 };
@@ -46,9 +42,11 @@ async function environmentBranch(remote: GitRemote, environment: string): Promis
     return success({ branch, tip: await remote.fetch(branch, branches) });
 }
 
-/** what makes the branch hold the workspace as exported; a .gitattributes the branch already has is left as it is */
+const inFormat = (files: RepoFiles): RepoFiles =>
+    Object.fromEntries(Object.entries(files).filter(([path]) => repoEntry(path).kind !== 'unknown'));
+
 function branchChanges(onBranch: RepoFiles, exported: RepoFiles): GitChanges {
-    const changes = repoChanges(onBranch, exported);
+    const changes = repoChanges(inFormat(onBranch), exported);
     if (repoPath.gitattributes in onBranch) {
         delete changes[repoPath.gitattributes];
     }
@@ -61,10 +59,21 @@ function fileChanges(before: RepoFiles, changes: GitChanges): FileChange[] {
         .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
+function serverChanges(before: RepoFiles, changes: GitChanges): FileChange[] {
+    return fileChanges(before, changes).map(change => {
+        const entry = repoEntry(change.path);
+        if (change.change !== 'removed' || entry.kind !== 'connection') {
+            return change;
+        }
+
+        const note = `The connection ${entry.name} is deleted from this server, with its configuration and credentials (the secrets it names stay).`;
+        return { ...change, note };
+    });
+}
+
 const inFolder = (files: RepoFiles, slug: string): RepoFiles =>
     Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(`${slug}/`)));
 
-/** what turning git on would do, changing nothing */
 export async function turnOnPlan(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<UseCaseResult<TurnOnPlan>> {
     const target = await environmentBranch(remote, config.environment);
     if (!target.ok) {
@@ -78,21 +87,19 @@ export async function turnOnPlan(ctx: UseCaseContext, remote: GitRemote, config:
     const holds = holdsWorkspace(onBranch, slug);
     const empty = await isWorkspaceEmpty(ctx.db, ctx.workspaceId);
     const serverSide = inFolder(exported, slug);
+    const checked = holds ? await validateImport(ctx.db, ctx.workspaceId, slug, onBranch) : { errors: [], warnings: [] };
+    const clashes = holds ? await draftClashes(ctx.db, ctx.workspaceId, slug, onBranch) : [];
     return success({
         branch,
         branchExists: tip !== null,
         case: !holds ? 'export' : empty ? 'import' : 'choice',
         toGit: holds && empty ? [] : fileChanges(onBranch, branchChanges(onBranch, exported)),
-        toServer: holds ? fileChanges(serverSide, repoChanges(serverSide, inFolder(onBranch, slug))) : [],
-        ...(holds ? await validateImport(ctx.db, ctx.workspaceId, slug, onBranch) : { errors: [], warnings: [] }),
+        toServer: holds ? serverChanges(serverSide, repoChanges(serverSide, inFormat(inFolder(onBranch, slug)))) : [],
+        errors: [...checked.errors, ...clashes],
+        warnings: checked.warnings,
     });
 }
 
-/**
- * git on, by the case: the first export, the import, or the side the admin chose replacing the other. A missing branch is
- * created, empty, only with createBranch. What git's side brings is committed back in its canonical form when the branch
- * holds it otherwise, so that the branch is what the server exports. Drafts stay as they are.
- */
 export async function turnGitOn(
     ctx: UseCaseContext,
     remote: GitRemote,

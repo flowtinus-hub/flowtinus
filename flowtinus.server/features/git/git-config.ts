@@ -16,9 +16,7 @@ export const GIT_SETTING = 'git';
 export type GitConfig = { repository: string; tokenSecret: string; environment: string };
 
 export type GitOptions = {
-    /** each workspace's private clone is a folder of it */
     clonesDir: string;
-    /** file:// repositories (on the server's own disk): DEV and the tests only */
     allowFileUrls: boolean;
 };
 
@@ -59,7 +57,6 @@ export const gitConfigSchema = (options: GitOptions) =>
 
 const storedConfig = z.object({ repository: z.string(), tokenSecret: z.string(), environment: z.string(), on: z.boolean().optional() });
 
-/** the configuration, and whether git is on: only then is the workspace mirrored */
 export async function readGitState(db: Database, workspaceId: string): Promise<{ config: GitConfig; on: boolean } | null> {
     const parsed = storedConfig.safeParse(await readWorkspaceSetting(db, workspaceId, GIT_SETTING));
     if (!parsed.success) {
@@ -87,7 +84,6 @@ export async function findTokenSecret(ctx: UseCaseContext, name: string) {
     return secret ?? null;
 }
 
-/** the repository and its token (decrypted from the workspace secret) */
 export async function gitAccess(ctx: UseCaseContext, config: GitConfig): Promise<UseCaseResult<GitAccess>> {
     const secret = await findTokenSecret(ctx, config.tokenSecret);
     if (!secret) {
@@ -97,10 +93,13 @@ export async function gitAccess(ctx: UseCaseContext, config: GitConfig): Promise
         return fail('unavailable', 'No keyring: the token cannot be read.');
     }
 
-    return success({ repository: config.repository, token: await ctx.keyring.decrypt(secret, secret.id, secret.name) });
+    try {
+        return success({ repository: config.repository, token: await ctx.keyring.decrypt(secret, secret.id, secret.name) });
+    } catch (e) {
+        return fail('unavailable', `The token in the secret ${secret.name} cannot be decrypted: ${(e as Error).message}`);
+    }
 }
 
-/** the acting user, as the author of the commits they cause */
 export async function gitAuthorOf(ctx: UseCaseContext): Promise<GitAuthor | undefined> {
     const [user] = await ctx.db.orm
         .select({ name: users.name, email: users.email })

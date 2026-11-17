@@ -256,7 +256,7 @@ edges:
 
 ## In a git repository
 
-A workspace mirrored to git is a folder of its own on the environment's branch, in a public format (version 1) that the app, a person or another tool can write. The name of a project, folder, flow, connection or script is its path; its identity (`id`) is in its file, so a rename or a move is a move of the file. Every name is a valid file name everywhere (no `\ / : * ? " < > |`, no name Windows reserves, at most 64 characters, unique among its siblings whatever the case) and a path in the repository has at most 150 characters, so a clone on Windows works.
+A workspace mirrored to git is a folder of its own on the environment's branch, in a public format (version 1) that the app, a person or another tool can write. The name of a project, folder, flow, connection or script is its path; its identity (`id`, a UUID in lower case) is in its file, so a rename or a move is a move of the file. Every name is a valid file name everywhere (no `\ / : * ? " < > |`, no name Windows reserves, at most 64 characters, unique among its siblings whatever the case) and a path in the repository has at most 150 characters, so a clone on Windows works.
 
 ```text
 .gitattributes                         # * text=auto eol=lf, written on the first export
@@ -310,7 +310,7 @@ A deploy makes a new version only when what the engine runs changed. A version's
 
 ### Validation of a tree
 
-The app checks a whole workspace tree before applying it (`validateWorkspaceTree` in the core). An error refuses the tree whole, with the reasons listed: a file that is not valid YAML or does not match its schema (an unknown key included); an `id` missing or in two files of a kind; a `workspace.yaml` or a `project.yaml` missing; an edge to a node that does not exist; a call to a flow that is not in the workspace or to a script that is not in the project; a connection a flow uses and the workspace does not declare; a name breaking the rule above or a path too long; two names that differ only in case or Unicode normalization. A warning does not: a declared connection not configured on this server; a secret or variable a flow reads with no value on this server; a comment in a flow file; a repository without `.gitattributes`; a file that is not part of the format (it is left out).
+The app checks a whole workspace tree before applying it (`validateWorkspaceTree` in the core). An error refuses the tree whole, with the reasons listed: a file that is not valid YAML or does not match its schema (an unknown key included); an `id` missing, not a UUID in lower case, or in two files of a kind; a `workspace.yaml` or a `project.yaml` missing; an edge to a node that does not exist; a call to a flow that is not in the workspace or to a script that is not in the project; a connection a flow uses and the workspace does not declare; a name breaking the rule above or a path too long; two names that differ only in case or Unicode normalization. A warning does not: a declared connection not configured on this server; a secret or variable a flow reads with no value on this server; a comment in a flow file; a repository without `.gitattributes`; a file that is not part of the format (it is left out).
 
 ### JSON Schemas
 

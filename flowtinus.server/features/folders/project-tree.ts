@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
-import { projectRepoPaths, repoPathIssue, type ProjectScripts, type TreeContents } from '@flowtinus/core';
+import { folderPath, projectRepoPaths, repoPathIssue, siblingNames, validateName, withFlow, withFolder, type ProjectScripts, type TreeContents } from '@flowtinus/core';
 import { flows, type Flow } from '#features/flows/flow';
 import { ProjectRepository } from '#features/projects/project-repository';
 import { listScripts } from '#features/scripts/script-store';
@@ -8,7 +8,7 @@ import { workspaces } from '#features/workspaces/workspace';
 import { WorkspaceRepository } from '#shared/database/repository';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { fail, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { folders, type Folder } from './folder';
 
 /*
@@ -151,7 +151,6 @@ export async function workspaceSlug(ctx: UseCaseContext, workspaceId = ctx.works
 
 export type ProjectChange = { tree?: TreeContents; project?: string; scripts?: ProjectScripts; workspaceId?: string };
 
-/** the path in the repo a change to a project would make too long; what the change leaves out is read as it is now */
 export async function longRepoPath(ctx: UseCaseContext, projectId: string, change: ProjectChange): Promise<string | undefined> {
     const project = change.project ?? (await new ProjectRepository(ctx.db, ctx.workspaceId).findById(projectId))?.name ?? '';
     const tree = change.tree ?? (await loadTree(ctx.db, ctx.workspaceId, projectId));
@@ -174,3 +173,30 @@ export async function pathTooLong(
     const issue = await longRepoPath(ctx, projectId, change);
     return issue ? fail('validation', 'The request has invalid fields.', { [field]: issue }) : null;
 }
+
+export type TreeItem = { kind: 'folder' | 'flow'; id: string; parentId: string | null; name: string };
+
+export async function nameInTree(
+    ctx: UseCaseContext,
+    projectId: string,
+    tree: TreeContents,
+    item: TreeItem,
+    after?: TreeContents,
+): Promise<UseCaseResult<string>> {
+    const { kind, id, parentId } = item;
+    const { value: name, error } = validateName(item.name, siblingNames(tree, kind, parentId, id), kind);
+    if (error) {
+        return error === 'Already in use' ? nameTaken(kind, name) : invalidName(error);
+    }
+
+    const placed =
+        after ?? (kind === 'folder' ? withFolder(tree, { id, parentId, name }) : withFlow(tree, { id, folderId: parentId, name }));
+    return (await pathTooLong(ctx, projectId, { tree: placed })) ?? success(name);
+}
+
+export const folderLabel = (tree: TreeContents, folderId: string | null) =>
+    folderId
+        ? folderPath(tree.folders, folderId)
+              .map(f => f.name)
+              .join('/')
+        : 'the top';

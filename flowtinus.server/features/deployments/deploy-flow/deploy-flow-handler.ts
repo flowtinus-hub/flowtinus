@@ -34,26 +34,24 @@ export class DeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> {
         }
 
         const draft = checked.value;
-        let message = '';
-        const refused = await mirrorGitChange(
+        const deployed = await mirrorGitChange<{ deployed: boolean; number: number }>(
             ctx,
-            () => message,
+            done => `Deploy ${row.name} v${done.number}`,
             async tx => {
                 await lockFlowDeployments(tx, row.id);
                 const current = await currentDeployment(tx, ctx.workspaceId, row.id);
                 if (current?.hash === contentHash(draft)) {
-                    return `Nothing to deploy: the draft is v${current.number}.`;
+                    return { deployed: false, number: current.number };
                 }
 
                 const version =
                     (await newestVersionLike(tx, ctx.workspaceId, row.id, draft)) ?? (await insertVersion(tx, ctx, row.id, draft));
                 await setDeployed(tx, ctx, row.id, 'deploy', current?.id ?? null, version.id);
-                message = `Deploy ${row.name} v${version.number}`;
-                return null;
+                return { deployed: true, number: version.number };
             },
         );
-        if (refused) {
-            return fail('validation', refused);
+        if (!deployed.deployed) {
+            return fail('validation', `Nothing to deploy: the draft is v${deployed.number}.`);
         }
 
         return success(await loadDeployments(ctx.db, ctx.workspaceId, row.id));

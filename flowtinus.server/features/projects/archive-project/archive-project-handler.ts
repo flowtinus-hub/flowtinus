@@ -26,7 +26,11 @@ export class ArchiveProjectHandler implements UseCaseHandler<{ id: string }> {
 
         const { id } = parsed.value;
         const name = (await new ProjectRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
-        const archived = await mirrorGitChange(ctx, `Archive project ${name}`, tx => archiveProject(tx, ctx, id));
+        const archived = await mirrorGitChange(
+            ctx,
+            () => `Archive project ${name}`,
+            tx => archiveProject(tx, ctx, id),
+        );
         if (!archived) {
             return fail('not-found', 'Project not found.');
         }
@@ -35,7 +39,6 @@ export class ArchiveProjectHandler implements UseCaseHandler<{ id: string }> {
     }
 }
 
-/** the project, its folders and flows archived, its deployed flows undeployed; in the transaction of db */
 export async function archiveProject(db: Database, ctx: { workspaceId: string; userId: string }, id: string): Promise<boolean> {
     const archive = { deletedAt: new Date(), deletedBy: ctx.userId };
     if (!(await new ProjectRepository(db, ctx.workspaceId).update(id, archive))) {

@@ -6,6 +6,12 @@ export const REPO_FORMAT = 1;
 
 export const GITATTRIBUTES = '* text=auto eol=lf\n';
 
+// lower case only: a flow names its connections and called flows by the id as written, and Postgres gives a uuid back in
+// lower case
+export const REPO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export const isRepoId = (id: string) => REPO_ID.test(id);
+
 export type RepoFlow = { flow: FlowFile; deployed: boolean };
 export type RepoProject = { id: string; description: string; icon?: string; color?: string };
 export type RepoConnection = { id: string; type: ConnectionTypeName };

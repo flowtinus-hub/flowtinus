@@ -2,7 +2,7 @@ import { END, START } from '#engine/constants';
 import { COMPONENTS } from '../components';
 import { CONNECTION_TYPES } from '../connections/types/connection-types';
 import { FLOW_FILE_VERSION } from '../flows/flow-file';
-import { REPO_FORMAT } from './repo-files';
+import { REPO_FORMAT, REPO_ID } from './repo-files';
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -10,7 +10,11 @@ export type RepoSchema = { file: string; fileMatch: string[]; schema: JsonSchema
 
 export const REPO_SCHEMA_BASE_URL = 'https://raw.githubusercontent.com/flowtinus-hub/flowtinus/main/docs/schemas/';
 
-const id = { type: 'string', minLength: 1, description: 'the identity: stays the same across renames and moves' };
+const id = {
+    type: 'string',
+    pattern: REPO_ID.source,
+    description: 'the identity, a UUID in lower case: stays the same across renames and moves',
+};
 const text = { type: 'string' };
 const point = {
     type: 'object',

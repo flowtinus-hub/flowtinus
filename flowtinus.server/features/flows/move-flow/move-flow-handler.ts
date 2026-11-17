@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { mirrorGitChange } from '#features/git/git-mirror';
-import { folderPath, isFolderVisible, siblingNames, validateName, withFlow } from '@flowtinus/core';
-import { FlowRepository, loadTree, location, nameTaken, pathTooLong, toFlowView, type FlowView } from '#features/folders/project-tree';
+import { isFolderVisible } from '@flowtinus/core';
+import { FlowRepository, folderLabel, loadTree, location, nameInTree, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -35,22 +35,15 @@ export class MoveFlowHandler implements UseCaseHandler<FlowView> {
             return fail('not-found', 'Destination folder not found.');
         }
 
-        if (validateName(flow.name, siblingNames(tree, 'flow', folderId, id), 'flow').error === 'Already in use') {
-            return nameTaken('flow', flow.name);
+        const named = await nameInTree(ctx, flow.projectId, tree, { kind: 'flow', id, parentId: folderId, name: flow.name });
+        if (!named.ok) {
+            return named;
         }
 
-        const tooLong = await pathTooLong(ctx, flow.projectId, { tree: withFlow(tree, { id, folderId, name: flow.name }) });
-        if (tooLong) {
-            return tooLong;
-        }
-
-        const to = folderId
-            ? folderPath(tree.folders, folderId)
-                  .map(f => f.name)
-                  .join('/')
-            : 'the top';
-        const moved = await mirrorGitChange(ctx, `Move flow ${flow.name} to ${to}`, db =>
-            new FlowRepository(db, ctx.workspaceId).update(id, { folderId, updatedAt: new Date(), updatedBy: ctx.userId }),
+        const moved = await mirrorGitChange(
+            ctx,
+            () => `Move flow ${flow.name} to ${folderLabel(tree, folderId)}`,
+            db => new FlowRepository(db, ctx.workspaceId).update(id, { folderId, updatedAt: new Date(), updatedBy: ctx.userId }),
         );
         return moved ? success(toFlowView(moved)) : fail('not-found', 'Flow not found.');
     }

@@ -12,7 +12,6 @@ import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, getTopology,
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
-/** The workspace's git configuration: the repository, the secret holding its token, which environment this server is. */
 export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean }) {
     const saved = useResource(`git:${slug}`, () => getGitConfig(slug));
 
@@ -388,7 +387,6 @@ const OUTCOMES: Record<TurnOnResult['outcome'], (branch: string) => string> = {
 
 type TurnOnOptions = { createBranch?: boolean; choice?: 'git' | 'server' };
 
-/** off until turned on: the first export, the import, or a choice when both sides have the workspace, each previewed */
 function TurnOnPanel({
     slug,
     on,
@@ -398,7 +396,6 @@ function TurnOnPanel({
     slug: string;
     on: boolean;
     readOnly: boolean;
-    /** the change, then the configuration read again (git on) */
     run: <R>(change: Promise<ApiResult<R>>) => Promise<ApiResult<R>>;
 }) {
     const [plan, setPlan] = useState<TurnOnPlan | null>(null);
@@ -446,6 +443,32 @@ function TurnOnPanel({
         setConfirm({ ...target, busyLabel: 'Turning git on...', onConfirm: () => turnOn(options) });
 
     const files = (changes: FileChange[]) => `${changes.length} ${changes.length === 1 ? 'file' : 'files'}`;
+    const notes = (changes: FileChange[]) => changes.flatMap(c => (c.note ? [` ${c.note}`] : [])).join('');
+
+    const start = (plan: TurnOnPlan) => {
+        if (!plan.branchExists) {
+            ask(
+                {
+                    title: `Create ${plan.branch}?`,
+                    description: `The repository gets the branch ${plan.branch}, empty, then the first export of what is deployed here.`,
+                    confirmLabel: 'Create and turn git on',
+                },
+                { createBranch: true },
+            );
+        } else if (notes(plan.toServer)) {
+            ask(
+                {
+                    title: 'Import and turn git on?',
+                    description: `This server takes the workspace ${plan.branch} holds.${notes(plan.toServer)}`,
+                    confirmLabel: 'Import and turn git on',
+                    destructive: true,
+                },
+                {},
+            );
+        } else {
+            void turnOn({});
+        }
+    };
 
     return (
         <div className="grid gap-3 rounded-lg border p-4 text-sm">
@@ -515,7 +538,7 @@ function TurnOnPanel({
                                                 ask(
                                                     {
                                                         title: 'Git replaces the server?',
-                                                        description: `This server takes the workspace ${plan.branch} holds: ${files(plan.toServer)} change here.`,
+                                                        description: `This server takes the workspace ${plan.branch} holds: ${files(plan.toServer)} change here.${notes(plan.toServer)}`,
                                                         confirmLabel: 'Git replaces the server',
                                                         destructive: true,
                                                     },
@@ -559,22 +582,7 @@ function TurnOnPanel({
                     {!readOnly && (
                         <div className="flex flex-wrap gap-2">
                             {plan.case !== 'choice' && (
-                                <Button
-                                    size="sm"
-                                    disabled={busy || plan.errors.length > 0}
-                                    onClick={() =>
-                                        plan.branchExists
-                                            ? void turnOn({})
-                                            : ask(
-                                                  {
-                                                      title: `Create ${plan.branch}?`,
-                                                      description: `The repository gets the branch ${plan.branch}, empty, then the first export of what is deployed here.`,
-                                                      confirmLabel: 'Create and turn git on',
-                                                  },
-                                                  { createBranch: true },
-                                              )
-                                    }
-                                >
+                                <Button size="sm" disabled={busy || plan.errors.length > 0} onClick={() => start(plan)}>
                                     {!plan.branchExists
                                         ? `Create ${plan.branch} and turn git on`
                                         : plan.case === 'import'
@@ -619,9 +627,12 @@ function Changes({ title, changes }: { title: string; changes: FileChange[] }) {
             {changes.length > 0 && (
                 <ul className="max-h-48 overflow-auto rounded-md border bg-muted/30 p-2 font-mono text-xs">
                     {changes.map(c => (
-                        <li key={c.path} className="flex gap-2">
-                            <span className={`w-3 shrink-0 ${CHANGE_MARK[c.change].className}`}>{CHANGE_MARK[c.change].mark}</span>
-                            <span className="break-all">{c.path}</span>
+                        <li key={c.path} className="grid gap-0.5">
+                            <span className="flex gap-2">
+                                <span className={`w-3 shrink-0 ${CHANGE_MARK[c.change].className}`}>{CHANGE_MARK[c.change].mark}</span>
+                                <span className="break-all">{c.path}</span>
+                            </span>
+                            {c.note && <span className="pl-5 font-sans text-destructive">{c.note}</span>}
                         </li>
                     ))}
                 </ul>

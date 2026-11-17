@@ -19,7 +19,6 @@ describe('every change of the workspace follows into the repository', () => {
     let dir: string;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    /** a workspace with git on for a new repository whose topology has DEV on the branch dev */
     async function newWorkspace(options: { on?: boolean } = {}) {
         const id = crypto.randomUUID();
         const slug = slugOf(id);
@@ -48,7 +47,6 @@ describe('every change of the workspace follows into the repository', () => {
         const newFolder = async (projectId: string, name: string, parentId?: string) =>
             (await call('POST', `/projects/${projectId}/folders`, { name, ...(parentId ? { parentId } : {}) })).body.id as string;
         const deploy = async (flowId: string) => expect((await call('POST', `/flows/${flowId}/deploy`)).status).toBe(200);
-        /** the workspace's files on dev but workspace.yaml, without the workspace's folder in front */
         const tree = () =>
             git(repo, 'ls-tree', '-r', '--name-only', 'dev')
                 .split('\n')

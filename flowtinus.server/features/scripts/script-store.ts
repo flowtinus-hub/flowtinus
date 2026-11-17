@@ -114,7 +114,6 @@ export const allFolders = (scripts: { path: string }[], folders: string[]) => {
     return [...all].sort();
 };
 
-/** `from` is what a move takes away: a path may differ only in case from what it moves */
 export async function newPathIssue(
     db: Database,
     workspaceId: string,

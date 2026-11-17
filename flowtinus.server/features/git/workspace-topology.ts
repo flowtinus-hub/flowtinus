@@ -8,9 +8,7 @@ export type TopologyView =
           commit: string;
           environments: EnvironmentDecl[];
           problems: string[];
-          /** this server's environment, as the topology declares it (null: it does not) */
           environment: EnvironmentDecl | null;
-          /** whether the repository has this environment's branch yet */
           branchExists: boolean;
       };
 
