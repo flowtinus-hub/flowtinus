@@ -2,7 +2,7 @@
 
 Where the discussion on git sync stands. Not a spec: it records what was decided and why, so the spec and its tickets can be written from it.
 
-Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Nothing here is to be implemented or published to the issue tracker until the maintainer says so.
+Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1"); the later steps stay here until the maintainer says otherwise.
 
 ## Goal
 
@@ -264,19 +264,23 @@ The smallest piece everything else stands on. Postgres stays the source of truth
 
 No working copy, no user branches, no promotion, no schedules or webhooks in the files, no reacting to commits yet.
 
-### Tickets (draft, not published)
+### Spec and tickets
 
-| #   | Ticket                           | Blocked by | What it delivers                                                                                                                                                                                                                                                                                                                                                                   |
-| --- | -------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Names valid as file names        | none       | A project, folder, flow, connection or script path segment refuses an invalid name (the full rule, reserved names with an extension, a folder ending in `.flow.yaml`, the length of a name and of the whole path), with the same rule in the editor and on the server                                                                                                              |
-| 2   | Drop the old promotions          | none       | The `promotions` table and the `features/promotions` folders are gone                                                                                                                                                                                                                                                                                                              |
-| 3   | The repo format in the core      | 1          | The core writes and reads every file of the layout (flow, project, connection, `workspace.yaml` with `format: 1`): the flow without its name, with its id and optional `deployed`; written in a stable order, read in any; the content hash without `deployed` and over normalized line endings; a JSON Schema per file. `docs/flow-format.md` describes it                        |
-| 4   | Validation of a whole tree       | 3          | The core says, for a whole workspace tree, its errors and warnings: schema, ids missing or duplicated, edges, calls to scripts and flows, connections referenced and not declared, names that collide whatever the case or after NFC normalization; warnings for a comment in a flow file and a repo without `.gitattributes`; connections not configured, secrets without a value |
-| 5   | A workspace's git configuration  | none       | An admin gives the repo, the token's secret and which environment the server is; the app reads the topology branch, or creates it on confirmation with one environment; the access test pushes a throwaway branch and shows the result. With none, everything as today                                                                                                             |
-| 6   | A flow's deploy becomes a commit | 3, 5       | On deploy and undeploy, the flow's file is on the environment's branch at the path its name gives, with `deployed: false` on an undeploy; the commit's author is the user who acted                                                                                                                                                                                                |
-| 7   | The whole workspace exported     | 6          | `.gitattributes`, `workspace.yaml`, connection files, `project.yaml`, folders and scripts go to the repo; a rename or a move moves the files, an archive removes them                                                                                                                                                                                                              |
-| 8   | Reconcile from git into Postgres | 4, 7       | An empty workspace pointed at the repo gets its projects, folders, flows (with a version and a deploy, or none when `deployed: false`), scripts and declared connections (not configured); an invalid tree is refused whole, with the reasons shown; exporting again gives the same tree                                                                                           |
-| 9   | Turning git on                   | 8          | The three cases: a branch without the workspace gets the first export, an empty Postgres gets the import, both sides with content are refused until an explicit choice with a preview; a missing branch is created only on confirmation                                                                                                                                            |
+Published: the spec is [#8](https://github.com/flowtinus-hub/flowtinus/issues/8), and its tickets are its sub-issues, with their blocking edges on GitHub. The spec and the tickets are the reference from here on; this section only points at them.
+
+| Ticket                                                                                           | Blocked by |
+| ------------------------------------------------------------------------------------------------ | ---------- |
+| [#9](https://github.com/flowtinus-hub/flowtinus/issues/9) Names valid as file names              | none       |
+| [#10](https://github.com/flowtinus-hub/flowtinus/issues/10) Drop the old promotions              | none       |
+| [#11](https://github.com/flowtinus-hub/flowtinus/issues/11) A workspace's git configuration      | none       |
+| [#12](https://github.com/flowtinus-hub/flowtinus/issues/12) The repo format in the core          | #9         |
+| [#13](https://github.com/flowtinus-hub/flowtinus/issues/13) Validation of a whole workspace tree | #12        |
+| [#14](https://github.com/flowtinus-hub/flowtinus/issues/14) A flow's deploy becomes a commit     | #11, #12   |
+| [#15](https://github.com/flowtinus-hub/flowtinus/issues/15) The whole workspace exported         | #14        |
+| [#16](https://github.com/flowtinus-hub/flowtinus/issues/16) Import a workspace from git          | #13, #15   |
+| [#17](https://github.com/flowtinus-hub/flowtinus/issues/17) Turning git on                       | #16        |
+
+Decided while writing the spec: the server runs the `git` binary (its image gains `git`), since later steps need `git merge-tree` and three-way merges; a failed push leaves the deploy standing, the environment shows git behind and why, and the next commit pushes what is pending; the server's git tests are integration tests against a `file://` repository, run by `bun run test`.
 
 Assumed:
 
