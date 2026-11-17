@@ -1,4 +1,5 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings } from 'lucide-react';
+import { PROTOTYPE_GIT_SYNC_PATH } from '@/pages/prototype-git-sync/path';
+import { Check, ChevronsUpDown, FolderKanban, GitBranch, History, KeyRound, LayoutGrid, Plug, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -95,6 +96,7 @@ export function AppSidebar() {
     const environmentItems = [
         { to: RUNS_PATH, label: 'Runs', icon: History },
         { to: WORKERS_PATH, label: 'Workers', icon: WorkerIcon },
+        ...(import.meta.env.DEV ? [{ to: PROTOTYPE_GIT_SYNC_PATH, label: 'Git sync (prototype)', icon: GitBranch }] : []),
     ];
 
     return (

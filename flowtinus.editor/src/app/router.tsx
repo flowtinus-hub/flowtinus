@@ -12,6 +12,7 @@ import { WorkersPage } from '@/pages/workers/workers-page';
 import { TokensPage } from '@/pages/tokens/tokens-page';
 import { WorkspaceSettingsPage } from '@/pages/workspaces/workspace-settings-page';
 import { WorkspacesPage } from '@/pages/workspaces/workspaces-page';
+import { prototypeGitSyncRoutes } from '@/pages/prototype-git-sync/routes';
 import { HomeRedirect, WorkspaceScope } from './workspace-scope';
 
 /**
@@ -55,4 +56,5 @@ export const router = createBrowserRouter([
         element: <WorkspaceScope />,
         children: [{ index: true, element: <FlowEditorPage /> }],
     },
+    ...(import.meta.env.DEV ? prototypeGitSyncRoutes : []),
 ]);
