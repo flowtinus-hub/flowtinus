@@ -23,6 +23,9 @@ const app = createApp(db, config.environment, keyring, logger, {
     git: { clonesDir: config.gitClonesDir },
 });
 
+// the environments' branches are fetched on their interval, in the server only (never the supervisors)
+app.gitPoller.start();
+
 logger.info(`api on :${config.port}`, {
     port: config.port,
     environment: config.environment,

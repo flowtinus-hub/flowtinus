@@ -18,7 +18,9 @@ import { workspaceContext } from './middlewares/workspace-context';
 import { workspaceRoutes } from './routes/workspaces.routes';
 import { tokensRoutes } from './routes/tokens.routes';
 import { gitRoutes } from './routes/git.routes';
-import { gitOptions, type GitOptions } from '#features/git/git-config';
+import { gitOptions, isGitOn, type GitOptions } from '#features/git/git-config';
+import { hookWorkspace } from '#features/git/git-hook';
+import { GitPoller } from '#features/git/git-poller';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { jsonBody } from './routes/request-input';
 import { CreateWorkspaceHandler, GetMeHandler, ListWorkspacesHandler } from '#features/workspaces/workspaces-handlers';
@@ -50,6 +52,19 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
 
     // the MCP (Streamable HTTP, stateless) for agents: outside the editor's api too, a personal access token says who calls
     const gitConfig = gitOptions(environment, git);
+    const gitPoller = new GitPoller(db, gitConfig, keyring, logger);
+
+    // the workspace's git webhook, for the git provider: its token says who may call; the payload is ignored
+    app.post('/git/hook/:workspace/:token', async c => {
+        const workspaceId = await hookWorkspace(db, c.req.param('workspace'), c.req.param('token'));
+        if (!workspaceId) {
+            return c.json({ error: { code: 'forbidden', message: 'Unknown workspace or token.' } }, 401);
+        }
+        if (!(await isGitOn(db, workspaceId))) {
+            return c.json({ error: { code: 'conflict', message: 'Git is off in this workspace.' } }, 409);
+        }
+        return c.json({ status: gitPoller.bringForward(workspaceId) }, 202);
+    });
     app.all('/mcp', ...mcpRoute(db, keyring, mcp, gitConfig));
 
     app.use('*', requestContext(db, keyring, gitConfig));
@@ -110,5 +125,5 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
         return c.json({ error: { code: 'internal', message: 'Unexpected error.' } }, 500);
     });
 
-    return app;
+    return Object.assign(app, { gitPoller });
 }

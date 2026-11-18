@@ -15,7 +15,14 @@ export const GIT_SETTING = 'git';
 
 export const RECONCILE_SETTING = 'git-reconcile';
 
-export type GitConfig = { repository: string; tokenSecret: string; environment: string };
+export const POLL_SETTING = 'git-poll';
+
+export const HOOK_SETTING = 'git-hook';
+
+/** pollSeconds: how often the server fetches the environment's branch (DEFAULT_POLL_SECONDS when absent) */
+export type GitConfig = { repository: string; tokenSecret: string; environment: string; pollSeconds?: number };
+
+export const DEFAULT_POLL_SECONDS = 60;
 
 export type GitOptions = {
     clonesDir: string;
@@ -55,9 +62,16 @@ export const gitConfigSchema = (options: GitOptions) =>
             }),
         tokenSecret: z.string('Required').trim().min(1, 'Required'),
         environment: z.string('Required').trim().regex(ENVIRONMENT_NAME, 'Letters, digits, - and _ (1 to 40)'),
+        pollSeconds: z.number('A number').int('Whole seconds').min(10, 'At least 10').max(86_400, 'At most 86400 (a day)').optional(),
     });
 
-const storedConfig = z.object({ repository: z.string(), tokenSecret: z.string(), environment: z.string(), on: z.boolean().optional() });
+const storedConfig = z.object({
+    repository: z.string(),
+    tokenSecret: z.string(),
+    environment: z.string(),
+    pollSeconds: z.number().optional(),
+    on: z.boolean().optional(),
+});
 
 export async function readGitState(db: Database, workspaceId: string): Promise<{ config: GitConfig; on: boolean } | null> {
     const parsed = storedConfig.safeParse(await readWorkspaceSetting(db, workspaceId, GIT_SETTING));
