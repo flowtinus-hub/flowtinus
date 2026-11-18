@@ -53,7 +53,7 @@ export class RestoreFlowHandler implements UseCaseHandler<FlowView> {
             async tx => {
                 const inTx = new FlowRepository(tx, ctx.workspaceId);
                 await inTx.restore(id);
-                return folderId === flow.folderId ? inTx.findById(id) : inTx.update(id, { folderId });
+                return inTx.update(id, { folderId, deletedByCommit: null });
             },
         );
 

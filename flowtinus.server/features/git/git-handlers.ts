@@ -12,6 +12,7 @@ import { readTopology, type TopologyView } from './workspace-topology';
 import { clearPendingCommits, gitSyncStatus, pushPendingCommits, type GitSyncView } from './git-commits';
 import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
+import { forgetReconcile, reconcile, type ReconcileResult } from './reconcile';
 
 export type GitConfigView = { config: GitConfig | null; on: boolean };
 
@@ -60,6 +61,7 @@ export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig;
         await saveGitConfig(ctx, config.value, on);
         if (!on) {
             await clearPendingCommits(ctx);
+            await forgetReconcile(ctx);
         }
 
         return success({ config: config.value, on });
@@ -307,6 +309,15 @@ export class RemoveGitConfigHandler implements UseCaseHandler<{ config: null }> 
 
         await removeGitConfig(ctx);
         await clearPendingCommits(ctx);
+        await forgetReconcile(ctx);
         return success({ config: null });
+    }
+}
+
+export class ReconcileHandler implements UseCaseHandler<ReconcileResult> {
+    constructor(private readonly options: GitOptions) {}
+
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ReconcileResult>> {
+        return requireRole(ctx, 'editor') ?? onWorkspaceRepository(ctx, this.options, (remote, config) => reconcile(ctx, remote, config));
     }
 }
