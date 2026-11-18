@@ -4,7 +4,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed, type FlowDeploymentsView } from '../deployments';
 
 export const DeployVersionCommand = z.object({ id: z.uuid('Invalid'), versionId: z.uuid('Invalid') });
@@ -38,7 +38,7 @@ export class DeployVersionHandler implements UseCaseHandler<FlowDeploymentsView>
             return fail('not-found', 'Version not found.');
         }
 
-        const action = await mirrorGitChange(
+        const action = await changeTree(
             ctx,
             done => (done === 'rollback' ? `Roll back ${row.name} to v${version.number}` : `Deploy ${row.name} v${version.number}`),
             async tx => {

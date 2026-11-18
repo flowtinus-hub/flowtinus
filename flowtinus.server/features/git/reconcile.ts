@@ -5,10 +5,10 @@ import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { isGitOn, type GitConfig } from './git-config';
-import { lockGitCommits } from './git-commits';
 import type { GitRemote } from './git-remote';
-import { environmentBranch } from './turn-git-on';
+import type { RepoFiles } from './workspace-export';
 import { importWorkspace, readBranchWorkspace, validateImport, type RenamedDraft } from './workspace-import';
+import { environmentBranch } from './workspace-topology';
 
 export type ReconcileOutcome = 'applied' | 'up-to-date' | 'refused';
 
@@ -26,12 +26,26 @@ type ReconcileState = { applied: string | null; refused: { commit: string; error
 
 const RECONCILE_SETTING = 'git-reconcile';
 
-async function readState(db: Database, workspaceId: string): Promise<ReconcileState> {
+const lockKey = (workspaceId: string) => `reconcile:${workspaceId}`;
+
+export const lockReconcile = (db: Database, workspaceId: string) =>
+    db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [lockKey(workspaceId)]);
+
+export async function readState(db: Database, workspaceId: string): Promise<ReconcileState> {
     const state = (await readWorkspaceSetting(db, workspaceId, RECONCILE_SETTING)) as ReconcileState | null;
     return state ?? { applied: null, refused: null };
 }
 
+export const markApplied = (ctx: UseCaseContext, commit: string) =>
+    writeWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING, { applied: commit, refused: null }, ctx.userId);
+
 export const forgetReconcile = (ctx: UseCaseContext) => deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
+
+export async function applyCommit(ctx: UseCaseContext, slug: string, commit: string, files: RepoFiles): Promise<RenamedDraft[]> {
+    const { renamedDrafts } = await importWorkspace(ctx, slug, files, { commit });
+    await markApplied(ctx, commit);
+    return renamedDrafts;
+}
 
 export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<UseCaseResult<ReconcileResult>> {
     const target = await environmentBranch(remote, config.environment);
@@ -49,7 +63,7 @@ export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: 
     return ctx.db.transaction(async db => {
         const tx = { ...ctx, db };
         const [lock] = await db.query<{ locked: boolean }>('SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked', [
-            `reconcile:${ctx.workspaceId}`,
+            lockKey(ctx.workspaceId),
         ]);
         if (!lock!.locked) {
             return fail('conflict', 'A reconcile of this workspace is already running.');
@@ -58,7 +72,6 @@ export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: 
             return fail('conflict', 'Git is off in this workspace.');
         }
 
-        await lockGitCommits(db, ctx.workspaceId);
         const result = { branch, commit: tip, errors: [], warnings: [], renamedDrafts: [] };
         const state = await readState(db, ctx.workspaceId);
         if (state.applied === tip) {
@@ -75,8 +88,7 @@ export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: 
             return success({ ...result, outcome: 'refused' as const, errors: refused.errors, refusedAt: refused.at });
         }
 
-        const { renamedDrafts } = await importWorkspace(tx, slug, files, { commit: tip });
-        await writeWorkspaceSetting(db, ctx.workspaceId, RECONCILE_SETTING, { applied: tip, refused: null }, ctx.userId);
+        const renamedDrafts = await applyCommit(tx, slug, tip, files);
         return success({ ...result, outcome: 'applied' as const, warnings: validation.warnings, renamedDrafts });
     });
 }

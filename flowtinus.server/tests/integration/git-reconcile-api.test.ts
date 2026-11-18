@@ -215,7 +215,7 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         expect(created.status).toBe(201);
         const path = p('connections/Events.yaml');
         const declared = connectionToYaml({ id: created.body.id, type: 'kafka' });
-        expect((await reconcile()).body.outcome).toBe('applied');
+        expect((await reconcile()).body.outcome).toBe('up-to-date');
 
         commit(files => {
             const { [path]: _events, ...rest } = files;

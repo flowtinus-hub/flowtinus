@@ -1,3 +1,4 @@
+import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import type { GitRemote } from './git-remote';
 import { CONFIG_BRANCH, parseTopology, TOPOLOGY_FILE, type EnvironmentDecl } from './topology';
 
@@ -28,4 +29,21 @@ export async function readTopology(remote: GitRemote, environment: string, branc
     }
 
     return { exists: true, commit, environments, problems, environment: decl, branchExists: !!decl && known.has(decl.branch) };
+}
+
+export async function environmentBranch(
+    remote: GitRemote,
+    environment: string,
+): Promise<UseCaseResult<{ branch: string; tip: string | null }>> {
+    const branches = await remote.branches();
+    const topology = await readTopology(remote, environment, branches);
+    if (!topology.exists) {
+        return fail('conflict', `The repository has no ${CONFIG_BRANCH} branch.`);
+    }
+    if (!topology.environment) {
+        return fail('conflict', `${environment} is not in the topology.`);
+    }
+
+    const branch = topology.environment.branch;
+    return success({ branch, tip: await remote.fetch(branch, branches) });
 }

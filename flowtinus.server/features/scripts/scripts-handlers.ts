@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { movedScriptPath, normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
 import { pathTooLong, requireActiveProject } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
@@ -82,7 +82,7 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
         }
 
         if (kind === 'folder') {
-            await mirrorGitChange(
+            await changeTree(
                 ctx,
                 () => `Create script folder ${target}`,
                 db =>
@@ -95,7 +95,7 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
             return success({ path: target, revision: 0 });
         }
 
-        await mirrorGitChange(
+        await changeTree(
             ctx,
             () => `Create script ${target}`,
             db =>
@@ -131,7 +131,7 @@ export class SaveScriptHandler implements UseCaseHandler<{ revision: number }> {
             return tooLarge(large);
         }
 
-        const [saved] = await mirrorGitChange(
+        const [saved] = await changeTree(
             ctx,
             () => `Save script ${target}`,
             db =>
@@ -193,7 +193,7 @@ export class MoveScriptPathHandler implements UseCaseHandler<{ path: string }> {
             return tooLong;
         }
 
-        await mirrorGitChange(
+        await changeTree(
             ctx,
             () => `Move script ${from} to ${to}`,
             db => moveScriptPath(db, ctx.workspaceId, id, from, to, ctx.userId),
@@ -219,7 +219,7 @@ export class DeleteScriptPathHandler implements UseCaseHandler<{ path: string }>
             return missing;
         }
 
-        await mirrorGitChange(
+        await changeTree(
             ctx,
             () => `Delete script ${parsed.value.path}`,
             db => deleteScriptPath(db, ctx.workspaceId, parsed.value.projectId, parsed.value.path),

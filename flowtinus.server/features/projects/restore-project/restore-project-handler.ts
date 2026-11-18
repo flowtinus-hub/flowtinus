@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { eq } from 'drizzle-orm';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -42,7 +42,7 @@ export class RestoreProjectHandler implements UseCaseHandler<ProjectView> {
 
         const archivedAt = archived.deletedAt.getTime();
         const together = (item: { deletedAt: Date | null }) => item.deletedAt?.getTime() === archivedAt;
-        const restored = await mirrorGitChange(
+        const restored = await changeTree(
             ctx,
             () => `Restore project ${archived.name}`,
             async tx => {

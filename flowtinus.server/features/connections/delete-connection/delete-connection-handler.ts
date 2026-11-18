@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -24,7 +24,7 @@ export class DeleteConnectionHandler implements UseCaseHandler<{ id: string }> {
 
         const { id } = parsed.value;
         const name = (await new ConnectionRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
-        return (await mirrorGitChange(
+        return (await changeTree(
             ctx,
             () => `Delete connection ${name}`,
             db => new ConnectionRepository(db, ctx.workspaceId).remove(id),

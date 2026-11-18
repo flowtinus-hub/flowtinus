@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -36,7 +36,7 @@ export class RenameFolderHandler implements UseCaseHandler<FolderView> {
         }
 
         const name = named.value;
-        const renamed = await mirrorGitChange(
+        const renamed = await changeTree(
             ctx,
             () => `Rename folder ${folder.name} to ${name}`,
             db => new FolderRepository(db, ctx.workspaceId).update(folder.id, { name }),

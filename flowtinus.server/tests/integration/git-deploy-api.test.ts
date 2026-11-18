@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { chmod, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
-import { createBranch, git } from '../helpers/git-repos';
+import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { createApp } from '../../api/app';
 
 setDefaultTimeout(30_000);
@@ -47,10 +50,16 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
             (await call('POST', `/projects/${projectId}/flows`, { name, ...(folderId ? { folderId } : {}) })).body.id as string;
         const flowPath = (...path: string[]) => `${slugOf(id)}/projects/Sales/flows/${path.join('/')}.flow.yaml`;
         const firstExport = `First export of ${slugOf(id)}`;
-        return { id, call, repo, projectId, newFlow, flowPath, firstExport };
+        return { id, slug: slugOf(id), call, repo, projectId, newFlow, flowPath, firstExport };
     }
 
     const show = (repo: string, path: string) => git(repo, 'show', `dev:${path}`);
+    const onBranch = (repo: string): Record<string, string> =>
+        Object.fromEntries(
+            git(repo, 'ls-tree', '-r', '--name-only', 'dev')
+                .split('\n')
+                .map(path => [path, Bun.spawnSync(['git', 'show', `dev:${path}`], { cwd: repo, stdout: 'pipe' }).stdout.toString()]),
+        );
     const commits = (repo: string) => git(repo, 'log', '--format=%an <%ae>|%s', 'dev').split('\n');
 
     beforeAll(async () => {
@@ -155,79 +164,195 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
             firstExport,
             'start',
         ]);
-        expect((await call('GET', '/git/status')).body.status.pending).toBe(0);
     });
 
-    test('a push refused leaves the deploy standing and git behind, with why; the next commit pushes what is pending', async () => {
-        const { call, repo, newFlow, flowPath, firstExport } = await newWorkspace();
+    test('a push refused fails the deploy, saying why, and nothing changes', async () => {
+        const { call, repo, newFlow } = await newWorkspace();
         const orders = await newFlow('Orders');
-        const invoices = await newFlow('Invoices');
-        expect((await call('GET', '/git/status')).body).toEqual({ status: { pending: 0, reason: null, since: null } });
-
         const hook = join(repo, 'hooks', 'pre-receive');
         await Bun.write(hook, '#!/bin/sh\necho "the branch dev is protected" >&2\nexit 1\n');
         await chmod(hook, 0o755);
 
-        const deployed = await call('POST', `/flows/${orders}/deploy`);
-        expect(deployed.status).toBe(200);
-        expect(deployed.body.deployed).not.toBeNull();
-        const behind = (await call('GET', '/git/status')).body.status;
-        expect(behind).toMatchObject({ pending: 1, since: expect.any(String) });
-        expect(behind.reason).toContain('the branch dev is protected');
+        const refused = await call('POST', `/flows/${orders}/deploy`);
+        expect(refused.status).toBe(502);
+        expect(refused.body.error.message).toContain('the branch dev is protected');
+        expect((await call('GET', `/flows/${orders}/deployments`)).body).toMatchObject({ versions: [], deployed: null });
         expect(commits(repo)).toHaveLength(2);
 
         await rm(hook);
-        expect((await call('POST', `/flows/${invoices}/deploy`)).status).toBe(200);
-        expect((await call('GET', '/git/status')).body.status).toEqual({ pending: 0, reason: null, since: null });
-        expect(commits(repo).map(c => c.split('|')[1])).toEqual(['Deploy Invoices v1', 'Deploy Orders v1', firstExport, 'start']);
-        expect(show(repo, flowPath('Orders'))).toContain(`id: ${orders}`);
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
+        expect(commits(repo)[0]).toEndWith('|Deploy Orders v1');
     });
 
-    test('a deploy stands when the clone cannot be opened or the token not decrypted: git is behind, with why', async () => {
-        const { id, call, repo, newFlow } = await newWorkspace();
-        const [orders, invoices, refunds] = [await newFlow('Orders'), await newFlow('Invoices'), await newFlow('Refunds')];
+    test('when the branch moved before the push, the commit is rebuilt on the new tip once, and both apply', async () => {
+        const { call, repo, projectId, newFlow, flowPath, slug } = await newWorkspace();
+        const orders = await newFlow('Orders');
+        const projectFile = `${slug}/projects/Sales/project.yaml`;
+        const moved = commitFiles(repo, 'outside', {
+            ...onBranch(repo),
+            [projectFile]: onBranch(repo)
+                [projectFile]!.replace(/description: .*\n/, '')
+                .replace(/^/, 'description: Set in git\n'),
+        });
+        const hook = join(repo, 'hooks', 'pre-receive');
+        await Bun.write(
+            hook,
+            `#!/bin/sh\nif [ ! -f moved ]; then touch moved; unset GIT_QUARANTINE_PATH; git update-ref refs/heads/dev ${moved}; fi\nexit 0\n`,
+        );
+        await chmod(hook, 0o755);
+
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
+        expect(commits(repo).map(c => c.split('|')[1])[0]).toBe('Deploy Orders v1');
+        expect(git(repo, 'rev-parse', 'dev~1')).toBe(moved);
+        expect(show(repo, flowPath('Orders'))).toContain(`id: ${orders}`);
+        expect((await call('GET', '/projects')).body.items).toEqual([
+            expect.objectContaining({ id: projectId, description: 'Set in git' }),
+        ]);
+    });
+
+    test('a commit made in git since the last reconcile is applied before the change: its edit of the same file stays', async () => {
+        const { call, repo, newFlow, flowPath } = await newWorkspace();
+        const orders = await newFlow('Orders');
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
+        const files = onBranch(repo);
+        const path = flowPath('Orders');
+        commitFiles(
+            repo,
+            'dev',
+            { ...files, [path]: files[path]!.replace(`id: ${orders}\n`, `id: ${orders}\ndeployed: false\n`) },
+            'Undeploy in git',
+        );
+
+        expect((await call('PATCH', `/flows/${orders}`, { name: 'Sales orders' })).status).toBe(200);
+        expect(show(repo, flowPath('Sales orders'))).toContain('deployed: false');
+        expect(
+            commits(repo)
+                .slice(0, 2)
+                .map(c => c.split('|')[1]),
+        ).toEqual(['Rename flow Orders to Sales orders', 'Undeploy in git']);
+        expect((await call('GET', `/flows/${orders}/deployments`)).body.deployed).toBeNull();
+    });
+
+    test('when the branch moved with a change to the same file, the change is refused and nothing changes', async () => {
+        const { call, repo, newFlow, flowPath } = await newWorkspace();
+        const orders = await newFlow('Orders');
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
+        const files = onBranch(repo);
+        const path = flowPath('Orders');
+        const moved = commitFiles(repo, 'outside', {
+            ...files,
+            [path]: files[path]!.replace(`id: ${orders}\n`, `id: ${orders}\ndeployed: false\n`),
+        });
+        const hook = join(repo, 'hooks', 'pre-receive');
+        await Bun.write(
+            hook,
+            `#!/bin/sh\nif [ ! -f moved ]; then touch moved; unset GIT_QUARANTINE_PATH; git update-ref refs/heads/dev ${moved}; fi\nexit 0\n`,
+        );
+        await chmod(hook, 0o755);
+
+        const refused = await call('PATCH', `/flows/${orders}`, { name: 'Sales orders' });
+        expect(refused.status).toBe(409);
+        expect(refused.body.error.message).toBe(`${path} changed in git meanwhile: nothing was changed, try again.`);
+        expect(git(repo, 'rev-parse', 'dev')).toBe(moved);
+        expect((await call('GET', `/flows/${orders}`)).body.name).toBe('Orders');
+    });
+
+    test('when git cannot be reached the change fails, saying why, and nothing changes; drafts still save', async () => {
+        const { id, call, repo, projectId, newFlow } = await newWorkspace();
+        const orders = await newFlow('Orders');
+        await rename(repo, `${repo}.away`);
+
+        const unreachable = await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' });
+        expect(unreachable.status).toBe(502);
+        expect(unreachable.body.error.message).toStartWith('Git could not be reached, nothing was changed:');
+        expect((await call('GET', `/projects/${projectId}/contents`)).body.folders).toEqual([]);
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(502);
+        expect((await call('GET', `/flows/${orders}/deployments`)).body.deployed).toBeNull();
+        const { flow, revision } = (await call('GET', `/flows/${orders}/draft`)).body;
+        expect((await call('PUT', `/flows/${orders}/draft`, { revision, flow })).status).toBe(200);
+        await rename(`${repo}.away`, repo);
+
         const clone = join(dir, 'clones', id);
         await rm(clone, { recursive: true, force: true });
         await Bun.write(join(clone, 'HEAD'), 'not a repository\n');
-
-        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
-        expect((await call('GET', '/git/status')).body.status).toMatchObject({ pending: 1, reason: expect.any(String) });
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(502);
         await rm(clone, { recursive: true, force: true });
 
         const otherKeys = createApp(db, 'DEV', new Keyring([{ version: 'u', key: new Uint8Array(32).fill(9) }]), undefined, {
             git: { clonesDir: join(dir, 'clones') },
         });
-        const deployed = await otherKeys.request(wsPath(id, `/flows/${invoices}/deploy`), {
-            method: 'POST',
-            headers: { 'x-user-id': ANA },
-        });
-        expect(deployed.status).toBe(200);
-        const behind = (await call('GET', '/git/status')).body.status;
-        expect(behind).toMatchObject({ pending: 2 });
-        expect(behind.reason).toContain('SECRETS_KEYS');
+        const deployed = await otherKeys.request(wsPath(id, `/flows/${orders}/deploy`), { method: 'POST', headers: { 'x-user-id': ANA } });
+        expect(deployed.status).toBe(502);
+        expect(((await deployed.json()) as any).error.message).toContain('cannot be decrypted');
 
-        expect((await call('POST', `/flows/${refunds}/deploy`)).status).toBe(200);
-        expect((await call('GET', '/git/status')).body.status).toEqual({ pending: 0, reason: null, since: null });
-        expect(
-            commits(repo)
-                .map(c => c.split('|')[1])
-                .slice(0, 3),
-        ).toEqual(['Deploy Refunds v1', 'Deploy Invoices v1', 'Deploy Orders v1']);
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
     });
 
-    test('a branch deleted once git is on is not created again: git stays behind until it is, or git is turned off', async () => {
+    test('a branch deleted once git is on is not created again: changes to the tree fail until it is, or git is turned off', async () => {
         const { call, repo, newFlow } = await newWorkspace();
         git(repo, 'update-ref', '-d', 'refs/heads/dev');
         const orders = await newFlow('Orders');
 
-        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
-        expect((await call('GET', '/git/status')).body.status).toMatchObject({ pending: 1, reason: 'The branch dev does not exist yet.' });
+        const refused = await call('POST', `/flows/${orders}/deploy`);
+        expect(refused.status).toBe(409);
+        expect(refused.body.error.message).toBe('The branch dev does not exist.');
         expect(git(repo, 'for-each-ref', '--format=%(refname)', 'refs/heads')).toBe('refs/heads/flowtinus/config');
 
         const config = (await call('GET', '/git')).body.config;
         await call('DELETE', '/git');
         expect((await call('PUT', '/git', config)).body.on).toBe(false);
-        expect((await call('GET', '/git/status')).body.status).toBeNull();
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
+    });
+
+    test('the app never pushes an invalid tree: a change on top of a refused commit fails with its errors', async () => {
+        const { call, repo, projectId, slug } = await newWorkspace();
+        const bad = `${slug}/connections/Bad.yaml`;
+        commitFiles(repo, 'dev', { ...onBranch(repo), [bad]: `id: ${crypto.randomUUID()}\ntype: oracle\n` });
+        const tip = git(repo, 'rev-parse', 'dev');
+
+        const refused = await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' });
+        expect(refused.status).toBe(400);
+        expect(refused.body.error.fields).toEqual({ [bad]: 'Unknown connection type "oracle".' });
+        expect(git(repo, 'rev-parse', 'dev')).toBe(tip);
+        expect((await call('GET', `/projects/${projectId}/contents`)).body.folders).toEqual([]);
+    });
+
+    test('a commit made by the app has the user as author and Flowtinus as committer', async () => {
+        const { call, repo, newFlow } = await newWorkspace();
+        const orders = await newFlow('Orders');
+        expect((await call('POST', `/flows/${orders}/deploy`, undefined, BIA)).status).toBe(200);
+        expect(git(repo, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', 'dev')).toBe(
+            `Bia <${BIA}@example.com>|Flowtinus <flowtinus@localhost>`,
+        );
+    });
+
+    test('an MCP tool that changes the tree takes the same path: committed, or failing with why while git is away', async () => {
+        const { slug, repo, projectId } = await newWorkspace();
+        const { token } = newApiToken();
+        await insertApiToken(db, { userId: ANA, name: 'test', token, scopes: API_SCOPES });
+        const client = new Client({ name: 'test', version: '1.0.0' });
+        await client.connect(
+            new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {
+                requestInit: { headers: { authorization: `Bearer ${token}` } },
+                fetch: (url, init) => Promise.resolve(app.request(String(url), init as RequestInit)),
+            }),
+        );
+        const createFolder = async (name: string) =>
+            (await client.callTool({ name: 'create_folder', arguments: { workspace: slug, projectId, name } })) as {
+                isError?: boolean;
+                content: { text: string }[];
+            };
+
+        expect((await createFolder('Imports')).isError).toBeFalsy();
+        expect(commits(repo)[0]).toBe(`Ana <${ANA}@example.com>|Create folder Imports`);
+
+        await rename(repo, `${repo}.away`);
+        const away = await createFolder('Exports');
+        await rename(`${repo}.away`, repo);
+        expect(away.isError).toBe(true);
+        expect(away.content[0]!.text).toContain('Git could not be reached, nothing was changed:');
+        expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev')).not.toContain('Exports');
+        await client.close();
     });
 
     test('drafts never reach git, and a workspace without git configured gets no commits', async () => {
@@ -241,6 +366,5 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         const flowId = await off.newFlow('Orders');
         expect((await off.call('POST', `/flows/${flowId}/deploy`)).status).toBe(200);
         expect(commits(off.repo)).toEqual(['Someone <someone@example.com>|start']);
-        expect((await off.call('GET', '/git/status')).body).toEqual({ status: null });
     });
 });

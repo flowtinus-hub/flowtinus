@@ -11,7 +11,7 @@ import { foldersRoutes } from './routes/folders.routes';
 import { projectResourcesRoutes } from './routes/project-resources.routes';
 import { projectsRoutes } from './routes/projects.routes';
 import { ListSupervisorsHandler } from '#features/supervisors/list-supervisors/list-supervisors-handler';
-import { toHttpResult } from '#shared/use-cases/to-http-result';
+import { toHttpError, toHttpResult } from '#shared/use-cases/to-http-result';
 import { streamSSE } from 'hono/streaming';
 import { mcpRoute, type McpRouteOptions } from './routes/mcp.routes';
 import { workspaceContext } from './middlewares/workspace-context';
@@ -19,6 +19,7 @@ import { workspaceRoutes } from './routes/workspaces.routes';
 import { tokensRoutes } from './routes/tokens.routes';
 import { gitRoutes } from './routes/git.routes';
 import { gitOptions, type GitOptions } from '#features/git/git-config';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { jsonBody } from './routes/request-input';
 import { CreateWorkspaceHandler, GetMeHandler, ListWorkspacesHandler } from '#features/workspaces/workspaces-handlers';
 
@@ -96,6 +97,10 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
     app.route('/w/:workspace', workspace);
 
     app.onError((error, c) => {
+        if (error instanceof UseCaseFailure) {
+            return toHttpError(c, error.error);
+        }
+
         if (logger) {
             logger.error(`Unexpected error on ${c.req.method} ${c.req.path}`, { method: c.req.method, path: c.req.path, error });
         } else {

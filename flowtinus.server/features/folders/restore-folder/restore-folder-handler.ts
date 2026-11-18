@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { eq } from 'drizzle-orm';
 import { isFolderVisible, subtreeIds } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -56,7 +56,7 @@ export class RestoreFolderHandler implements UseCaseHandler<FolderView> {
             return named;
         }
 
-        await mirrorGitChange(
+        await changeTree(
             ctx,
             () => `Restore folder ${folder.name}`,
             async tx => {

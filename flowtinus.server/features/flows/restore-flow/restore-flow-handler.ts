@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { eq } from 'drizzle-orm';
 import { isFolderVisible } from '@flowtinus/core';
 import { FlowRepository, loadTree, nameInTree, projectArchived, toFlowView, type FlowView } from '#features/folders/project-tree';
@@ -47,7 +47,7 @@ export class RestoreFlowHandler implements UseCaseHandler<FlowView> {
             return named;
         }
 
-        const restored = await mirrorGitChange(
+        const restored = await changeTree(
             ctx,
             () => `Restore flow ${flow.name}`,
             async tx => {

@@ -4,7 +4,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed, type FlowDeploymentsView } from '../deployments';
 
 export const UndeployFlowCommand = z.object({ id: z.uuid('Invalid') });
@@ -26,7 +26,7 @@ export class UndeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> 
             return fail('not-found', 'Flow not found.');
         }
 
-        const undeployed = await mirrorGitChange(
+        const undeployed = await changeTree(
             ctx,
             () => `Undeploy ${row.name}`,
             async tx => {
