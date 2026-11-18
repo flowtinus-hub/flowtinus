@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createBranch } from '../helpers/git-repos';
 import { ANA, insertMember, insertWorkspace, wsPath } from '../helpers/workspaces';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -92,6 +93,7 @@ describe("a workspace's git configuration", () => {
     test('the access test, before saving: reads, pushes and deletes a throwaway branch, and says it does not prove a branch is protected', async () => {
         const { call } = await newWorkspace();
         const repo = await newRepo('tested.git');
+        createBranch(repo.path, 'main');
 
         const tested = await call('POST', '/git/test', { repository: repo.url, tokenSecret: 'git-token', environment: 'DEV' });
         expect(tested).toMatchObject({
@@ -106,8 +108,34 @@ describe("a workspace's git configuration", () => {
             },
         });
         expect(tested.body.note).toContain('not whether a given branch is protected');
-        expect(git(repo.path, 'for-each-ref', 'refs/heads')).toBe('');
+        expect(tested.body.checks[1].message).toContain('Pushed and deleted');
+        expect(git(repo.path, 'for-each-ref', '--format=%(refname)', 'refs/heads')).toBe('refs/heads/main');
         expect((await call('GET', '/git')).body).toEqual({ config: null, on: false });
+    });
+
+    test('the access test leaves an empty repository empty: its first branch would become the default, which a server may refuse to delete', async () => {
+        const { call } = await newWorkspace();
+        const repo = await newRepo('empty-protected.git');
+        const hook = join(repo.path, 'hooks', 'pre-receive');
+        await Bun.write(
+            hook,
+            '#!/bin/sh\nwhile read old new ref; do\n  case "$new" in 0000000000000000000000000000000000000000) echo "the default branch cannot be deleted" >&2; exit 1;; esac\ndone\n',
+        );
+        await chmod(hook, 0o755);
+
+        const tested = await call('POST', '/git/test', { repository: repo.url, tokenSecret: 'git-token', environment: 'DEV' });
+        expect(tested).toMatchObject({
+            status: 200,
+            body: {
+                ok: true,
+                checks: [
+                    { step: 'read', ok: true },
+                    { step: 'write', ok: true },
+                ],
+            },
+        });
+        expect(tested.body.checks[1].message).toContain('empty');
+        expect(git(repo.path, 'for-each-ref', 'refs/heads')).toBe('');
     });
 
     test('the access test says what failed: a repository it cannot reach, or an invalid configuration', async () => {
