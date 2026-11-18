@@ -1,19 +1,13 @@
 import type { Keyring } from '#shared/crypto/keyring';
 import type { Database } from '#shared/database/database';
 import type { Logger } from '#shared/logging/logger';
-import { readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspaces/workspace-settings';
-import { DEFAULT_POLL_SECONDS, GIT_SETTING, POLL_SETTING, type GitOptions } from './git-config';
+import { DEFAULT_POLL_SECONDS, GIT_SETTING, type GitOptions } from './git-config';
+import { recordPoll } from './git-poll-state';
 import { onWorkspaceRepository } from './git-handlers';
 import { reconcile } from './reconcile';
 
 /** at most one fetch a webhook brings forward per workspace in this time; more calls are absorbed */
 export const HOOK_INTERVAL_MS = 5000;
-
-/** the last poll of a workspace: when, and why it could not reconcile (git unreachable, not in the topology…) */
-export type LastPoll = { at: string; error?: string };
-
-export const readLastPoll = async (db: Database, workspaceId: string) =>
-    (await readWorkspaceSetting(db, workspaceId, POLL_SETTING)) as LastPoll | null;
 
 /**
  * Each workspace with git on is fetched on its interval (the `git` setting's pollSeconds) and a new tip of its
@@ -97,8 +91,7 @@ export class GitPoller {
             if (!result.ok && result.error.message === 'A reconcile of this workspace is already running.') {
                 return;
             }
-            const poll: LastPoll = { at: new Date(this.now()).toISOString(), ...(result.ok ? {} : { error: result.error.message }) };
-            await writeWorkspaceSetting(this.db, workspaceId, POLL_SETTING, poll, 'git');
+            await recordPoll(this.db, workspaceId, new Date(this.now()), result.ok ? undefined : result.error.message);
             if (!result.ok) {
                 this.logger?.warn(`git poll of ${workspaceId}: ${result.error.message}`, { workspaceId });
             }

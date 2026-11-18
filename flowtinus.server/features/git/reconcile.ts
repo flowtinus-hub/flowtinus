@@ -22,7 +22,13 @@ export type ReconcileResult = {
     refusedAt?: string;
 };
 
-type ReconcileState = { applied: string | null; branch?: string; refused: { commit: string; errors: TreeIssue[]; at: string } | null };
+/** warnings: the last commit applied's (a connection not configured, a secret with no value) */
+type ReconcileState = {
+    applied: string | null;
+    branch?: string;
+    refused: { commit: string; errors: TreeIssue[]; at: string } | null;
+    warnings?: TreeIssue[];
+};
 
 const lockKey = (workspaceId: string) => `reconcile:${workspaceId}`;
 
@@ -34,8 +40,8 @@ export async function readState(db: Database, workspaceId: string): Promise<Reco
     return state ?? { applied: null, refused: null };
 }
 
-const markApplied = (ctx: UseCaseContext, { branch, commit }: BranchCommit) =>
-    writeWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING, { applied: commit, branch, refused: null }, ctx.userId);
+const markApplied = (ctx: UseCaseContext, { branch, commit }: BranchCommit, warnings: TreeIssue[]) =>
+    writeWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING, { applied: commit, branch, refused: null, warnings }, ctx.userId);
 
 export async function forgetReconcile(ctx: UseCaseContext) {
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
@@ -51,10 +57,11 @@ export async function applyCommit(
     applied: BranchCommit,
     slug: string,
     files: RepoFiles,
+    warnings: TreeIssue[] = [],
 ): Promise<RenamedDraft[]> {
     const by = await recordCommit(ctx, remote, applied.commit);
     const { renamedDrafts } = await importWorkspace(ctx, slug, files, { commit: applied.commit, by });
-    await markApplied(ctx, applied);
+    await markApplied(ctx, applied, warnings);
     return renamedDrafts;
 }
 
@@ -106,12 +113,13 @@ export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: 
 
         const validation = await validateImport(db, ctx.workspaceId, slug, files);
         if (validation.errors.length > 0) {
+            await recordCommit(tx, remote, tip);
             const refused = { commit: tip, errors: validation.errors, at: new Date().toISOString() };
             await writeWorkspaceSetting(db, ctx.workspaceId, RECONCILE_SETTING, { ...state, refused }, ctx.userId);
             return success({ ...result, outcome: 'refused' as const, errors: refused.errors, refusedAt: refused.at });
         }
 
-        const renamedDrafts = await applyCommit(tx, remote, { branch, commit: tip }, slug, files);
+        const renamedDrafts = await applyCommit(tx, remote, { branch, commit: tip }, slug, files, validation.warnings);
         return success({ ...result, outcome: 'applied' as const, warnings: validation.warnings, renamedDrafts });
     });
 }

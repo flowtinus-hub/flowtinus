@@ -13,7 +13,8 @@ import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './tu
 import type { TreeIssue } from '@flowtinus/core';
 import { forgetReconcile, lockReconcile, reconcile, type ReconcileResult } from './reconcile';
 import { ensureHookToken, forgetHookToken, hookPath, readHookToken, renewHookToken } from './git-hook';
-import { readLastPoll, type LastPoll } from './git-poller';
+import { readLastPoll, recordPoll, type LastPoll } from './git-poll-state';
+import { readState } from './reconcile';
 import { workspaceSlug } from '#features/folders/project-tree';
 
 /** hook (admins): the webhook's path on the server; lastPoll: the last fetch of the environment's branch, and why it could not reconcile */
@@ -338,6 +339,70 @@ export class ReconcileHandler implements UseCaseHandler<ReconcileResult> {
     constructor(private readonly options: GitOptions) {}
 
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ReconcileResult>> {
-        return requireRole(ctx, 'editor') ?? onWorkspaceRepository(ctx, this.options, (remote, config) => reconcile(ctx, remote, config));
+        const denied = requireRole(ctx, 'editor');
+        if (denied) {
+            return denied;
+        }
+
+        const result = await onWorkspaceRepository(ctx, this.options, (remote, config) => reconcile(ctx, remote, config));
+        // Reconcile now is a fetch like a poll's: what it found is what the git section shows (another one running is not)
+        if (
+            (result.ok || result.error.message !== 'A reconcile of this workspace is already running.') &&
+            (await readGitState(ctx.db, ctx.workspaceId))?.on
+        ) {
+            await recordPoll(ctx.db, ctx.workspaceId, new Date(), result.ok ? undefined : result.error.message);
+        }
+        return result;
+    }
+}
+
+export type GitCommitView = { sha: string; message?: string; author?: string; at?: string };
+
+/**
+ * What the git section and the sidebar show with git on: the commit the deploy is on, a commit git is at that was
+ * refused (with its errors per file), git unreachable (since when), and the warnings of the commit applied.
+ */
+export type GitStatusView =
+    | { on: false }
+    | {
+          on: true;
+          branch: string | null;
+          deploy: GitCommitView | null;
+          refused: (GitCommitView & { errors: TreeIssue[]; refusedAt: string }) | null;
+          unreachable: { since: string; error: string } | null;
+          warnings: TreeIssue[];
+          lastPoll: LastPoll | null;
+      };
+
+export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<GitStatusView>> {
+        const denied = requireRole(ctx, 'viewer');
+        if (denied) {
+            return denied;
+        }
+        if (!(await readGitState(ctx.db, ctx.workspaceId))?.on) {
+            return success({ on: false });
+        }
+
+        const state = await readState(ctx.db, ctx.workspaceId);
+        const shas = [state.applied, state.refused?.commit].filter((sha): sha is string => !!sha);
+        const commits = await ctx.db.query<{ sha: string; message: string; author_name: string; authored_at: Date }>(
+            'SELECT sha, message, author_name, authored_at FROM git_commits WHERE workspace_id = $1 AND sha = ANY($2::text[])',
+            [ctx.workspaceId, shas],
+        );
+        const commit = (sha: string): GitCommitView => {
+            const row = commits.find(c => c.sha === sha);
+            return row ? { sha, message: row.message, author: row.author_name, at: new Date(row.authored_at).toISOString() } : { sha };
+        };
+        const lastPoll = await readLastPoll(ctx.db, ctx.workspaceId);
+        return success({
+            on: true,
+            branch: state.branch ?? null,
+            deploy: state.applied ? commit(state.applied) : null,
+            refused: state.refused ? { ...commit(state.refused.commit), errors: state.refused.errors, refusedAt: state.refused.at } : null,
+            unreachable: lastPoll?.error ? { since: lastPoll.since ?? lastPoll.at, error: lastPoll.error } : null,
+            warnings: state.warnings ?? [],
+            lastPoll,
+        });
     }
 }
