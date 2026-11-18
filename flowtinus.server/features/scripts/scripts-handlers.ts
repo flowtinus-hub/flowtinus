@@ -131,15 +131,10 @@ export class SaveScriptHandler implements UseCaseHandler<{ revision: number }> {
             return tooLarge(large);
         }
 
-        const [saved] = await changeTree(
-            ctx,
-            () => `Save script ${target}`,
-            db =>
-                db.query<{ revision: number }>(
-                    `UPDATE scripts SET content = $4, exports = $7::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
+        const [saved] = await ctx.db.query<{ revision: number }>(
+            `UPDATE scripts SET content = $4, exports = $7::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
        WHERE workspace_id = $1 AND project_id = $2 AND path = $3 AND revision = $5 RETURNING revision`,
-                    [ctx.workspaceId, id, target, content, revision, ctx.userId, exportsOf(content)],
-                ),
+            [ctx.workspaceId, id, target, content, revision, ctx.userId, exportsOf(content)],
         );
         if (saved) {
             return success({ revision: saved.revision });

@@ -64,6 +64,6 @@ describe.skipIf(!container)('one reconcile of a workspace at a time (Postgres)',
             await other.close();
         }
 
-        expect((await call('POST', '/git/reconcile')).body.outcome).toBe('applied');
+        expect((await call('POST', '/git/reconcile')).body.outcome).toBe('up-to-date');
     });
 });

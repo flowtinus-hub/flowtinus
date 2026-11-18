@@ -11,7 +11,7 @@ import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type Envir
 import { readTopology, type TopologyView } from './workspace-topology';
 import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
-import { forgetReconcile, reconcile, type ReconcileResult } from './reconcile';
+import { forgetReconcile, lockReconcile, reconcile, type ReconcileResult } from './reconcile';
 
 export type GitConfigView = { config: GitConfig | null; on: boolean };
 
@@ -54,14 +54,19 @@ export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig;
             return config;
         }
 
-        const saved = await readGitState(ctx.db, ctx.workspaceId);
-        const on =
-            !!saved?.on && saved.config.repository === config.value.repository && saved.config.environment === config.value.environment;
-        await saveGitConfig(ctx, config.value, on);
-        if (!on) {
-            await forgetReconcile(ctx);
-        }
-
+        const on = await ctx.db.transaction(async db => {
+            const tx = { ...ctx, db };
+            // waits for a running reconcile, which would write the deployed set after it is forgotten
+            await lockReconcile(db, ctx.workspaceId);
+            const saved = await readGitState(db, ctx.workspaceId);
+            const stays =
+                !!saved?.on && saved.config.repository === config.value.repository && saved.config.environment === config.value.environment;
+            await saveGitConfig(tx, config.value, stays);
+            if (!stays) {
+                await forgetReconcile(tx);
+            }
+            return stays;
+        });
         return success({ config: config.value, on });
     }
 }
@@ -288,8 +293,13 @@ export class RemoveGitConfigHandler implements UseCaseHandler<{ config: null }> 
             return denied;
         }
 
-        await removeGitConfig(ctx);
-        await forgetReconcile(ctx);
+        await ctx.db.transaction(async db => {
+            const tx = { ...ctx, db };
+            // waits for a running reconcile, which would write the deployed set after it is forgotten
+            await lockReconcile(db, ctx.workspaceId);
+            await removeGitConfig(tx);
+            await forgetReconcile(tx);
+        });
         return success({ config: null });
     }
 }
