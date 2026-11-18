@@ -1,5 +1,6 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings } from 'lucide-react';
-import { useState } from 'react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -77,6 +78,42 @@ function WorkspaceSwitcher({
     );
 }
 
+/** looked at again on this interval, and on each page */
+const GIT_STATUS_MS = 60_000;
+
+/** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the git section */
+function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
+    const [status, setStatus] = useState<{ slug: string; value: GitStatus } | null>(null);
+    useEffect(() => {
+        let gone = false;
+        const read = () => void getGitStatus(slug).then(result => !gone && result.ok && setStatus({ slug, value: result.value }));
+        read();
+        const timer = setInterval(read, GIT_STATUS_MS);
+        window.addEventListener(GIT_STATUS_CHANGED, read);
+        return () => {
+            gone = true;
+            clearInterval(timer);
+            window.removeEventListener(GIT_STATUS_CHANGED, read);
+        };
+    }, [slug, pathname]);
+
+    const value = status?.slug === slug ? status.value : null;
+    if (!value || !gitAhead(value) || !value.on) {
+        return null;
+    }
+    const label = value.refused ? 'Git is ahead: commit refused' : 'Git unreachable';
+    return (
+        <SidebarMenuItem>
+            <SidebarMenuButton tooltip={label} asChild className="text-amber-700 dark:text-amber-400">
+                <NavLink to={`${workspaceSettingsPath(slug)}#git`}>
+                    <TriangleAlert />
+                    <span>{label}</span>
+                </NavLink>
+            </SidebarMenuButton>
+        </SidebarMenuItem>
+    );
+}
+
 export function AppSidebar() {
     const { pathname } = useLocation();
     const { state } = useMe();
@@ -125,6 +162,7 @@ export function AppSidebar() {
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}
+                        {current && <GitAheadItem slug={current.slug} pathname={pathname} />}
                     </SidebarMenu>
                 </SidebarGroup>
                 {/* the environment's pages (not a workspace's), at the bottom */}

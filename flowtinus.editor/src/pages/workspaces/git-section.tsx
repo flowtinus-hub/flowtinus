@@ -1,6 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useLocation } from 'react-router';
 import { CircleCheck, CircleX, Copy, GitBranch, Power, RefreshCw, TriangleAlert } from 'lucide-react';
 import { relativeTime } from '@/lib/relative-time';
+import { GitStatusPanel } from './git-status-panel';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,15 +10,25 @@ import { Label } from '@/components/ui/label';
 import { useResource } from '@/data/use-resource';
 import { listSecrets } from '@/data/secrets/secrets-api';
 import type { ApiResult } from '@/lib/api';
-import { CONFIG_BRANCH, createTopology, getGitConfig, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
+import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
 export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean }) {
     const saved = useResource(`git:${slug}`, () => getGitConfig(slug));
+    const status = useResource(`git-status:${slug}`, () => getGitStatus(slug));
+    // the sidebar's link: the section loads after the page, so the browser's own jump to #git finds nothing yet
+    const { hash } = useLocation();
+    const section = useRef<HTMLElement>(null);
+    const ready = saved.state.status === 'ready';
+    useEffect(() => {
+        if (ready && hash === '#git') {
+            section.current?.scrollIntoView({ block: 'start' });
+        }
+    }, [ready, hash]);
 
     return (
-        <section className="grid gap-4">
+        <section ref={section} id="git" className="grid gap-4 scroll-mt-4">
             <div>
                 <h2 className="text-lg font-semibold">Git</h2>
                 <p className="text-sm text-muted-foreground">
@@ -41,6 +53,18 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                             on={saved.state.value.on}
                             readOnly={readOnly}
                             run={saved.run}
+                        />
+                    )}
+                    {saved.state.value.on && status.state.status === 'ready' && (
+                        <GitStatusPanel
+                            slug={slug}
+                            status={status.state.value}
+                            readOnly={readOnly}
+                            onChanged={async () => {
+                                // read again in place: a reload would show "Loading" and drop the panel's outcome
+                                const fresh = Promise.resolve({ ok: true as const, value: null });
+                                await Promise.all([status.run(fresh), saved.run(fresh)]);
+                            }}
                         />
                     )}
                     {saved.state.value.on && (

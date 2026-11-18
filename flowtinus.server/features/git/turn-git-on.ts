@@ -184,7 +184,7 @@ async function turnOnInTransaction(
     if (Object.keys(changes).length > 0) {
         await commitFirst(ctx, state.config, remote, message, changes);
     } else {
-        await applyCommit(ctx, remote, { branch, commit: tip }, slug, onBranch);
+        await applyCommit(ctx, remote, { branch, commit: tip }, slug, onBranch, warnings);
     }
 
     return success({ outcome, branch, warnings });
