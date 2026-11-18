@@ -47,6 +47,8 @@ export type FlowDeploymentsView = {
     history: DeploymentEventView[];
     /** with git on: the environment's branch, where a deploy is a commit */
     git?: { branch: string | null };
+    /** with git on: the commit the draft could not be merged with */
+    draftConflict?: string;
 };
 
 /** what makes two versions the same flow (core's deployContent): not its name, nor where its components are */
@@ -67,7 +69,7 @@ async function names(db: Database, ids: (string | null)[]): Promise<Map<string, 
 }
 
 export async function loadDeployments(db: Database, workspaceId: string, flowId: string): Promise<FlowDeploymentsView> {
-    const [versions, deployed, history, commits, git] = await Promise.all([
+    const [versions, deployed, history, commits, git, [flow]] = await Promise.all([
         db.query<{
             id: string;
             number: number;
@@ -104,6 +106,7 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             [workspaceId, flowId],
         ),
         gitBranch(db, workspaceId),
+        db.query<{ draft_conflict: string | null }>('SELECT draft_conflict FROM flows WHERE id = $1', [flowId]),
     ]);
     const commit = new Map(commits.map(c => [c.sha, c]));
     const who = await names(db, [...versions.map(v => v.created_by), ...deployed.map(d => d.deployed_by), ...history.map(h => h.by_user)]);
@@ -141,6 +144,7 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             commit: h.commit_sha,
         })),
         ...(git ? { git } : {}),
+        ...(git && flow?.draft_conflict ? { draftConflict: flow.draft_conflict } : {}),
     };
 }
 

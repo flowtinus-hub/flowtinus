@@ -20,6 +20,8 @@ export const flows = pgTable('flows', {
     folderId: uuid('folder_id').references(() => folders.id),
     name: text('name').notNull(),
     draftDefinition: jsonb('draft_definition'),
+    draftBase: text('draft_base'),
+    draftConflict: text('draft_conflict'),
     workerTag: text('worker_tag').notNull().default('default'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedBy: text('updated_by'),

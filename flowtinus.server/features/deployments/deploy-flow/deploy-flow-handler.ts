@@ -8,7 +8,7 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { validate } from '#shared/use-cases/validate';
 import { changeTree } from '#features/git/git-first';
 import { isGitOn } from '#features/git/git-config';
-import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
+import { draftToCommit } from '#features/git/draft-merge';
 import { commitDeploy, type CommittedDeployments } from '../commit-deploy';
 import { activeFlow, contentHash, currentDeployment, insertVersion, loadDeployments, lockFlowDeployments, newestVersionLike, setDeployed } from '../deployments';
 
@@ -31,21 +31,26 @@ export class DeployFlowHandler implements UseCaseHandler<CommittedDeployments> {
             return fail('not-found', 'Flow not found.');
         }
 
+        if (await isGitOn(ctx.db, ctx.workspaceId)) {
+            return commitDeploy(ctx, row, parsed.value.message ?? `Update ${row.name}`, async db => {
+                const draft = await draftToCommit(db, ctx.workspaceId, row.id);
+                if ('code' in draft) {
+                    return draft;
+                }
+                const current = await currentDeployment(db, ctx.workspaceId, row.id);
+                if (current?.hash === contentHash(draft)) {
+                    return { code: 'validation', message: `Nothing to commit: the draft is v${current.number}.` };
+                }
+                return { definition: draft, deployed: true };
+            });
+        }
+
         const checked = validateFlowFile(readDraft(row).flow);
         if (!checked.ok) {
             return fail('validation', `The flow cannot be deployed: ${checked.errors.join(' ')}`);
         }
 
         const draft = checked.value;
-        if (await isGitOn(ctx.db, ctx.workspaceId)) {
-            return commitDeploy(ctx, row, parsed.value.message ?? `Update ${row.name}`, async db => {
-                const current = await currentDeployment(db, ctx.workspaceId, row.id);
-                if (current?.hash === contentHash(draft)) {
-                    throw new UseCaseFailure('validation', `Nothing to commit: the draft is v${current.number}.`);
-                }
-                return { definition: draft, deployed: true };
-            });
-        }
 
         const deployed = await changeTree<{ deployed: boolean; number: number }>(
             ctx,

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { ArchiveFlowHandler } from '#features/flows/archive-flow/archive-flow-handler';
 import { CloneFlowHandler } from '#features/flows/clone-flow/clone-flow-handler';
+import { DiscardDraftHandler } from '#features/flows/discard-draft/discard-draft-handler';
 import { GetDraftHandler } from '#features/flows/get-draft/get-draft-handler';
 import { GetFlowHandler } from '#features/flows/get-flow/get-flow-handler';
 import { MoveFlowHandler } from '#features/flows/move-flow/move-flow-handler';
@@ -68,6 +69,13 @@ export function flowsRoutes() {
         })
         .get('/:id/draft', async c => {
             const result = await new GetDraftHandler().handle({ id: c.req.param('id') }, c.get('useCase'));
+            return toHttpResult(c, result);
+        })
+        .post('/:id/draft/discard', async c => {
+            const result = await new DiscardDraftHandler().handle(
+                (await bodyWith(c, { id: c.req.param('id') })) ?? { id: c.req.param('id') },
+                c.get('useCase'),
+            );
             return toHttpResult(c, result);
         })
         .get('/:id/last-run', async c => toHttpResult(c, await new LastRunHandler().handle({ id: c.req.param('id') }, c.get('useCase'))))

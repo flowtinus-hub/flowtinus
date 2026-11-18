@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CircleCheck, CircleOff, GitCommitHorizontal, GitCompareArrows, History, LoaderCircle, Rocket, RotateCcw, TriangleAlert, Undo2, Upload } from 'lucide-react';
+import { CircleCheck, CircleOff, Copy, GitMerge, GitCommitHorizontal, GitCompareArrows, History, LoaderCircle, Rocket, RotateCcw, TriangleAlert, Undo2, Upload } from 'lucide-react';
 import { flowChanges, type ComparedNode, type FlowFile } from '@flowtinus/core';
 import { componentInfo } from '@/editor/catalog';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
-import { deployFlow, deployVersion, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
+import { deployFlow, deployVersion, discardDraft, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
 import type { FlushResult } from '@/editor/flow-save';
 import type { ApiResult } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
@@ -95,12 +95,39 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
     const act = async (action: () => Promise<ApiResult<FlowDeployments>>): Promise<ApiResult<FlowDeployments>> => {
         setBusy(true);
         const result = await action();
+        // refused (a draft found in conflict with git, say): what is true now is read again
+        const fresh = result.ok ? result : await getDeployments(flowId);
         setBusy(false);
-        if (result.ok) {
-            setDeployments({ flowId, value: result.value });
+        if (fresh.ok) {
+            setDeployments({ flowId, value: fresh.value });
         }
 
         return result;
+    };
+
+    const conflict = current.draftConflict;
+    const resolve = (copy: boolean) => {
+        const name = `${draftNow()?.name ?? 'Flow'} (my draft)`;
+        confirm({
+            title: copy ? `Duplicate the draft as "${name}"?` : "Discard the draft and take git's?",
+            description: copy
+                ? `A new flow, a draft only, keeps your draft; this one takes git's content at ${target}.`
+                : `The draft's changes are lost; it takes git's content at ${target}.`,
+            confirmLabel: copy ? 'Duplicate and take git’s' : 'Discard draft',
+            busyLabel: copy ? 'Duplicating…' : 'Discarding…',
+            destructive: !copy,
+            onConfirm: async () => {
+                const result = await discardDraft(flowId, copy ? name : undefined);
+                if (result.ok) {
+                    onDraftReplaced();
+                    const fresh = await getDeployments(flowId);
+                    if (fresh.ok) {
+                        setDeployments({ flowId, value: fresh.value });
+                    }
+                }
+                return result;
+            },
+        });
     };
 
     const deploy = async () => {
@@ -217,7 +244,13 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                     >
                         {busy ? <LoaderCircle className="animate-spin" /> : git ? <GitCommitHorizontal /> : <Rocket />}
                         {git ? `Commit to ${target}` : 'Deploy'}
-                        <DeployBadge state={state} />
+                        {conflict ? (
+                            <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:text-red-400">
+                                Conflict
+                            </span>
+                        ) : (
+                            <DeployBadge state={state} />
+                        )}
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-72">
@@ -233,7 +266,21 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                         )}
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled={busy || nothingToDeploy} onSelect={() => void deploy()}>
+                    {conflict && (
+                        <>
+                            <DropdownMenuLabel className="font-normal text-red-700 dark:text-red-400">
+                                The draft conflicts with git&apos;s commit <span className="font-mono">{shortSha(conflict)}</span>
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem disabled={busy} onSelect={() => resolve(false)}>
+                                <GitMerge /> Discard draft, take git&apos;s
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={busy} onSelect={() => resolve(true)}>
+                                <Copy /> Duplicate draft as a new flow
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                        </>
+                    )}
+                    <DropdownMenuItem disabled={busy || nothingToDeploy || !!conflict} onSelect={() => void deploy()}>
                         {git ? <GitCommitHorizontal /> : <Upload />} {git ? 'Commit' : 'Deploy'} draft as v{nextNumber(current, draftNow())}
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled={current.versions.length === 0} onSelect={() => setVersionsOpen(true)}>

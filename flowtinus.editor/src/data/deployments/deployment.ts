@@ -50,6 +50,8 @@ export type FlowDeployments = {
     git?: { branch: string | null };
     /** the commit a Commit applied */
     commit?: string;
+    /** with git on: the commit the draft could not be merged with; it cannot be committed until it is discarded */
+    draftConflict?: string;
 };
 
 /** a commit as the editor shows it */

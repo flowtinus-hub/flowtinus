@@ -7,7 +7,6 @@ import { validate } from '#shared/use-cases/validate';
 import type { FlowFile } from '@flowtinus/core';
 import { changeTree } from '#features/git/git-first';
 import { isGitOn } from '#features/git/git-config';
-import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { commitDeploy, type CommittedDeployments } from '../commit-deploy';
 import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed } from '../deployments';
 
@@ -34,7 +33,7 @@ export class UndeployFlowHandler implements UseCaseHandler<CommittedDeployments>
             return commitDeploy(ctx, row, `Undeploy ${row.name}`, async db => {
                 const current = await currentDeployment(db, ctx.workspaceId, row.id);
                 if (!current) {
-                    throw new UseCaseFailure('validation', 'The flow is not deployed.');
+                    return { code: 'validation', message: 'The flow is not deployed.' };
                 }
                 const [version] = await db.query<{ definition: FlowFile }>('SELECT definition FROM flow_versions WHERE id = $1', [
                     current.id,
