@@ -18,9 +18,9 @@ export type AppSettings = {
     fireAndForgetPerWorker: number;
     workerColor?: string;
     editorUrl?: string;
-    promoteTo?: string;
     /** the keys that encrypt the secrets (SECRETS_KEYS, the last one encrypts); empty = DEV's fixed key, refused elsewhere */
     secretsKeys: KeyEntry[];
+    gitClonesDir?: string;
     logLevel: ServerLogLevel;
     logFormat: LogFormat;
 };
@@ -131,8 +131,8 @@ export function readAppSettings(env: Record<string, string | undefined> = proces
         fireAndForgetPerWorker: integer('FIRE_AND_FORGET_PER_WORKER', env.FIRE_AND_FORGET_PER_WORKER, 4, 1),
         editorUrl:
             url('EDITOR_URL', env.EDITOR_URL) ?? ((env.ENVIRONMENT?.trim() || 'DEV') === 'DEV' ? 'http://localhost:5180' : undefined),
-        promoteTo: url('PROMOTE_TO', env.PROMOTE_TO),
         secretsKeys: keys(env.SECRETS_KEYS),
+        gitClonesDir: env.GIT_CLONES_DIR?.trim() || undefined,
         logLevel: oneOf('LOG_LEVEL', env.LOG_LEVEL, LOG_LEVELS, 'info'),
         logFormat: oneOf('LOG_FORMAT', env.LOG_FORMAT, LOG_FORMATS, 'pretty'),
     };

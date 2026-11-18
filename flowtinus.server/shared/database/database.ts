@@ -13,6 +13,7 @@ export type Database = {
     orm: Orm;
     query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<T[]>;
     exec(text: string): Promise<void>;
+    /** inside a transaction, the work joins it: no savepoint, a failure rolls back the whole of it */
     transaction<T>(work: (db: Database) => Promise<T>): Promise<T>;
     /**
      * Postgres NOTIFY: wakes whoever listens on `channel`, in this process or another (the api and the supervisor). In a
@@ -25,19 +26,22 @@ export type Database = {
 
 function postgres(url: string): Database {
     const sql = new SQL(url);
-    const wrap = (client: SQL): Database => ({
-        orm: drizzleBunSql({ client }) as unknown as Orm,
-        query: async <T>(text: string, params: unknown[] = []) => [...(await client.unsafe(text, params))] as T[],
-        exec: async text => void (await client.unsafe(text)),
-        transaction: work => client.begin(tx => work(wrap(tx))),
-        notify: (channel, payload = '') => client.notify(channel, payload),
-        // one connection of its own for every LISTEN of this process, reconnected (and subscribed again) by Bun when it drops
-        listen: async (channel, onPayload) => {
-            const subscription = await sql.listen(channel, onPayload);
-            return () => subscription.unlisten();
-        },
-        close: () => client.close(),
-    });
+    const wrap = (client: SQL, inTransaction = false): Database => {
+        const db: Database = {
+            orm: drizzleBunSql({ client }) as unknown as Orm,
+            query: async <T>(text: string, params: unknown[] = []) => [...(await client.unsafe(text, params))] as T[],
+            exec: async text => void (await client.unsafe(text)),
+            transaction: work => (inTransaction ? work(db) : client.begin(tx => work(wrap(tx, true)))),
+            notify: (channel, payload = '') => client.notify(channel, payload),
+            // one connection of its own for every LISTEN of this process, reconnected (and subscribed again) by Bun when it drops
+            listen: async (channel, onPayload) => {
+                const subscription = await sql.listen(channel, onPayload);
+                return () => subscription.unlisten();
+            },
+            close: () => client.close(),
+        };
+        return db;
+    };
     return wrap(sql);
 }
 
@@ -45,16 +49,19 @@ function inMemory(): Database {
     const db = new PGlite();
 
     // PGlite runs one query at a time; a transaction holds it until it ends
-    const wrap = (client: Pick<PGlite, 'query' | 'exec'>): Database => ({
-        // in a transaction the client is PGlite's Transaction: same `query`, which is all Drizzle calls outside orm.transaction
-        orm: drizzlePglite({ client: client as PGlite }) as unknown as Orm,
-        query: async <T>(text: string, params: unknown[] = []) => (await client.query<T>(text, params)).rows,
-        exec: async text => void (await client.exec(text)),
-        transaction: work => db.transaction(tx => work(wrap(tx))),
-        notify: async (channel, payload = '') => void (await client.query('SELECT pg_notify($1, $2)', [channel, payload])),
-        listen: async (channel, onPayload) => db.listen(channel, onPayload),
-        close: () => db.close(),
-    });
+    const wrap = (client: Pick<PGlite, 'query' | 'exec'>, inTransaction = false): Database => {
+        const self: Database = {
+            // in a transaction the client is PGlite's Transaction: same `query`, which is all Drizzle calls outside orm.transaction
+            orm: drizzlePglite({ client: client as PGlite }) as unknown as Orm,
+            query: async <T>(text: string, params: unknown[] = []) => (await client.query<T>(text, params)).rows,
+            exec: async text => void (await client.exec(text)),
+            transaction: work => (inTransaction ? work(self) : db.transaction(tx => work(wrap(tx, true)))),
+            notify: async (channel, payload = '') => void (await client.query('SELECT pg_notify($1, $2)', [channel, payload])),
+            listen: async (channel, onPayload) => db.listen(channel, onPayload),
+            close: () => db.close(),
+        };
+        return self;
+    };
 
     return wrap(db);
 }

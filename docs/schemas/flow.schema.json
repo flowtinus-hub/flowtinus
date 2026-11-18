@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/flowtinus-hub/flowtinus/main/docs/schemas/flow.schema.json",
+  "title": "Flowtinus flow",
+  "description": "A flow; its name is the file name, without .flow.yaml.",
+  "type": "object",
+  "required": ["version", "id", "nodes", "edges"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "the identity, a UUID in lower case: stays the same across renames and moves"
+    },
+    "deployed": { "type": "boolean", "description": "false: the flow is not deployed (absent means true)" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "position"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": {
+            "enum": [
+              "aggregate",
+              "break",
+              "continue",
+              "datagrid",
+              "discard",
+              "distinct",
+              "end",
+              "filter",
+              "flow",
+              "http-request",
+              "limit",
+              "log",
+              "lookup",
+              "loop",
+              "mapper",
+              "mongodb-delete",
+              "mongodb-pipeline",
+              "mongodb-upsert",
+              "next",
+              "redshift",
+              "redshift-delete",
+              "redshift-execute",
+              "redshift-insert",
+              "redshift-upsert",
+              "router",
+              "script",
+              "sort",
+              "split",
+              "sqlserver",
+              "sqlserver-delete",
+              "sqlserver-execute",
+              "sqlserver-insert",
+              "sqlserver-update",
+              "start",
+              "typescript",
+              "wait"
+            ]
+          },
+          "label": { "type": "string" },
+          "position": {
+            "type": "object",
+            "required": ["x", "y"],
+            "additionalProperties": false,
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+          },
+          "config": { "type": "object", "description": "the component's settings" },
+          "outputKey": { "type": "string" },
+          "override": { "type": "boolean" },
+          "disabled": { "type": "boolean" },
+          "notes": { "type": "string", "description": "free text for people (what a comment would say)" },
+          "loop": { "type": "string", "minLength": 1, "description": "the Loop whose loop region holds it directly" },
+          "size": {
+            "type": "object",
+            "required": ["width", "height"],
+            "additionalProperties": false,
+            "properties": { "width": { "type": "number" }, "height": { "type": "number" } },
+            "description": "a Loop's: its Loop end card, as an offset from the Loop card"
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "sourcePort", "target", "targetPort"],
+        "additionalProperties": false,
+        "properties": {
+          "source": { "type": "string" },
+          "sourcePort": { "type": "string" },
+          "target": { "type": "string" },
+          "targetPort": { "type": "string" }
+        }
+      }
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "position", "size"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "color": { "type": "string" },
+          "position": {
+            "type": "object",
+            "required": ["x", "y"],
+            "additionalProperties": false,
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+          },
+          "size": {
+            "type": "object",
+            "required": ["width", "height"],
+            "additionalProperties": false,
+            "properties": { "width": { "type": "number" }, "height": { "type": "number" } }
+          }
+        }
+      }
+    }
+  }
+}

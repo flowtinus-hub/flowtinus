@@ -152,6 +152,19 @@ export async function setDeployed(
     );
 }
 
+export async function newestVersionLike(
+    db: Database,
+    workspaceId: string,
+    flowId: string,
+    definition: FlowFile,
+): Promise<{ id: string; number: number } | null> {
+    const [newest] = await db.query<{ id: string; number: number; content_hash: string }>(
+        'SELECT id, number, content_hash FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 ORDER BY number DESC LIMIT 1',
+        [workspaceId, flowId],
+    );
+    return newest?.content_hash === contentHash(definition) ? { id: newest.id, number: newest.number } : null;
+}
+
 export async function insertVersion(
     db: Database,
     ctx: { workspaceId: string; userId: string },

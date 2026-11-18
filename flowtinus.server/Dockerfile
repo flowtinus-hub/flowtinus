@@ -20,6 +20,9 @@ RUN bun install --frozen-lockfile --production --filter '@flowtinus/server'
 COPY flowtinus.core/src flowtinus.core/src
 COPY flowtinus.server flowtinus.server
 
+# git sync runs the git binary on a private clone per workspace
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+
 # not root: the image's own user
 USER bun
 EXPOSE 5190

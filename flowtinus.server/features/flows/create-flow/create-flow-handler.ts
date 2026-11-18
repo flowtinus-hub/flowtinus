@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { isFolderVisible, newFlowFile, siblingNames, validateName } from '@flowtinus/core';
-import { FlowRepository, invalidName, loadTree, location, nameTaken, requireActiveProject } from '#features/folders/project-tree';
+import { isFolderVisible, newFlowFile } from '@flowtinus/core';
+import { FlowRepository, loadTree, location, nameInTree, requireActiveProject } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -37,12 +37,13 @@ export class CreateFlowHandler implements UseCaseHandler<{ id: string }> {
             return fail('not-found', 'Folder not found.');
         }
 
-        const { value: name, error } = validateName(parsed.value.name, siblingNames(tree, 'flow', folderId));
-        if (error) {
-            return error === 'Already in use' ? nameTaken('flow', name) : invalidName(error);
+        const id = crypto.randomUUID();
+        const named = await nameInTree(ctx, projectId, tree, { kind: 'flow', id, parentId: folderId, name: parsed.value.name });
+        if (!named.ok) {
+            return named;
         }
 
-        const id = crypto.randomUUID();
+        const name = named.value;
         const draft: StoredDraft = { revision: 0, flow: newFlowFile(name, id) };
         const flow = await new FlowRepository(ctx.db, ctx.workspaceId).insert({
             id,

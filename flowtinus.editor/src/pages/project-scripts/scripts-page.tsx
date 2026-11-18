@@ -124,7 +124,7 @@ export function ScriptsPage() {
             initial: row.path,
             submitLabel: 'Rename',
             warning: usage && `Imported by ${usage}: their imports keep the old path.`,
-            issue: path => (path.trim() === row.path ? null : newPathIssue(projectId, path)),
+            issue: path => (path.trim() === row.path ? null : newPathIssue(projectId, path, row.path)),
             onSave: async to => {
                 const failed = await renameScriptPath(projectId, row.path, to);
                 if (!failed) {

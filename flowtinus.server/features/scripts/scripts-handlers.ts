@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
-import { requireActiveProject } from '#features/folders/project-tree';
+import { mirrorGitChange } from '#features/git/git-mirror';
+import { movedScriptPath, normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
+import { pathTooLong, requireActiveProject } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -57,6 +58,23 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
             return issue.includes('already exists') ? fail('conflict', issue, { path: issue }) : invalidPath(issue);
         }
 
+        const current = await listScripts(ctx.db, ctx.workspaceId, id);
+        const scripts = current.scripts.map(s => s.path);
+        const tooLong = await pathTooLong(
+            ctx,
+            id,
+            {
+                scripts:
+                    kind === 'folder'
+                        ? { scripts, folders: [...current.folders, target] }
+                        : { scripts: [...scripts, target], folders: current.folders },
+            },
+            'path',
+        );
+        if (tooLong) {
+            return tooLong;
+        }
+
         const code = content ?? `export function example(): string {\n  return 'hello';\n}\n`;
         const large = scriptContentIssue(code);
         if (large) {
@@ -64,17 +82,27 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
         }
 
         if (kind === 'folder') {
-            await ctx.db.query('INSERT INTO script_folders (workspace_id, project_id, path) VALUES ($1, $2, $3)', [
-                ctx.workspaceId,
-                id,
-                target,
-            ]);
+            await mirrorGitChange(
+                ctx,
+                () => `Create script folder ${target}`,
+                db =>
+                    db.query('INSERT INTO script_folders (workspace_id, project_id, path) VALUES ($1, $2, $3)', [
+                        ctx.workspaceId,
+                        id,
+                        target,
+                    ]),
+            );
             return success({ path: target, revision: 0 });
         }
 
-        await ctx.db.query(
-            'INSERT INTO scripts (id, workspace_id, project_id, path, content, exports, updated_by) VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7)',
-            [crypto.randomUUID(), ctx.workspaceId, id, target, code, exportsOf(code), ctx.userId],
+        await mirrorGitChange(
+            ctx,
+            () => `Create script ${target}`,
+            db =>
+                db.query(
+                    'INSERT INTO scripts (id, workspace_id, project_id, path, content, exports, updated_by) VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7)',
+                    [crypto.randomUUID(), ctx.workspaceId, id, target, code, exportsOf(code), ctx.userId],
+                ),
         );
         return success({ path: target, revision: 0 });
     }
@@ -103,10 +131,15 @@ export class SaveScriptHandler implements UseCaseHandler<{ revision: number }> {
             return tooLarge(large);
         }
 
-        const [saved] = await ctx.db.query<{ revision: number }>(
-            `UPDATE scripts SET content = $4, exports = $7::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
+        const [saved] = await mirrorGitChange(
+            ctx,
+            () => `Save script ${target}`,
+            db =>
+                db.query<{ revision: number }>(
+                    `UPDATE scripts SET content = $4, exports = $7::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
        WHERE workspace_id = $1 AND project_id = $2 AND path = $3 AND revision = $5 RETURNING revision`,
-            [ctx.workspaceId, id, target, content, revision, ctx.userId, exportsOf(content)],
+                    [ctx.workspaceId, id, target, content, revision, ctx.userId, exportsOf(content)],
+                ),
         );
         if (saved) {
             return success({ revision: saved.revision });
@@ -143,12 +176,28 @@ export class MoveScriptPathHandler implements UseCaseHandler<{ path: string }> {
             return success({ path: to });
         }
 
-        const issue = await newPathIssue(ctx.db, ctx.workspaceId, id, to);
+        const issue = await newPathIssue(ctx.db, ctx.workspaceId, id, to, from);
         if (issue) {
             return issue.includes('already exists') ? fail('conflict', issue, { path: issue }) : invalidPath(issue);
         }
 
-        await moveScriptPath(ctx.db, ctx.workspaceId, id, from, to, ctx.userId);
+        const current = await listScripts(ctx.db, ctx.workspaceId, id);
+        const moved = (path: string) => movedScriptPath(path, from, to);
+        const tooLong = await pathTooLong(
+            ctx,
+            id,
+            { scripts: { scripts: current.scripts.map(s => moved(s.path)), folders: current.folders.map(moved) } },
+            'path',
+        );
+        if (tooLong) {
+            return tooLong;
+        }
+
+        await mirrorGitChange(
+            ctx,
+            () => `Move script ${from} to ${to}`,
+            db => moveScriptPath(db, ctx.workspaceId, id, from, to, ctx.userId),
+        );
         return success({ path: to });
     }
 }
@@ -170,7 +219,11 @@ export class DeleteScriptPathHandler implements UseCaseHandler<{ path: string }>
             return missing;
         }
 
-        await deleteScriptPath(ctx.db, ctx.workspaceId, parsed.value.projectId, parsed.value.path);
+        await mirrorGitChange(
+            ctx,
+            () => `Delete script ${parsed.value.path}`,
+            db => deleteScriptPath(db, ctx.workspaceId, parsed.value.projectId, parsed.value.path),
+        );
         return success({ path: parsed.value.path });
     }
 }

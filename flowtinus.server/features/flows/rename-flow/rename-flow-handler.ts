@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { isFolderVisible, siblingNames, validateName } from '@flowtinus/core';
-import { FlowRepository, invalidName, loadTree, nameTaken, toFlowView, type FlowView } from '#features/folders/project-tree';
+import { mirrorGitChange } from '#features/git/git-mirror';
+import { isFolderVisible } from '@flowtinus/core';
+import { FlowRepository, loadTree, nameInTree, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -28,12 +29,22 @@ export class RenameFlowHandler implements UseCaseHandler<FlowView> {
             return fail('not-found', 'Flow not found.');
         }
 
-        const { value: name, error } = validateName(parsed.value.name, siblingNames(tree, 'flow', flow.folderId, flow.id));
-        if (error) {
-            return error === 'Already in use' ? nameTaken('flow', name) : invalidName(error);
+        const named = await nameInTree(ctx, flow.projectId, tree, {
+            kind: 'flow',
+            id: flow.id,
+            parentId: flow.folderId,
+            name: parsed.value.name,
+        });
+        if (!named.ok) {
+            return named;
         }
 
-        const renamed = await repository.update(flow.id, { name, updatedAt: new Date(), updatedBy: ctx.userId });
+        const name = named.value;
+        const renamed = await mirrorGitChange(
+            ctx,
+            () => `Rename flow ${flow.name} to ${name}`,
+            db => new FlowRepository(db, ctx.workspaceId).update(flow.id, { name, updatedAt: new Date(), updatedBy: ctx.userId }),
+        );
         return renamed ? success(toFlowView(renamed)) : fail('not-found', 'Flow not found.');
     }
 }

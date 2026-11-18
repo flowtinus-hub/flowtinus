@@ -167,6 +167,12 @@ export function useFlowDraft(
     // a change: saved a moment later (each new change waits again)
     useEffect(() => {
         const at = server.current;
+        // a drag moves a node on every frame: building and comparing the whole file each time freezes the canvas
+        if (canvas.nodes.some(n => n.dragging)) {
+            clearTimeout(timer.current);
+            return;
+        }
+
         if (!at || readOnly || draftFingerprint(fileNow()) === at.saved) {
             return;
         }

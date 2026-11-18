@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { isFolderVisible, subtreeIds } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -36,24 +37,28 @@ export class ArchiveFolderHandler implements UseCaseHandler<{ id: string }> {
 
         const subtree = subtreeIds(tree.folders, id);
         const archive = { deletedAt: new Date(), deletedBy: ctx.userId };
-        await ctx.db.transaction(async tx => {
-            const folderRepository = new FolderRepository(tx, ctx.workspaceId);
-            const flowRepository = new FlowRepository(tx, ctx.workspaceId);
-            for (const item of tree.folders.filter(f => subtree.has(f.id) && f.archivedAt === null)) {
-                await folderRepository.update(item.id, archive);
-            }
+        await mirrorGitChange(
+            ctx,
+            () => `Archive folder ${folder.name}`,
+            async tx => {
+                const folderRepository = new FolderRepository(tx, ctx.workspaceId);
+                const flowRepository = new FlowRepository(tx, ctx.workspaceId);
+                for (const item of tree.folders.filter(f => subtree.has(f.id) && f.archivedAt === null)) {
+                    await folderRepository.update(item.id, archive);
+                }
 
-            const flows = tree.flows.filter(f => f.folderId !== null && subtree.has(f.folderId) && f.archivedAt === null);
-            for (const item of flows) {
-                await flowRepository.update(item.id, archive);
-            }
+                const flows = tree.flows.filter(f => f.folderId !== null && subtree.has(f.folderId) && f.archivedAt === null);
+                for (const item of flows) {
+                    await flowRepository.update(item.id, archive);
+                }
 
-            await undeployArchived(
-                tx,
-                ctx,
-                flows.map(f => f.id),
-            );
-        });
+                await undeployArchived(
+                    tx,
+                    ctx,
+                    flows.map(f => f.id),
+                );
+            },
+        );
 
         return success({ id });
     }

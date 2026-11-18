@@ -1,11 +1,12 @@
 import { z } from 'zod';
-import { canMoveFolder, isFolderVisible, siblingNames, validateName } from '@flowtinus/core';
+import { mirrorGitChange } from '#features/git/git-mirror';
+import { canMoveFolder, isFolderVisible } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { FolderRepository, loadTree, location, nameTaken, toFolderView, type FolderView } from '../project-tree';
+import { folderLabel, FolderRepository, loadTree, location, nameInTree, toFolderView, type FolderView } from '../project-tree';
 
 export const MoveFolderCommand = z.object({ id: z.uuid('Invalid'), parentId: location });
 
@@ -38,11 +39,16 @@ export class MoveFolderHandler implements UseCaseHandler<FolderView> {
             return fail('validation', 'A folder cannot move into itself or into a folder under it.', { parentId: 'Invalid' });
         }
 
-        if (validateName(folder.name, siblingNames(tree, 'folder', parentId, id)).error === 'Already in use') {
-            return nameTaken('folder', folder.name);
+        const named = await nameInTree(ctx, folder.projectId, tree, { kind: 'folder', id, parentId, name: folder.name });
+        if (!named.ok) {
+            return named;
         }
 
-        const moved = await repository.update(id, { parentId });
+        const moved = await mirrorGitChange(
+            ctx,
+            () => `Move folder ${folder.name} to ${folderLabel(tree, parentId)}`,
+            db => new FolderRepository(db, ctx.workspaceId).update(id, { parentId }),
+        );
         return moved ? success(toFolderView(moved)) : fail('not-found', 'Folder not found.');
     }
 }

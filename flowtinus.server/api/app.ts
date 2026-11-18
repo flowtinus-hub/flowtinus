@@ -17,12 +17,17 @@ import { mcpRoute, type McpRouteOptions } from './routes/mcp.routes';
 import { workspaceContext } from './middlewares/workspace-context';
 import { workspaceRoutes } from './routes/workspaces.routes';
 import { tokensRoutes } from './routes/tokens.routes';
+import { gitRoutes } from './routes/git.routes';
+import { gitOptions, type GitOptions } from '#features/git/git-config';
 import { jsonBody } from './routes/request-input';
 import { CreateWorkspaceHandler, GetMeHandler, ListWorkspacesHandler } from '#features/workspaces/workspaces-handlers';
 
 export const WORKERS_CHECK_MS = 2000;
 
-export function createApp(db: Database, environment: string, keyring?: Keyring, logger?: Logger, mcp: McpRouteOptions = {}) {
+export type AppOptions = McpRouteOptions & { git?: Partial<GitOptions> };
+
+export function createApp(db: Database, environment: string, keyring?: Keyring, logger?: Logger, options: AppOptions = {}) {
+    const { git, ...mcp } = options;
     const app = new Hono<AppEnv>();
     if (logger) {
         app.use('*', accessLog(logger));
@@ -43,9 +48,10 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
     });
 
     // the MCP (Streamable HTTP, stateless) for agents: outside the editor's api too, a personal access token says who calls
-    app.all('/mcp', ...mcpRoute(db, keyring, mcp));
+    const gitConfig = gitOptions(environment, git);
+    app.all('/mcp', ...mcpRoute(db, keyring, mcp, gitConfig));
 
-    app.use('*', requestContext(db, keyring));
+    app.use('*', requestContext(db, keyring, gitConfig));
     app.get('/me', async c => toHttpResult(c, await new GetMeHandler().handle({}, c.get('useCase'))));
     app.get('/workspaces', async c => toHttpResult(c, await new ListWorkspacesHandler().handle(c.req.query(), c.get('useCase'))));
     app.post('/workspaces', async c =>
@@ -86,6 +92,7 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
     workspace.route('/schedules', schedulesRoutes());
     workspace.route('/webhooks', webhooksRoutes());
     workspace.route('/', projectResourcesRoutes());
+    workspace.route('/git', gitRoutes(gitConfig));
     app.route('/w/:workspace', workspace);
 
     app.onError((error, c) => {

@@ -2,6 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { createMiddleware } from 'hono/factory';
 import type { Keyring } from '#shared/crypto/keyring';
 import type { Database } from '#shared/database/database';
+import type { GitOptions } from '#features/git/git-config';
 import { createMcpServer, type McpOptions } from '#features/mcp/mcp-server';
 import type { AppEnv } from '../app-env';
 import { bearerAuth } from '../middlewares/bearer-auth';
@@ -12,9 +13,9 @@ export type McpRouteOptions = Pick<McpOptions, 'editorUrl' | 'pollMs' | 'maxWait
  * /mcp: the MCP over Streamable HTTP, stateless (no session: one server per request, its context from the request's
  * personal access token). Answers JSON (no SSE stream): every tool answers once. GET (a server stream) is 405.
  */
-export function mcpRoute(db: Database, keyring: Keyring | undefined, options: McpRouteOptions) {
+export function mcpRoute(db: Database, keyring: Keyring | undefined, options: McpRouteOptions, git?: GitOptions) {
     return [
-        bearerAuth(db, keyring),
+        bearerAuth(db, keyring, git),
         createMiddleware<AppEnv>(async c => {
             const server = createMcpServer({
                 ...options,
