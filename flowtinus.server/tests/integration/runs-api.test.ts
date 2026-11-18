@@ -722,7 +722,6 @@ describe('runs api, pins and Run from here', () => {
                         type: 'http-request',
                         position: { x: 160, y: 0 },
                         config: { url: { value: 'https://api.test/items', expression: false } },
-                        ...(pinned ? { pinned } : {}),
                     },
                     {
                         id: 'map',
@@ -740,6 +739,9 @@ describe('runs api, pins and Run from here', () => {
             },
         });
         expect(saved.status).toBe(200);
+        if (pinned) {
+            expect((await call('PUT', `/flows/${flowId}/pins/get`, { pinned })).status).toBe(200);
+        }
         return flowId;
     };
 

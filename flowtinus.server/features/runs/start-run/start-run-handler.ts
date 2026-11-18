@@ -3,6 +3,7 @@ import { inputIssues, inputTypeRef, isFolderVisible, planRunFrom, scriptTypeShap
 import type { Database } from '#shared/database/database';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
 import { readDraft } from '#features/flows/flow-draft';
+import { pinsOf, withPins } from '#features/pins/pins';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -107,8 +108,10 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('unavailable', noSupervisorFor(row.workerTag));
         }
 
-        const { flow: file } = readDraft(row);
-        const checked = validateFlowFile(file);
+        const { flow: draft } = readDraft(row);
+        const checked = validateFlowFile(
+            mode === 'validation' ? withPins(draft, await pinsOf(ctx.db, ctx.workspaceId, ctx.userId, flowId)) : draft,
+        );
         if (!checked.ok) {
             return fail('validation', `The flow cannot run: ${checked.errors.join(' ')}`);
         }
@@ -148,7 +151,13 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
                       ? c
                       : { ...c, unavailable: 'it is outside what the token that started this run may run for real (its run scope).' };
               })
-            : snapshot.calledFlows;
+            : mode === 'validation'
+              ? await Promise.all(
+                    snapshot.calledFlows.map(async c =>
+                        c.flow ? { ...c, flow: withPins(c.flow, await pinsOf(ctx.db, ctx.workspaceId, ctx.userId, c.id)) } : c,
+                    ),
+                )
+              : snapshot.calledFlows;
         const id = crypto.randomUUID();
         const draftHash = new Bun.CryptoHasher('sha256').update(JSON.stringify(checked.value)).digest('hex');
         const values = {

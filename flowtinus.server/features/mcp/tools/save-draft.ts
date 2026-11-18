@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { FlowFile } from '@flowtinus/core';
 import { GetDraftHandler } from '#features/flows/get-draft/get-draft-handler';
 import { SaveDraftHandler } from '#features/flows/save-draft/save-draft-handler';
 import { defineTool, failed, id, ok } from './tool';
@@ -8,7 +7,7 @@ export const saveDraft = defineTool({
     name: 'save_draft',
     scope: 'flows:write',
     description:
-        "Saves a flow file as a flow's draft (what the editor shows and its Run runs; nothing is deployed). Validated first, like validate_flow: refused with the issues when not valid; saved with warnings (e.g. a connection the workspace does not have yet) when only those. expectedRevision is the revision get_flow (or the last save) gave: when someone saved in between, it is refused (conflict) with the current revision; read the flow again, never overwrite a person's change. Nodes without pinned keep the pinned output they have (unpin takes one off).",
+        "Saves a flow file as a flow's draft (what the editor shows and its Run runs; nothing is deployed). Validated first, like validate_flow: refused with the issues when not valid; saved with warnings (e.g. a connection the workspace does not have yet) when only those. expectedRevision is the revision get_flow (or the last save) gave: when someone saved in between, it is refused (conflict) with the current revision; read the flow again, never overwrite a person's change. Pinned outputs are not the draft's: a pinned in the yaml is ignored, the user's pins stay (pin_from_run and unpin change them).",
     input: {
         flowId: id('the flow'),
         yaml: z.string().describe('the whole flow file'),
@@ -32,16 +31,7 @@ export const saveDraft = defineTool({
         if (!checked.ok || !checked.flow) {
             return t.invalid(checked);
         }
-        // a node that comes without its pinned output keeps the one it has (get_flow leaves them out)
-        const pins = new Map(draft.flow.nodes.filter(n => n.pinned).map(n => [n.id, n]));
-        const file: FlowFile = {
-            ...checked.flow,
-            nodes: checked.flow.nodes.map(n => {
-                const old = pins.get(n.id);
-                return !n.pinned && old && old.type === n.type ? { ...n, pinned: old.pinned } : n;
-            }),
-        };
-        const saved = await new SaveDraftHandler().handle({ id: flowId, revision: expectedRevision, flow: file }, t.ctx);
+        const saved = await new SaveDraftHandler().handle({ id: flowId, revision: expectedRevision, flow: checked.flow }, t.ctx);
         if (!saved.ok) {
             const now = await new GetDraftHandler().handle({ id: flowId }, t.ctx);
             return failed({

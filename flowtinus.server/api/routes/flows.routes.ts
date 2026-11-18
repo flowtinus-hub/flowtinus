@@ -10,6 +10,7 @@ import { RenameFlowHandler } from '#features/flows/rename-flow/rename-flow-handl
 import { DeleteFlowHandler } from '#features/flows/delete-flow/delete-flow-handler';
 import { RestoreFlowHandler } from '#features/flows/restore-flow/restore-flow-handler';
 import { SaveDraftHandler } from '#features/flows/save-draft/save-draft-handler';
+import { GetPinsHandler, SetPinHandler, UnpinHandler } from '#features/pins/pin-handlers';
 import { SetFlowWorkerTagHandler } from '#features/flows/set-flow-worker-tag/set-flow-worker-tag-handler';
 import { DeployFlowHandler } from '#features/deployments/deploy-flow/deploy-flow-handler';
 import { DeployVersionHandler } from '#features/deployments/deploy-version/deploy-version-handler';
@@ -78,6 +79,19 @@ export function flowsRoutes() {
             );
             return toHttpResult(c, result);
         })
+        .get('/:id/pins', async c => toHttpResult(c, await new GetPinsHandler().handle({ id: c.req.param('id') }, c.get('useCase'))))
+        .put('/:id/pins/:nodeId', async c =>
+            toHttpResult(
+                c,
+                await new SetPinHandler().handle(
+                    await bodyWith(c, { id: c.req.param('id'), nodeId: c.req.param('nodeId') }),
+                    c.get('useCase'),
+                ),
+            ),
+        )
+        .delete('/:id/pins/:nodeId', async c =>
+            toHttpResult(c, await new UnpinHandler().handle({ id: c.req.param('id'), nodeId: c.req.param('nodeId') }, c.get('useCase'))),
+        )
         .get('/:id/last-run', async c => toHttpResult(c, await new LastRunHandler().handle({ id: c.req.param('id') }, c.get('useCase'))))
         .put('/:id/draft', async c => {
             const result = await new SaveDraftHandler().handle(await bodyWith(c, { id: c.req.param('id') }), c.get('useCase'));

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import type { FlowFile } from '@flowtinus/core';
-import { getDraft, saveDraft } from '@/data/flows/flows-api';
+import { getDraft, getPins, saveDraft, setPin, unpin, type Pinned } from '@/data/flows/flows-api';
 import type { ApiError } from '@/lib/api';
 import { useServerConnection } from '@/lib/server-connection';
 import { canvasToFlowFile, flowFileToCanvas } from './flow-file';
@@ -13,6 +13,9 @@ import { canvasToFlowFile, flowFileToCanvas } from './flow-file';
  * reloaded; one the server could not take is tried again when the server is back. A flow the server no longer has as
  * active (archived or removed: the save answers not found) stops the saves too, nothing to retry. An archived flow opens
  * read-only: nothing is saved until it is restored.
+ *
+ * Pinned outputs are the user's, not the draft's: read with it, and each pin or unpin goes to the user's pins at once
+ * (never a draft save, so pinning changes no revision and no one else sees it).
  */
 
 /** how long after the last change the draft is saved */
@@ -58,6 +61,14 @@ const byKey =
     (a: T, b: T) =>
         key(a).localeCompare(key(b));
 
+const withoutPinned = (file: FlowFile): FlowFile => ({ ...file, nodes: file.nodes.map(({ pinned: _pinned, ...n }) => n) });
+
+/** the pins on the canvas, by node (the same object while a pin does not change) */
+const pinsOfFile = (file: FlowFile) => new Map(file.nodes.flatMap(n => (n.pinned ? [[n.id, n.pinned as Pinned] as const] : [])));
+
+const pinsChanged = (now: Map<string, Pinned>, synced: Map<string, Pinned>) =>
+    now.size !== synced.size || [...now].some(([id, pinned]) => synced.get(id) !== pinned);
+
 /**
  * What is compared to know whether the canvas changed since the last save, in any order: the server gives the
  * components in the repository's order (by id), the canvas in its own (containers first), so a flow just opened would
@@ -66,7 +77,7 @@ const byKey =
 export const draftFingerprint = (file: FlowFile) =>
     JSON.stringify(
         sortedKeys({
-            nodes: [...file.nodes].sort(byKey(n => n.id)),
+            nodes: withoutPinned(file).nodes.sort(byKey(n => n.id)),
             edges: [...file.edges].sort(byKey(e => [e.source, e.sourcePort, e.target, e.targetPort].join('|'))),
             groups: [...(file.groups ?? [])].sort(byKey(g => g.id)),
         }),
@@ -96,6 +107,9 @@ export function useFlowDraft(
     // what the server has: its revision, the flow's name, and what was saved (to tell a real change)
     const server = useRef<{ revision: number; name: string; saved: string } | null>(null);
     const saving = useRef(false);
+    // the pins the server has for the user (the canvas's objects when they were sent), and the sync under way
+    const pinsSynced = useRef(new Map<string, Pinned>());
+    const pinning = useRef<Promise<boolean> | null>(null);
     // the last save answered not found (archived or removed)
     const gone = useRef(false);
     const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -122,18 +136,69 @@ export function useFlowDraft(
 
             server.current = null;
             gone.current = false;
-            const result = await getDraft(flowId);
-            if (!result.ok) {
-                setState({ status: 'error', message: result.error.message });
+            const [result, pins] = await Promise.all([getDraft(flowId), getPins(flowId)]);
+            if (!result.ok || !pins.ok) {
+                setState({ status: 'error', message: (!result.ok ? result.error : (pins as { error: ApiError }).error).message });
                 return;
             }
 
             const { flow, revision } = result.value;
+            const mine = pins.value.pins;
+            const pinned = { ...flow, nodes: flow.nodes.map(n => (mine[n.id] ? { ...n, pinned: mine[n.id] } : n)) };
+            pinsSynced.current = pinsOfFile(pinned);
             server.current = { revision, name: flow.name, saved: draftFingerprint(flow) };
-            loadRef.current(flowFileToCanvas(flow));
+            loadRef.current(flowFileToCanvas(pinned));
             setState({ status: 'saved' });
         },
         [flowId],
+    );
+
+    /** sends the pins that changed on the canvas; false when the server did not take one (an error, tried again) */
+    const syncPins = useCallback(
+        (keepalive = false): Promise<boolean> => {
+            const run = async (): Promise<boolean> => {
+                for (;;) {
+                    if (!server.current || readOnlyRef.current) {
+                        return true;
+                    }
+
+                    const now = pinsOfFile(fileNow());
+                    const synced = pinsSynced.current;
+                    if (!pinsChanged(now, synced)) {
+                        return true;
+                    }
+
+                    for (const [id, pinned] of now) {
+                        if (synced.get(id) !== pinned) {
+                            const result = await setPin(flowId, id, pinned, keepalive);
+                            if (!result.ok) {
+                                setState(stateAfterRefusedSave(result.error));
+                                return false;
+                            }
+                            synced.set(id, pinned);
+                        }
+                    }
+                    for (const id of [...synced.keys()].filter(id => !now.has(id))) {
+                        const result = await unpin(flowId, id, keepalive);
+                        if (!result.ok) {
+                            setState(stateAfterRefusedSave(result.error));
+                            return false;
+                        }
+                        synced.delete(id);
+                    }
+                }
+            };
+            // one at a time: the next starts when the one under way ended, from the canvas as it is then
+            const next = (pinning.current ?? Promise.resolve(true)).then(run);
+            pinning.current = next;
+            void next.finally(() => {
+                if (pinning.current === next) {
+                    pinning.current = null;
+                }
+            });
+            return next;
+        },
+        [flowId, fileNow],
     );
 
     const save = useCallback(
@@ -153,7 +218,7 @@ export function useFlowDraft(
 
             saving.current = true;
             setState({ status: 'saving' });
-            const result = await saveDraft(flowId, at.revision, file, keepalive);
+            const result = await saveDraft(flowId, at.revision, withoutPinned(file), keepalive);
             saving.current = false;
             if (result.ok) {
                 server.current = { ...at, revision: result.value.revision, saved: print };
@@ -191,6 +256,13 @@ export function useFlowDraft(
         return () => clearTimeout(timer.current);
     }, [flowId]);
 
+    // a pin or an unpin: sent at once
+    useEffect(() => {
+        if (server.current && !readOnly && pinsChanged(pinsOfFile(fileNow()), pinsSynced.current)) {
+            void syncPins();
+        }
+    }, [canvas.nodes, fileNow, syncPins, readOnly]);
+
     // a change: saved a moment later (each new change waits again)
     useEffect(() => {
         const at = server.current;
@@ -216,13 +288,16 @@ export function useFlowDraft(
         }
 
         if (state.status === 'error') {
-            void (server.current ? save() : open());
+            void (server.current ? syncPins().then(sent => (sent ? save() : undefined)) : open());
         }
-    }, [online, state.status, save, open]);
+    }, [online, state.status, save, syncPins, open]);
 
     // the page closes or is hidden: what is pending goes now (and may still reach the server after the page is gone)
     useEffect(() => {
         const flush = () => {
+            if (server.current && pinsChanged(pinsOfFile(fileNow()), pinsSynced.current)) {
+                void syncPins(true);
+            }
             if (server.current && draftFingerprint(fileNow()) !== server.current.saved) {
                 void save(true);
             }
@@ -234,7 +309,7 @@ export function useFlowDraft(
             window.removeEventListener('pagehide', flush);
             document.removeEventListener('visibilitychange', hidden);
         };
-    }, [fileNow, save]);
+    }, [fileNow, save, syncPins]);
 
     // the same object while nothing changes (the page keeps it in its state)
     const saveNow = useCallback(() => void save(), [save]);
@@ -243,13 +318,15 @@ export function useFlowDraft(
             return 'read-only';
         }
 
+        // a test run replays the pins the server has: they go first
+        const pinsSent = await syncPins();
         await save();
-        if (server.current !== null && draftFingerprint(fileNow()) === server.current.saved) {
+        if (pinsSent && server.current !== null && draftFingerprint(fileNow()) === server.current.saved) {
             return 'saved';
         }
 
         return gone.current ? 'gone' : 'not-saved';
-    }, [save, fileNow]);
+    }, [save, syncPins, fileNow]);
     const reload = useCallback(() => void open(), [open]);
     const resume = useCallback(async () => {
         const result = await getDraft(flowId);

@@ -1,4 +1,5 @@
 import { dropDanglingEdges, newFlowFile, validateFlowFile, type FlowFile } from '@flowtinus/core';
+import { withoutPinned } from '#features/pins/pins';
 import type { Flow } from './flow';
 
 /*
@@ -19,7 +20,7 @@ export function readDraft(row: Flow): FlowDraft {
     const checked = stored?.flow ? validateFlowFile(dropDanglingEdges(stored.flow)) : null;
     const flow = checked?.ok ? checked.value : newFlowFile(row.name, row.id);
     return {
-        flow: { ...flow, id: row.id, name: row.name },
+        flow: withoutPinned({ ...flow, id: row.id, name: row.name }),
         revision: checked?.ok && typeof stored?.revision === 'number' ? stored.revision : 0,
     };
 }
