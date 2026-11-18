@@ -8,6 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { isReadOnly, useProject } from '@/data/projects/use-project';
 import { createScriptPath, deleteScriptPath, discardScript, flushScripts, newPathIssue, reloadAll, renameScriptPath, scriptFolders, scriptUsage, useProjectScripts, type SaveState } from '@/data/scripts/scripts-store';
 import { cn } from '@/lib/utils';
+import { getGitStatus, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
+import { useResource } from '@/data/use-resource';
 import { ProjectPage } from '@/pages/project/project-page';
 import { PathDialog, type PathDialogTarget } from './path-dialog';
 import { ScriptsCommitDialog } from './scripts-commit-dialog';
@@ -53,7 +55,9 @@ function treeRows(folders: string[], scripts: string[], open: { has: (path: stri
  * saved a second after the last key (or at Ctrl+S). ?script=<path> opens that script first.
  */
 export function ScriptsPage() {
-    const { projectId = '' } = useParams();
+    const { projectId = '', ws = '' } = useParams();
+    const gitStatus = useResource(`git-status:${ws}`, () => getGitStatus(ws));
+    const pullRequestsOnly = gitStatus.state.status === 'ready' && gitStatus.state.value.on && gitStatus.state.value.mode !== 'direct';
     const project = useProject(projectId);
     const archived = isReadOnly(project);
     const scripts = useProjectScripts(projectId);
@@ -189,7 +193,12 @@ export function ScriptsPage() {
             actions={
                 <>
                     {git && (
-                        <Button variant="outline" disabled={archived || changedCount === 0} onClick={() => setCommitOpen(true)}>
+                        <Button
+                            variant="outline"
+                            disabled={archived || changedCount === 0 || pullRequestsOnly}
+                            title={pullRequestsOnly ? ONLY_PULL_REQUESTS : undefined}
+                            onClick={() => setCommitOpen(true)}
+                        >
                             <GitCommitHorizontal />
                             Commit{changedCount > 0 && ` (${changedCount})`}
                         </Button>

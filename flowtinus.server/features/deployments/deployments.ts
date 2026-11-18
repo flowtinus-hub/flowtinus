@@ -4,6 +4,7 @@ import { pgJson } from '#shared/database/jsonb';
 import type { Flow } from '#features/flows/flow';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
 import { gitBranch } from '#features/git/git-config';
+import type { Mode } from '#features/git/topology';
 import { changedImports } from '#features/scripts/script-git';
 import { withUpdatedByName } from '#features/users/user-names';
 import { SCHEDULES_CHANNEL } from '#features/schedules/schedules';
@@ -47,7 +48,7 @@ export type FlowDeploymentsView = {
     deployed: { versionId: string; deployedAt: Date; deployedBy: string | null; deployedByName?: string } | null;
     history: DeploymentEventView[];
     /** with git on: the environment's branch, where a deploy is a commit */
-    git?: { branch: string | null };
+    git?: { branch: string | null; mode: Mode };
     /** with git on: the commit the draft could not be merged with */
     draftConflict?: string;
     /** with git on: the changed scripts the draft imports, directly or through another script, which a Commit can take along */

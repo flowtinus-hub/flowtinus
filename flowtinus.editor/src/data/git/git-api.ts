@@ -43,6 +43,8 @@ export type GitStatus =
     | {
           on: true;
           branch: string | null;
+          /** not direct: this server takes the tree's changes only from git (pull requests) */
+          mode: Mode;
           deploy: GitCommitView | null;
           refused: (GitCommitView & { errors: TreeIssue[]; refusedAt: string }) | null;
           unreachable: { since: string; error: string } | null;
@@ -54,6 +56,9 @@ export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`
 
 /** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
 export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';
+
+/** what the editor says where it turns off the Commit and the tree's actions */
+export const ONLY_PULL_REQUESTS = 'This environment only takes pull requests: edit in git.';
 
 /** git ahead of the deploy: a refused commit, or git unreachable */
 export const gitAhead = (status: GitStatus) => status.on && (!!status.refused || !!status.unreachable);

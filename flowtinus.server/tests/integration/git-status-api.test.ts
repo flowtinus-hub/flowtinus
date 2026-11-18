@@ -66,6 +66,7 @@ describe('the git status the git section and the sidebar read', () => {
         expect(await status()).toEqual({
             on: true,
             branch: 'dev',
+            mode: 'direct',
             deploy: { sha: deployed, message: `First export of ${slug}`, author: 'Ana', at: expect.any(String) },
             refused: null,
             unreachable: null,

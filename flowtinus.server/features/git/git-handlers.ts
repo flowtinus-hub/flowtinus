@@ -7,7 +7,7 @@ import { validate } from '#shared/use-cases/validate';
 import { z } from 'zod';
 import { findTokenSecret, gitAccess, gitAuthorOf, gitConfigSchema, readGitConfig, readGitState, removeGitConfig, saveGitConfig, type GitConfig, type GitOptions } from './git-config';
 import { GitError, withThrowawayClone, withWorkspaceClone, type GitRemote } from './git-remote';
-import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type EnvironmentDecl } from './topology';
+import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type EnvironmentDecl, type Mode } from './topology';
 import { readTopology, type TopologyView } from './workspace-topology';
 import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
@@ -367,6 +367,8 @@ export type GitStatusView =
     | {
           on: true;
           branch: string | null;
+          /** the environment's mode in the topology: not direct, the tree's changes come only from git */
+          mode: Mode;
           deploy: GitCommitView | null;
           refused: (GitCommitView & { errors: TreeIssue[]; refusedAt: string }) | null;
           unreachable: { since: string; error: string } | null;
@@ -398,6 +400,7 @@ export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
         return success({
             on: true,
             branch: state.branch ?? null,
+            mode: state.mode ?? 'direct',
             deploy: state.applied ? commit(state.applied) : null,
             refused: state.refused ? { ...commit(state.refused.commit), errors: state.refused.errors, refusedAt: state.refused.at } : null,
             unreachable: lastPoll?.error ? { since: lastPoll.since ?? lastPoll.at, error: lastPoll.error } : null,

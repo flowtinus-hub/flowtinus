@@ -9,6 +9,7 @@ import { applyCommit, lockReconcile, readState } from './reconcile';
 import { exportWorkspace, repoChanges, type GitChanges, type TreeOverrides } from './workspace-export';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
+import type { Mode } from './topology';
 
 type OnGit = { workspaceId: string; config: GitConfig };
 
@@ -32,6 +33,7 @@ export async function changeTree<T>(
         ctx.db.transaction(async tx => {
             const before = [];
             for (const { workspaceId, config, remote } of remotes) {
+                await refuseUnlessDirect(remote, config);
                 await lockReconcile(tx, workspaceId);
                 await catchUp({ ...ctx, db: tx, workspaceId }, config, remote);
                 before.push(await exportWorkspace(tx, workspaceId));
@@ -68,6 +70,7 @@ export async function commitTree(
         ctx.db.transaction(async (tx): Promise<UseCaseResult<string | null>> => {
             const { config, remote } = cloned!;
             const at = { ...ctx, db: tx };
+            await refuseUnlessDirect(remote, config);
             await lockReconcile(tx, ctx.workspaceId);
             await catchUp(at, config, remote);
             const before = await exportWorkspace(tx, ctx.workspaceId);
@@ -108,7 +111,7 @@ async function withClones<T>(ctx: UseCaseContext, pending: OnGit[], opened: Clon
     }
 }
 
-async function branchTip(remote: GitRemote, config: GitConfig): Promise<{ branch: string; tip: string }> {
+async function branchTip(remote: GitRemote, config: GitConfig): Promise<{ branch: string; tip: string; mode: Mode }> {
     const target = await environmentBranch(remote, config.environment);
     if (!target.ok) {
         throw new UseCaseFailure(target.error.code, target.error.message);
@@ -116,13 +119,23 @@ async function branchTip(remote: GitRemote, config: GitConfig): Promise<{ branch
     if (!target.value.tip) {
         throw new UseCaseFailure('conflict', `The branch ${target.value.branch} does not exist.`);
     }
-    return { branch: target.value.branch, tip: target.value.tip };
+    return { branch: target.value.branch, tip: target.value.tip, mode: target.value.mode };
+}
+
+export const onlyPullRequests = (environment: string) => `${environment} only takes pull requests: edit in git.`;
+
+// a pull-request or protected environment takes its changes only from git (until the working copy, a later step)
+async function refuseUnlessDirect(remote: GitRemote, config: GitConfig): Promise<void> {
+    const { mode } = await branchTip(remote, config);
+    if (mode !== 'direct') {
+        throw new UseCaseFailure('conflict', onlyPullRequests(config.environment));
+    }
 }
 
 // the change is worked out on the workspace as git has it: a commit made in git since the last reconcile is applied
 // first, or the change's files would overwrite it; a tip that is not valid is left to the validation of the change
 async function catchUp(ctx: UseCaseContext, config: GitConfig, remote: GitRemote): Promise<void> {
-    const { branch, tip } = await branchTip(remote, config);
+    const { branch, tip, mode } = await branchTip(remote, config);
     const state = await readState(ctx.db, ctx.workspaceId);
     if (tip === state.applied || tip === state.refused?.commit) {
         return;
@@ -132,7 +145,7 @@ async function catchUp(ctx: UseCaseContext, config: GitConfig, remote: GitRemote
     const files = await readBranchWorkspace(remote, tip, slug);
     const { errors, warnings } = await validateImport(ctx.db, ctx.workspaceId, slug, files);
     if (errors.length === 0) {
-        await applyCommit(ctx, remote, { branch, commit: tip }, slug, files, warnings);
+        await applyCommit(ctx, remote, { branch, commit: tip, mode }, slug, files, warnings);
     }
 }
 
@@ -147,7 +160,7 @@ export async function commitFirst(
     const author = await gitAuthorOf(ctx);
     let moved: string | null = null;
     for (;;) {
-        const { branch, tip } = await branchTip(remote, config);
+        const { branch, tip, mode } = await branchTip(remote, config);
         if (moved) {
             const touched = (await remote.run(['diff', '--name-only', '-z', moved, tip])).split('\0').filter(path => path in changes);
             if (touched.length > 0) {
@@ -177,7 +190,7 @@ export async function commitFirst(
             continue;
         }
 
-        await applyCommit(ctx, remote, { branch, commit }, slug, files, warnings);
+        await applyCommit(ctx, remote, { branch, commit, mode }, slug, files, warnings);
         return commit;
     }
 }

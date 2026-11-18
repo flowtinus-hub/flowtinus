@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
 import { deployFlow, deployVersion, discardDraft, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
+import { ONLY_PULL_REQUESTS } from '@/data/git/git-api';
 import type { FlushResult } from '@/editor/flow-save';
 import type { ApiResult } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
@@ -69,6 +70,8 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
     const current = deployments?.flowId === flowId ? deployments.value : NO_DEPLOYMENTS;
     const git = current.git;
     const target = git ? (git.branch ?? 'git') : environment;
+    // a pull-request or protected environment takes the tree's changes only from git
+    const pullRequestsOnly = !!git && git.mode !== 'direct';
 
     useEffect(() => {
         let gone = false;
@@ -285,7 +288,15 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                             <DropdownMenuSeparator />
                         </>
                     )}
-                    <DropdownMenuItem disabled={busy || nothingToDeploy || !!conflict} onSelect={() => void deploy()}>
+                    {pullRequestsOnly && (
+                        <>
+                            <DropdownMenuLabel className="font-normal text-amber-700 dark:text-amber-400">
+                                {ONLY_PULL_REQUESTS}
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                        </>
+                    )}
+                    <DropdownMenuItem disabled={busy || nothingToDeploy || !!conflict || pullRequestsOnly} onSelect={() => void deploy()}>
                         {git ? <GitCommitHorizontal /> : <Upload />} {git ? 'Commit' : 'Deploy'} draft as v{nextNumber(current, draftNow())}
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled={current.versions.length === 0} onSelect={() => setVersionsOpen(true)}>
@@ -298,7 +309,7 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                         <GitCompareArrows /> Compare draft with deployed
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" disabled={busy || !deployed} onSelect={undeploy}>
+                    <DropdownMenuItem variant="destructive" disabled={busy || !deployed || pullRequestsOnly} onSelect={undeploy}>
                         <CircleOff /> {git ? 'Commit undeploy' : 'Undeploy'}
                     </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -308,7 +319,7 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                 onClose={() => setVersionsOpen(false)}
                 deployments={current}
                 busy={busy}
-                onSwitch={switchTo}
+                onSwitch={pullRequestsOnly ? undefined : switchTo}
                 onRestore={restore}
             />
             {deployed && compareOpen && <CompareDialog onClose={() => setCompareOpen(false)} version={deployed} draft={draftNow()} />}
@@ -465,7 +476,8 @@ export function VersionsDialog(props: {
     onClose: () => void;
     deployments: FlowDeployments;
     busy: boolean;
-    onSwitch: (version: FlowVersion) => void;
+    /** absent: versions cannot be deployed from here (an environment that only takes pull requests) */
+    onSwitch?: (version: FlowVersion) => void;
     onRestore: (version: FlowVersion) => void;
 }) {
     const { open, onClose, deployments, busy, onSwitch, onRestore } = props;
@@ -501,7 +513,7 @@ export function VersionsDialog(props: {
                                         Deployed
                                     </span>
                                 ) : (
-                                    <Button variant="ghost" size="sm" disabled={busy} onClick={() => onSwitch(version)}>
+                                    <Button variant="ghost" size="sm" disabled={busy || !onSwitch} onClick={() => onSwitch?.(version)}>
                                         {action === 'rollback' ? <Undo2 /> : deployments.git ? <GitCommitHorizontal /> : <Rocket />}
                                         {action === 'rollback'
                                             ? deployments.git

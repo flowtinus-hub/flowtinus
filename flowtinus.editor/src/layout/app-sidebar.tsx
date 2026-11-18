@@ -1,6 +1,6 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, type GitStatus } from '@/data/git/git-api';
+import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -98,6 +98,18 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     }, [slug, pathname]);
 
     const value = status?.slug === slug ? status.value : null;
+    if (value?.on && !gitAhead(value) && value.mode !== 'direct') {
+        return (
+            <SidebarMenuItem>
+                <SidebarMenuButton tooltip={ONLY_PULL_REQUESTS} asChild className="text-muted-foreground">
+                    <NavLink to={`${workspaceSettingsPath(slug)}#git`} title={ONLY_PULL_REQUESTS}>
+                        <GitPullRequest />
+                        <span>Pull requests only</span>
+                    </NavLink>
+                </SidebarMenuButton>
+            </SidebarMenuItem>
+        );
+    }
     if (!value || !gitAhead(value) || !value.on) {
         return null;
     }

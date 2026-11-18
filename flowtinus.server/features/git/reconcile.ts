@@ -9,6 +9,7 @@ import type { GitRemote } from './git-remote';
 import type { RepoFiles } from './workspace-export';
 import { importWorkspace, readBranchWorkspace, validateImport, type RenamedDraft } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
+import type { Mode } from './topology';
 
 export type ReconcileOutcome = 'applied' | 'up-to-date' | 'refused';
 
@@ -26,6 +27,7 @@ export type ReconcileResult = {
 type ReconcileState = {
     applied: string | null;
     branch?: string;
+    mode?: Mode;
     refused: { commit: string; errors: TreeIssue[]; at: string } | null;
     warnings?: TreeIssue[];
 };
@@ -40,8 +42,14 @@ export async function readState(db: Database, workspaceId: string): Promise<Reco
     return state ?? { applied: null, refused: null };
 }
 
-const markApplied = (ctx: UseCaseContext, { branch, commit }: BranchCommit, warnings: TreeIssue[]) =>
-    writeWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING, { applied: commit, branch, refused: null, warnings }, ctx.userId);
+const markApplied = (ctx: UseCaseContext, { branch, commit, mode }: BranchCommit, warnings: TreeIssue[]) =>
+    writeWorkspaceSetting(
+        ctx.db,
+        ctx.workspaceId,
+        RECONCILE_SETTING,
+        { applied: commit, branch, mode, refused: null, warnings },
+        ctx.userId,
+    );
 
 export async function forgetReconcile(ctx: UseCaseContext) {
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
@@ -49,7 +57,8 @@ export async function forgetReconcile(ctx: UseCaseContext) {
     await ctx.db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1', [ctx.workspaceId]);
 }
 
-export type BranchCommit = { branch: string; commit: string };
+/** mode: the environment's in the topology, kept for the editor (the refusal reads the topology itself) */
+export type BranchCommit = { branch: string; commit: string; mode?: Mode };
 
 export async function applyCommit(
     ctx: UseCaseContext,
@@ -83,7 +92,7 @@ export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: 
         return target;
     }
 
-    const { branch, tip } = target.value;
+    const { branch, tip, mode } = target.value;
     if (!tip) {
         return fail('conflict', `The branch ${branch} does not exist.`);
     }
@@ -104,6 +113,10 @@ export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: 
 
         const result = { branch, commit: tip, errors: [], warnings: [], renamedDrafts: [] };
         const state = await readState(db, ctx.workspaceId);
+        // a topology commit can change the mode (or the branch) without a new commit on the branch
+        if (state.mode !== mode || state.branch !== branch) {
+            await writeWorkspaceSetting(db, ctx.workspaceId, RECONCILE_SETTING, { ...state, branch, mode }, ctx.userId);
+        }
         if (state.applied === tip) {
             return success({ ...result, outcome: 'up-to-date' as const });
         }
@@ -119,7 +132,7 @@ export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: 
             return success({ ...result, outcome: 'refused' as const, errors: refused.errors, refusedAt: refused.at });
         }
 
-        const renamedDrafts = await applyCommit(tx, remote, { branch, commit: tip }, slug, files, validation.warnings);
+        const renamedDrafts = await applyCommit(tx, remote, { branch, commit: tip, mode }, slug, files, validation.warnings);
         return success({ ...result, outcome: 'applied' as const, warnings: validation.warnings, renamedDrafts });
     });
 }
