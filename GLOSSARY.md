@@ -125,3 +125,19 @@ _Avoid_: Out of sync, drift, behind
 **Deployed script set**:
 The scripts at the commit an environment last applied: what its schedules, webhooks and deployed runs import. The editor's Run uses the scripts being edited instead.
 _Avoid_: Script version, published scripts
+
+**Working copy**:
+The uncommitted changes of one branch on one server: changed files in the repo format, each with the blob it was based on and its last editor. With git on, a flow's draft is its file in the working copy of the branch open.
+_Avoid_: Draft (with git on), stash, local changes
+
+**Work branch**:
+Any branch that is not an environment's branch and not one of the app's own (`promote/`, `backport/`, `hotfix/`): a user's branch or a shared one.
+_Avoid_: Feature branch, dev branch
+
+**User branch**:
+A work branch named `users/<handle>/…`, where only that user writes from the app.
+_Avoid_: Personal branch, private branch
+
+**Pending merge**:
+An Update that met conflicts: the conflicted files marked in the working copy and the second parent kept, until it is committed whole or aborted.
+_Avoid_: Merge in progress, unfinished update

@@ -2,7 +2,7 @@
 
 Where the discussion on git sync stands. Not a spec: it records what was decided and why, so the spec and its tickets can be written from it.
 
-Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2 is published as a spec and tickets ([#30](https://github.com/flowtinus-hub/flowtinus/issues/30), see "Step 2"); the later steps stay here until the maintainer says otherwise.
+Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2 is published as a spec and tickets ([#30](https://github.com/flowtinus-hub/flowtinus/issues/30), see "Step 2"). Step 3 is published as a spec and tickets ([#51](https://github.com/flowtinus-hub/flowtinus/issues/51), see "Step 3"); the later steps stay here until the maintainer says otherwise.
 
 ## Goal
 
@@ -293,7 +293,7 @@ Assumed:
 In the order they depend on each other, to be cut into tickets when step 1 is done:
 
 1. React to a commit (polling and the generic webhook) with the reconcile, the environment's branch becomes the source of truth and the Deploy button goes; scripts become versioned; the environment shows when git is ahead of its deploy and why. Designed: see "Step 2".
-2. The working copy and the editor's source control client: branches, changes, commit, discard, update, pull request, the three-way merge on a moved branch, the conflict screen; the environment modes.
+2. The working copy and the editor's source control client: branches, changes, commit, discard, update, pull request, the three-way merge on a moved branch, the conflict screen; the environment modes. Designed: see "Step 3".
 3. Schedules and webhooks in the flow's file, arriving disabled.
 4. Promotion: `promote/` branches, first-parent choice, the pre-flight, the table of the promotions the app opened, the lineage check and its repair; the Environments page.
 5. Hotfix and the backport one hop at a time, and the block on promotion while the target is ahead.
@@ -443,3 +443,138 @@ In the order they depend on each other. Published as the sub-issues of [#30](htt
 | [#39](https://github.com/flowtinus-hub/flowtinus/issues/39) | `pull-request` and `protected` environments: Commit and the tree's actions off, in the editor and the MCP; Run for real of a draft with its notice                                                                                    | #32        |
 
 Turning git off brings the Deploy button back (#34). Turning git on makes the webhook's token (#37).
+
+## Step 3
+
+The working copy and the editor's source control client. Uncommitted work belongs to a branch, a user works on a branch of their own, and a Commit takes only the files chosen. A moved branch is merged into the working copy, a conflict has a screen, and a `pull-request` environment can be worked on from the app. The decision is [ADR 0004](adr/0004-working-copy-per-branch-in-postgres.md); it builds on [ADR 0003](adr/0003-environment-branch-is-the-source-of-truth.md).
+
+What step 2 left on purpose, and step 3 solves:
+
+- One draft per flow, shared by everyone: whoever Commits takes another person's unfinished changes.
+- A draft or script in conflict has only discard, or duplicate as a new flow.
+- `pull-request` and `protected` environments only refuse.
+
+Still no adapter (a pull request is a link), no promotion, no hotfix or backport, no schedules or webhooks in the files: those are the later steps. A `protected` environment stays as step 2 left it.
+
+Status: closed by the maintainer after three rounds of questions, and published: the spec is [#51](https://github.com/flowtinus-hub/flowtinus/issues/51), and its tickets are its sub-issues, with their blocking edges on GitHub. The spec and the tickets are the reference from here on.
+
+### The working copy
+
+- One table holds the working copy of every branch, the environment's included: a row per changed file, (workspace, branch, path) → the file's text in the repo format, or deleted. Each row keeps the blob it was based on, its last editor, and a conflict mark.
+- A rename is a delete and an add; the Changes list pairs them by the file's `id`.
+- The environment's branch has no separate drafts any more: `flows.draft_definition`, `draft_base` and `draft_conflict`, and the `scripts` table as the editing copy, migrate into the working copy of the environment's branch.
+- A branch's working copy lives on one server: a branch opened on two servers has two, as in "The working copy" above.
+
+### Every tree change is uncommitted
+
+This reverses step 2's "What commits at once".
+
+- On every branch, the environment's included, every change to the tree goes into the working copy: a flow's edit, a new flow, a folder, a project, a connection, a script, a rename, a move, an archive. Commit is the one action that writes to git.
+- One commit can hold a rename and the edits that go with it.
+- Archiving a committed flow is a deleted file in the working copy; Discard brings it back.
+- A new connection, on any branch, stores its configuration (credentials) in this server's environment at once and puts its declaration in the working copy. Discard removes only the declaration.
+
+### Branches
+
+- The branch picker lists every head of the remote, of the kinds in "Branches" above; a branch contained in the environment's branch with no uncommitted change hides behind "show merged".
+- `users/<slug>/…`: the slug is a new `users.handle`, generated once from the email's local part (lowercased, a character not valid in a branch name as `-`, a number added when taken), unique, never changed. The owner is found by the handle, so a change of email does not orphan the user's branches.
+- On a `users/<slug>/…` branch only its owner writes, in the app; anyone may open it and cut a branch from it. No admin override. A push from a laptop is the provider's business.
+- Create branch: cut from the tip of the current branch and pushed to the remote at once, so other servers and laptops see it. It takes the working copy along by the rule in "The working copy" above (one's own files from the environment's or a shared branch, all of them from one's own). Refused while a merge is pending.
+- No delete in this step: a merged branch hides behind "show merged"; an abandoned one is discarded. A branch removed on the remote while it has uncommitted changes here: as in "Branches" above.
+- Each user's current branch is kept on the server, per user and workspace. The editor opens on it and the MCP acts on it.
+
+### Reading a branch
+
+- The environment's branch is read from Postgres (the applied state, as today), with its working copy over it.
+- A work branch is read from the git tree at its tip, parsed once per sha and cached, with its working copy over it. Only the environment's branch is reconciled into flows, versions and deployments.
+- The project contents and the flow endpoints answer for the user's current branch. A flow that exists only on a work branch has no `flows` row: its id is its file's, and the endpoints that take a flow id find it within the branch.
+- A draft run (Run, `test_run`, Run for real) on a branch takes its flow, the flows it calls and the scripts from that branch's tip and working copy. `runs.flow_id` has no foreign key and a run keeps its own definition and scripts, so a run of a flow that exists only on a branch needs no row. Schedules and webhooks run only the environment's deployed state, as in step 2.
+
+### Polling
+
+- Polling fetches every head, not only the environment's branch and `flowtinus/config`.
+- For each branch that moved and has a working copy on this server, each changed file is merged three ways, as #35 does for a draft: clean, the base moves on; a conflict, the file is marked.
+- Only the environment's branch is reconciled.
+
+### Commit
+
+- The Commit dialog lists the working copy's files. On the environment's branch and a shared work branch, only the files whose last editor is you are checked; the others show unchecked, with their editor, and can be checked on purpose.
+- What the checked files need for the tree to validate comes along, checked and locked, with the reason: a new folder, project or connection, a renamed project, the changed scripts a flow imports (#36's rule, made general).
+- The tree is validated before every push, on work branches too, so a merged pull request never brings an invalid tree. A connection not configured or a secret with no value stays a warning.
+- When the branch moved since a file's base, the file is merged first, as in step 2. A conflicted file cannot be committed.
+
+### Update and the pending merge
+
+- Update is offered on every work branch, one's own or shared, never on an environment's branch. It shows how far behind the branch is and merges the environment's branch into it.
+- Refused, as git does, while a file it brings has an uncommitted change.
+- Clean: a merge commit, pushed.
+- With conflicts: a pending merge. The conflicted files are marked in the working copy and the second parent is kept, as git's `MERGE_HEAD`. While it is pending, Commit takes the whole merge (every file, no subset) and makes a merge commit; Discard all aborts it; Create branch is refused.
+
+### Conflicts
+
+- The conflict screen is "Conflicts" above: each conflicting hunk takes mine, theirs, both, or an edit; what did not conflict is already merged; three choices for a conflict that is not about content.
+- The edit is a text box on that hunk's YAML. The whole file must then parse and validate before it can be committed, and the screen shows the errors in place.
+- It resolves a file marked by a moved branch, by a Commit's merge, and by an Update. Step 2's ways out (discard, duplicate as a new flow) stay.
+
+### The Changes list
+
+- The screens are the prototype's, layout B: the branch picker in the sidebar, a Source control page, and the Changes drawer on the canvas.
+- A file's diff is a text diff of its YAML in the stable order, the text the merge works on. A diff per node (components added, changed, removed) may come later.
+- Discard per file or all, as in "The editor as a small source control client".
+
+### Pull requests
+
+- No adapter in this step. "Open a pull request" pushes the branch and links to the provider's page for a new pull request, built from the remote's URL for GitLab and GitHub; for another provider it says the branch is pushed.
+- The app does not know a pull request's state: a branch is merged when the environment's branch contains it.
+- A pull request goes to the environment of the server it is opened from.
+
+### Environment modes
+
+- `direct`: as in step 2, now with the working copy and branches.
+- `pull-request`: the environment's branch takes no Commit. The first edit on it offers Create branch, filled in as `users/<slug>/<flow name>`, and takes the edit along. Drafts already on the environment's branch (step 2 allowed them) stay there until someone takes them to a branch. Run for real of a draft keeps step 2's notice.
+- `protected`: unchanged until step 5 (hotfix and backport branches): it refuses, and its branches are read only.
+
+### Pins
+
+- Pinned outputs leave the flow's draft, and so the working copy, for a table of their own: (user, flow id, node id) → the output.
+- A pin is the user's: nobody else sees it. It survives closing the tab and is the same on every branch of that server. Never committed.
+- The MCP's `pin_from_run`, `unpin` and `test_run` act as the token's user on that table: a pin made by the MCP shows in the user's editor, and the other way round.
+- This replaces "pinned outputs" in the environment's column of "Git holds what exists, the environment holds the values".
+
+### The MCP
+
+- It acts on the user's current branch.
+- Where that branch cannot be edited (the environment's branch of a `pull-request` server, another user's branch), the tools that change the working copy refuse, saying to pick or create a branch in the editor.
+- No branch tools and no commit tool in this step.
+
+### Turning git off and on
+
+- Off: the working copy of the environment's branch becomes the drafts again (the same table). Other branches' working copies stay in Postgres, hidden; nothing is deleted.
+- On again: they show again, merged three ways where their branch moved meanwhile.
+
+### Where the prototype differs
+
+The prototype (`/prototype/git-sync?variant=B`) stays as it is and is the reference for the screens, except:
+
+- pins are the user's, out of the draft;
+- a conflicting Update leaves a pending merge;
+- the first edit on a `pull-request` server offers Create branch;
+- a branch cannot be deleted.
+
+### Cut into tickets
+
+In the order they depend on each other. Published as the sub-issues of [#51](https://github.com/flowtinus-hub/flowtinus/issues/51).
+
+| #                                                           | Ticket                                                                                                                                                                                                                       | Blocked by |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| [#52](https://github.com/flowtinus-hub/flowtinus/issues/52) | The working copy table: drafts and the scripts' editing copy migrate into it, on the environment's branch only; every tree change goes into it; Commit takes the files checked, one's own checked first, dependencies locked | none       |
+| [#53](https://github.com/flowtinus-hub/flowtinus/issues/53) | Pins per user and flow, out of the draft, with the MCP's pin tools on that table                                                                                                                                             | none       |
+| [#54](https://github.com/flowtinus-hub/flowtinus/issues/54) | `users.handle`, and each user's current branch on the server                                                                                                                                                                 | none       |
+| [#55](https://github.com/flowtinus-hub/flowtinus/issues/55) | Fetch every head; a branch read as its git tree and its working copy; the branch picker, merged branches hidden                                                                                                              | #52, #54   |
+| [#56](https://github.com/flowtinus-hub/flowtinus/issues/56) | Create branch, taking the changes along; edit and Commit on work branches; owner only on `users/` branches; validation before every push                                                                                     | #55        |
+| [#57](https://github.com/flowtinus-hub/flowtinus/issues/57) | The three-way merge when any branch moves (#35 made general); a branch removed on the remote with changes                                                                                                                    | #56        |
+| [#58](https://github.com/flowtinus-hub/flowtinus/issues/58) | Update and the pending merge                                                                                                                                                                                                 | #57        |
+| [#59](https://github.com/flowtinus-hub/flowtinus/issues/59) | The conflict screen: per hunk, and the choices for a conflict not about content                                                                                                                                              | #57        |
+| [#60](https://github.com/flowtinus-hub/flowtinus/issues/60) | Open a pull request: push and link to the provider                                                                                                                                                                           | #56        |
+| [#61](https://github.com/flowtinus-hub/flowtinus/issues/61) | `pull-request` servers offer Create branch; the MCP follows the current branch and refuses where it cannot edit; draft runs use the branch's tree                                                                            | #56        |
+| [#62](https://github.com/flowtinus-hub/flowtinus/issues/62) | Turning git off and on with work branches' working copies                                                                                                                                                                    | #56        |
