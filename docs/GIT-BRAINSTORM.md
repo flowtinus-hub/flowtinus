@@ -2,7 +2,7 @@
 
 Where the discussion on git sync stands. Not a spec: it records what was decided and why, so the spec and its tickets can be written from it.
 
-Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2's design is closed (see "Step 2"), not yet published as a spec and tickets; the later steps stay here until the maintainer says otherwise.
+Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2 is published as a spec and tickets ([#30](https://github.com/flowtinus-hub/flowtinus/issues/30), see "Step 2"); the later steps stay here until the maintainer says otherwise.
 
 ## Goal
 
@@ -310,7 +310,7 @@ The environment's branch becomes the source of truth. A commit on it, made by th
 
 Still no working copy, no user branches, no promotion, no schedules or webhooks in the files: those are the later steps.
 
-Status: closed by the maintainer after three rounds of questions. Next: the spec and its tickets, from the cut below.
+Status: closed by the maintainer after three rounds of questions, and published: the spec is [#30](https://github.com/flowtinus-hub/flowtinus/issues/30), and its tickets are its sub-issues, with their blocking edges on GitHub. The spec and the tickets are the reference from here on.
 
 ### Git first
 
@@ -428,18 +428,18 @@ On top of what "Validation and identity" already decides (refused whole, the env
 
 ### Cut into tickets
 
-In the order they depend on each other. To be published as a spec and its tickets.
+In the order they depend on each other. Published as the sub-issues of [#30](https://github.com/flowtinus-hub/flowtinus/issues/30).
 
-| #   | Ticket                                                                                                                                                                                                                                | Blocked by |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| A   | The reconcile of the tip: the whole tree applied or refused, the refused sha kept with its errors, a connection removed by git archived, a flow deleted with a draft archived with it, a draft-only flow whose name git takes renamed | none       |
-| B   | Git first: every action that changes the tree commits, pushes and reconciles in the request; one retry on a moved branch; `git_pending_commits` goes                                                                                  | A          |
-| C   | The deployed script set, and a run's mode deciding its scripts and called flows                                                                                                                                                       | A          |
-| D   | The Commit button: commit of the draft, undeploy and an older version as commits, the outcome on the button, authors on the Versions panel                                                                                            | B          |
-| E   | A draft's base and the three-way merge when git moves or at a Commit; a conflicted draft discarded or duplicated                                                                                                                      | D          |
-| F   | Scripts reach the branch: the scripts page's Commit, the changed scripts a flow imports in its Commit, a script's rename as one commit with its callers and their drafts                                                              | C, D       |
-| G   | Polling and the webhook in the server: the interval, the token and its limit, following a topology change                                                                                                                             | A          |
-| H   | Git ahead of the deploy: the notice, Reconcile now, a commit's warnings                                                                                                                                                               | A          |
-| I   | `pull-request` and `protected` environments: Commit and the tree's actions off, in the editor and the MCP; Run for real of a draft with its notice                                                                                    | B          |
+| #                                                           | Ticket                                                                                                                                                                                                                                | Blocked by |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| [#31](https://github.com/flowtinus-hub/flowtinus/issues/31) | The reconcile of the tip: the whole tree applied or refused, the refused sha kept with its errors, a connection removed by git archived, a flow deleted with a draft archived with it, a draft-only flow whose name git takes renamed | none       |
+| [#32](https://github.com/flowtinus-hub/flowtinus/issues/32) | Git first: every action that changes the tree commits, pushes and reconciles in the request; one retry on a moved branch; `git_pending_commits` goes                                                                                  | #31        |
+| [#33](https://github.com/flowtinus-hub/flowtinus/issues/33) | The deployed script set, and a run's mode deciding its scripts and called flows                                                                                                                                                       | #31        |
+| [#34](https://github.com/flowtinus-hub/flowtinus/issues/34) | The Commit button: commit of the draft, undeploy and an older version as commits, the outcome on the button, authors on the Versions panel                                                                                            | #32        |
+| [#35](https://github.com/flowtinus-hub/flowtinus/issues/35) | A draft's base and the three-way merge when git moves or at a Commit; a conflicted draft discarded or duplicated                                                                                                                      | #34        |
+| [#36](https://github.com/flowtinus-hub/flowtinus/issues/36) | Scripts reach the branch: the scripts page's Commit, the changed scripts a flow imports in its Commit, a script's rename as one commit with its callers and their drafts                                                              | #33, #34   |
+| [#37](https://github.com/flowtinus-hub/flowtinus/issues/37) | Polling and the webhook in the server: the interval, the token and its limit, following a topology change                                                                                                                             | #31        |
+| [#38](https://github.com/flowtinus-hub/flowtinus/issues/38) | Git ahead of the deploy: the notice, Reconcile now, a commit's warnings                                                                                                                                                               | #31        |
+| [#39](https://github.com/flowtinus-hub/flowtinus/issues/39) | `pull-request` and `protected` environments: Commit and the tree's actions off, in the editor and the MCP; Run for real of a draft with its notice                                                                                    | #32        |
 
-Turning git off brings the Deploy button back (D). Turning git on makes the webhook's token (G).
+Turning git off brings the Deploy button back (#34). Turning git on makes the webhook's token (#37).
