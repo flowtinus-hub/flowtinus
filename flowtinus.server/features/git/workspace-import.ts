@@ -10,7 +10,7 @@ import { ProjectRepository } from '#features/projects/project-repository';
 import { exportsOf, saveBlob } from '#features/scripts/script-store';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { draftFollowsGit } from './draft-merge';
+import { draftFollowsGit, scriptFollowsGit } from './draft-merge';
 import type { GitRemote } from './git-remote';
 import { flowsInRepo, type RepoFiles } from './workspace-export';
 
@@ -485,10 +485,12 @@ async function importScripts(
         const path = nfc(entry.path);
         const was = existing.get(key(projectId, path));
         inTree.add(key(projectId, path));
-        // with a commit, an editing copy git did not change since the last reconcile keeps its edits
-        if (commit) {
-            const hash = await saveBlob(db, workspaceId, text);
-            if (deployed.get(key(projectId, path))?.hash === hash && was) {
+        // with a commit, an editing copy git did not change since the last reconcile keeps its edits; one git changed
+        // follows git, or is merged with it, as a flow's draft is
+        const hash = commit ? await saveBlob(db, workspaceId, text) : null;
+        if (commit && hash) {
+            const previous = deployed.get(key(projectId, path))?.hash ?? null;
+            if (previous === hash && was) {
                 continue;
             }
             await db.query(
@@ -496,11 +498,15 @@ async function importScripts(
                  ON CONFLICT (project_id, path) DO UPDATE SET workspace_id = $1, hash = $4, commit_sha = $5`,
                 [workspaceId, projectId, path, hash, commit],
             );
+            if (was) {
+                await scriptFollowsGit(ctx, projectId, path, { text, hash }, previous, commit);
+                continue;
+            }
         }
         if (!was) {
             await db.query(
-                'INSERT INTO scripts (id, workspace_id, project_id, path, content, exports, updated_by) VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7)',
-                [crypto.randomUUID(), workspaceId, projectId, path, text, exportsOf(text), userId],
+                'INSERT INTO scripts (id, workspace_id, project_id, path, content, exports, updated_by, draft_base) VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7, $8)',
+                [crypto.randomUUID(), workspaceId, projectId, path, text, exportsOf(text), userId, hash],
             );
         } else if (was.content !== text) {
             await db.query(

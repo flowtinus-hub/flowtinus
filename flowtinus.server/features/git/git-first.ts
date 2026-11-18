@@ -2,10 +2,11 @@ import { workspaceSlug } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
+import { fail, success, type UseCaseError, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { gitAccess, gitAuthorOf, readGitState, type GitConfig } from './git-config';
 import { GitError, withWorkspaceClone, type GitRemote } from './git-remote';
 import { applyCommit, lockReconcile, readState } from './reconcile';
-import { exportWorkspace, repoChanges, type FlowToCommit, type GitChanges } from './workspace-export';
+import { exportWorkspace, repoChanges, type GitChanges, type TreeOverrides } from './workspace-export';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
 
@@ -49,28 +50,33 @@ export async function changeTree<T>(
 }
 
 /**
- * Commits flows' files as `flows` gives them (worked out once git's newer commit is applied), then reconciles that
- * commit, which deploys them. Answers the commit applied; nothing to change answers null.
+ * A commit of what `work` says (worked out once git's newer commit is applied, after any change it makes to the
+ * workspace), then the reconcile of that commit. Answers the commit applied, or null when nothing changes; `work`
+ * may refuse: what the catch-up applied (a draft merged or marked) is kept, nothing is committed.
  */
-export async function commitFlows(
+export async function commitTree(
     ctx: UseCaseContext,
     message: string,
-    flows: (db: Database) => Promise<Map<string, FlowToCommit>>,
-): Promise<string | null> {
+    work: (db: Database) => Promise<TreeOverrides | UseCaseError>,
+): Promise<UseCaseResult<string | null>> {
     const state = await readGitState(ctx.db, ctx.workspaceId);
     if (!state?.on) {
-        throw new UseCaseFailure('conflict', 'Git is off in this workspace.');
+        return fail('conflict', 'Git is off in this workspace.');
     }
 
     return withClones(ctx, [{ workspaceId: ctx.workspaceId, config: state.config }], [], ([cloned]) =>
-        ctx.db.transaction(async tx => {
+        ctx.db.transaction(async (tx): Promise<UseCaseResult<string | null>> => {
             const { config, remote } = cloned!;
             const at = { ...ctx, db: tx };
             await lockReconcile(tx, ctx.workspaceId);
             await catchUp(at, config, remote);
             const before = await exportWorkspace(tx, ctx.workspaceId);
-            const changes = repoChanges(before, await exportWorkspace(tx, ctx.workspaceId, await flows(tx)));
-            return Object.keys(changes).length > 0 ? commitFirst(at, config, remote, message, changes) : null;
+            const overrides = await work(tx);
+            if ('code' in overrides) {
+                return { ok: false, error: overrides };
+            }
+            const changes = repoChanges(before, await exportWorkspace(tx, ctx.workspaceId, overrides));
+            return success(Object.keys(changes).length > 0 ? await commitFirst(at, config, remote, message, changes) : null);
         }),
     );
 }

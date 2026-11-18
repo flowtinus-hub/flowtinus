@@ -1,15 +1,16 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { ChevronRight, Copy, Ellipsis, FileCode2, Folder, FolderOpen, FolderPlus, LoaderCircle, Pencil, Plus, Trash } from 'lucide-react';
+import { ChevronRight, Copy, Ellipsis, FileCode2, Folder, FolderOpen, FolderPlus, GitCommitHorizontal, LoaderCircle, Pencil, Plus, Trash } from 'lucide-react';
 import { scriptImport } from '@flowtinus/core';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { isReadOnly, useProject } from '@/data/projects/use-project';
-import { createScriptPath, deleteScriptPath, flushScripts, newPathIssue, reloadAll, renameScriptPath, scriptFolders, scriptUsage, useProjectScripts, type SaveState } from '@/data/scripts/scripts-store';
+import { createScriptPath, deleteScriptPath, discardScript, flushScripts, newPathIssue, reloadAll, renameScriptPath, scriptFolders, scriptUsage, useProjectScripts, type SaveState } from '@/data/scripts/scripts-store';
 import { cn } from '@/lib/utils';
 import { ProjectPage } from '@/pages/project/project-page';
 import { PathDialog, type PathDialogTarget } from './path-dialog';
+import { ScriptsCommitDialog } from './scripts-commit-dialog';
 
 // Monaco only when a script is open
 const ScriptEditor = lazy(() => import('./script-editor'));
@@ -67,6 +68,7 @@ export function ScriptsPage() {
     const selected = chosen ?? (linked && scripts.scripts.some(s => s.path === linked) ? linked : null) ?? scripts.scripts[0]?.path ?? null;
     const [dialog, setDialog] = useState<PathDialogTarget | null>(null);
     const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
+    const [commitOpen, setCommitOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const script = scripts.scripts.find(s => s.path === selected) ?? null;
 
@@ -165,6 +167,19 @@ export function ScriptsPage() {
         open,
     );
     const importLine = script ? scriptImport(script.path) : '';
+    // with git on the list says what changed since it was committed
+    const git = scripts.scripts.some(s => s.changed !== undefined);
+    const changedCount = scripts.scripts.filter(s => s.changed).length;
+    const entry = (path: string) => scripts.scripts.find(s => s.path === path);
+    const discard = (path: string) =>
+        setConfirm({
+            title: `Discard the changes of ${path}?`,
+            description: "The script takes git's content; its changes are lost.",
+            confirmLabel: 'Discard changes',
+            busyLabel: 'Discarding…',
+            destructive: true,
+            onConfirm: () => discardScript(projectId, path),
+        });
 
     return (
         <ProjectPage
@@ -173,6 +188,12 @@ export function ScriptsPage() {
             tab="scripts"
             actions={
                 <>
+                    {git && (
+                        <Button variant="outline" disabled={archived || changedCount === 0} onClick={() => setCommitOpen(true)}>
+                            <GitCommitHorizontal />
+                            Commit{changedCount > 0 && ` (${changedCount})`}
+                        </Button>
+                    )}
                     <Button variant="outline" onClick={() => newFolder()}>
                         <FolderPlus />
                         New folder
@@ -237,6 +258,23 @@ export function ScriptsPage() {
                                         <FileCode2 className="ml-5 size-4 shrink-0 text-sky-600 dark:text-sky-400" />
                                     )}
                                     <span className="truncate">{row.name}</span>
+                                    {row.kind === 'script' && entry(row.path)?.conflict ? (
+                                        <span
+                                            className="ml-auto text-[10px] font-medium text-red-700 dark:text-red-400"
+                                            title="Conflicts with git"
+                                        >
+                                            conflict
+                                        </span>
+                                    ) : (
+                                        row.kind === 'script' &&
+                                        entry(row.path)?.changed && (
+                                            <span
+                                                className="ml-auto size-1.5 shrink-0 rounded-full bg-amber-500"
+                                                title="Changed since it was committed"
+                                                aria-label="changed"
+                                            />
+                                        )
+                                    )}
                                 </button>
                                 {!archived && (
                                     <DropdownMenu>
@@ -302,6 +340,21 @@ export function ScriptsPage() {
                                     <Copy />
                                 </Button>
                             </header>
+                            {entry(script.path)?.conflict && (
+                                <div className="flex items-center gap-2 border-b bg-red-500/10 px-3 py-1.5 text-sm text-red-700 dark:text-red-400">
+                                    Its changes conflict with git&apos;s commit{' '}
+                                    <span className="font-mono">{entry(script.path)!.conflict!.slice(0, 7)}</span>: it cannot be committed.
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="ml-auto"
+                                        disabled={archived}
+                                        onClick={() => discard(script.path)}
+                                    >
+                                        Discard my changes
+                                    </Button>
+                                </div>
+                            )}
                             <div className="min-h-0 flex-1">
                                 <Suspense
                                     fallback={
@@ -321,6 +374,7 @@ export function ScriptsPage() {
             </div>
 
             <PathDialog target={dialog} onClose={() => setDialog(null)} />
+            {commitOpen && <ScriptsCommitDialog projectId={projectId} scripts={scripts.scripts} onClose={() => setCommitOpen(false)} />}
             <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
         </ProjectPage>
     );

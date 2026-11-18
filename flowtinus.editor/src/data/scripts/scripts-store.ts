@@ -10,8 +10,11 @@ import { api, type ApiResult } from '@/lib/api';
  * save from elsewhere in between is a conflict. Rules (paths, 1 MB) come from the core.
  */
 
-/** a script in the list: its path (folders and name, no .ts) and the names it exports */
-export type ScriptEntry = { path: string; exports: ScriptExport[] };
+/**
+ * a script in the list: its path (folders and name, no .ts) and the names it exports; with git on, whether it changed
+ * since it was committed, and the commit it conflicts with
+ */
+export type ScriptEntry = { path: string; exports: ScriptExport[]; changed?: boolean; conflict?: string };
 
 /** a script's code as loaded (and typed since), and the revision it was read at */
 export type ScriptContent = { code: string; revision: number };
@@ -61,7 +64,7 @@ const subscribe = (listener: () => void) => {
 /** follows the project's scripts from outside React (Monaco): the listener runs at each change */
 export const watchScripts = subscribe;
 
-type ListDto = { scripts: { path: string; exports: ScriptExport[] }[]; folders: string[] };
+type ListDto = { scripts: ScriptEntry[]; folders: string[] };
 
 /** reads the project's list of scripts from the server again (the code loaded stays, unless its script is gone) */
 export function reloadScripts(projectId: string): Promise<void> {
@@ -76,7 +79,7 @@ export function reloadScripts(projectId: string): Promise<void> {
         set(projectId, {
             status: 'ready',
             error: undefined,
-            scripts: result.value.scripts.map(s => ({ path: s.path, exports: s.exports })),
+            scripts: result.value.scripts.map(s => ({ path: s.path, exports: s.exports, changed: s.changed, conflict: s.conflict })),
             folders: result.value.folders,
             contents,
         });
@@ -203,7 +206,9 @@ async function saveNow(projectId: string, path: string) {
     set(projectId, {
         contents: latest ? { ...now.contents, [path]: { ...latest, revision: result.value.revision } } : now.contents,
         // what it exports follows the code saved (auto-import offers it)
-        scripts: now.scripts.map(s => (s.path === path ? { ...s, exports: scriptExports(content.code) } : s)),
+        scripts: now.scripts.map(s =>
+            s.path === path ? { ...s, exports: scriptExports(content.code), ...(s.changed === undefined ? {} : { changed: true }) } : s,
+        ),
         save: changedSince || pending.size > 0 ? 'unsaved' : 'saved',
     });
 }
@@ -237,6 +242,24 @@ export async function flushScripts(projectId: string) {
         clearTimeout(pending.get(k));
         await saveNow(projectId, k.slice(projectId.length + 1));
     }
+}
+
+/** with git on: commits these scripts as they are being edited (what waits is saved first) */
+export async function commitScripts(projectId: string, paths: string[], message: string): Promise<ApiResult<{ commit: string }>> {
+    await flushScripts(projectId);
+    const result = await api<{ commit: string }>(`/projects/${projectId}/scripts/commit`, { method: 'POST', body: { paths, message } });
+    await reloadScripts(projectId);
+    return result;
+}
+
+/** with git on: the script takes git's content (its changes are lost) */
+export async function discardScript(projectId: string, path: string): Promise<ApiResult<{ revision: number }>> {
+    const result = await api<{ revision: number }>(`/projects/${projectId}/scripts/discard`, { method: 'POST', body: { path } });
+    if (result.ok) {
+        await loadScriptContent(projectId, path, true);
+        await reloadScripts(projectId);
+    }
+    return result;
 }
 
 /** after a conflict: the list and the code loaded, as the server has them now */

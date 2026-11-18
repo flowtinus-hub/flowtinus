@@ -124,7 +124,7 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
         await rm(dir, { recursive: true, force: true });
     });
 
-    test('a script only saved reaches test runs, not deployed runs; a commit that changes it reaches both', async () => {
+    test('a script only saved reaches test runs, not deployed runs; a commit that changes it reaches deployed runs', async () => {
         const { call, repo, script, save, editing, flow, deploy, testRun, webhookOf, scriptPath, onBranch } = await newWorkspace();
         await script('lib/prices', 'export const value = 1;');
         const orders = await flow('Orders', 'lib/prices');
@@ -141,8 +141,9 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
         commitFiles(repo, 'dev', { ...onBranch(), [scriptPath('lib/prices')]: 'export const value = 3;' }, 'Prices from git');
         expect((await call('POST', '/git/reconcile')).body.outcome).toBe('applied');
         expect(await webhook()).toEqual({ 'lib/prices': 'export const value = 3;' });
-        expect(await editing('lib/prices')).toBe('export const value = 3;');
-        expect(await testRun(orders)).toEqual({ 'lib/prices': 'export const value = 3;' });
+        // the same line changed on both sides: the edit is kept, in conflict
+        expect(await editing('lib/prices')).toBe('export const value = 2;');
+        expect(await testRun(orders)).toEqual({ 'lib/prices': 'export const value = 2;' });
     });
 
     test('a commit that leaves a script as it was keeps its editing copy', async () => {

@@ -7,6 +7,8 @@ import { readDraft, type StoredDraft } from '#features/flows/flow-draft';
 import { FlowRepository } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
 import { pgJson } from '#shared/database/jsonb';
+import { exportsOf, scriptBlobs, scriptHash } from '#features/scripts/script-store';
+import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseError } from '#shared/use-cases/use-case-result';
 import { flowsInRepo } from './workspace-export';
 
@@ -78,27 +80,70 @@ const markConflict = (db: Database, flowId: string, commit: string) =>
 
 // on the flow's file in git's stable order, so that a change made on either side is the same lines on both
 async function mergeFlows(id: string, name: string, base: FlowFile, theirs: FlowFile, ours: FlowFile): Promise<FlowFile | null> {
+    const yaml = (flow: FlowFile) => repoFlowToYaml({ ...flow, id });
+    const merged = await mergeText(yaml(ours), yaml(base), yaml(theirs));
+    const read = merged === null ? null : repoFlowFromYaml(merged, name);
+    const checked = read?.ok ? validateFlowFile({ ...read.value.flow, id, name }) : null;
+    return checked?.ok ? checked.value : null;
+}
+
+/** git merge-file: the merged text, or null when the two changes conflict */
+async function mergeText(ours: string, base: string, theirs: string): Promise<string | null> {
     const dir = await mkdtemp(join(tmpdir(), 'flowtinus-draft-merge-'));
     try {
-        const files = { ours: join(dir, 'ours'), base: join(dir, 'base'), theirs: join(dir, 'theirs') };
-        for (const [side, flow] of [
-            ['ours', ours],
-            ['base', base],
-            ['theirs', theirs],
-        ] as const) {
-            await Bun.write(files[side], repoFlowToYaml({ ...flow, id }));
-        }
-        const merge = Bun.spawnSync(['git', 'merge-file', '-p', files.ours, files.base, files.theirs], { stdout: 'pipe', stderr: 'pipe' });
-        if (merge.exitCode !== 0) {
-            return null;
-        }
-
-        const read = repoFlowFromYaml(merge.stdout.toString(), name);
-        const checked = read.ok ? validateFlowFile({ ...read.value.flow, id, name }) : null;
-        return checked?.ok ? checked.value : null;
+        const files = [join(dir, 'ours'), join(dir, 'base'), join(dir, 'theirs')];
+        await Promise.all([ours, base, theirs].map((text, i) => Bun.write(files[i]!, text)));
+        const merge = Bun.spawnSync(['git', 'merge-file', '-p', ...files], { stdout: 'pipe', stderr: 'pipe' });
+        return merge.exitCode === 0 ? merge.stdout.toString() : null;
     } finally {
         await rm(dir, { recursive: true, force: true });
     }
+}
+
+/** a script's editing copy when git changes the script: as a flow's draft (see draftFollowsGit) */
+export async function scriptFollowsGit(
+    ctx: UseCaseContext,
+    projectId: string,
+    path: string,
+    arrived: { text: string; hash: string },
+    previous: string | null,
+    commit: string,
+): Promise<DraftOutcome> {
+    const { db, workspaceId } = ctx;
+    const where = 'workspace_id = $1 AND project_id = $2 AND path = $3';
+    const [row] = await db.query<{ content: string; draft_base: string | null; draft_conflict: string | null }>(
+        `SELECT content, draft_base, draft_conflict FROM scripts WHERE ${where}`,
+        [workspaceId, projectId, path],
+    );
+    const ours = scriptHash(row!.content);
+    if (ours === arrived.hash) {
+        await db.query(`UPDATE scripts SET draft_base = $4, draft_conflict = NULL WHERE ${where}`, [
+            workspaceId,
+            projectId,
+            path,
+            arrived.hash,
+        ]);
+        return 'same';
+    }
+    if (row!.draft_conflict) {
+        await db.query(`UPDATE scripts SET draft_conflict = $4 WHERE ${where}`, [workspaceId, projectId, path, commit]);
+        return 'conflict';
+    }
+
+    const base = row!.draft_base ?? previous;
+    const baseText = base === ours ? row!.content : base ? (await scriptBlobs(db, workspaceId, [base])).get(base) : undefined;
+    const merged = base === ours ? arrived.text : baseText === undefined ? null : await mergeText(row!.content, baseText, arrived.text);
+    if (merged === null) {
+        await db.query(`UPDATE scripts SET draft_conflict = $4 WHERE ${where}`, [workspaceId, projectId, path, commit]);
+        return 'conflict';
+    }
+
+    await db.query(
+        `UPDATE scripts SET content = $4, exports = $5::text::jsonb, revision = revision + 1, draft_base = $6, draft_conflict = NULL,
+           updated_by = $7, updated_at = now() WHERE ${where}`,
+        [workspaceId, projectId, path, merged, exportsOf(merged), arrived.hash, ctx.userId],
+    );
+    return base === ours ? 'followed' : 'merged';
 }
 
 const conflicted = (commit: string): UseCaseError => ({
