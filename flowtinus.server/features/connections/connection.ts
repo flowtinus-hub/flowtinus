@@ -16,10 +16,17 @@ export const connections = pgTable('connections', {
     updatedBy: text('updated_by'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     server: jsonb('server').$type<ConnectionServer>(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: text('deleted_by'),
 });
 
 export type Connection = typeof connections.$inferSelect;
 
-export type ConnectionView = Omit<Connection, 'workspaceId'>;
+export type ConnectionView = Omit<Connection, 'workspaceId' | 'deletedAt' | 'deletedBy'>;
 
-export const toConnectionView = ({ workspaceId: _workspaceId, ...connection }: Connection): ConnectionView => connection;
+export const toConnectionView = ({
+    workspaceId: _workspaceId,
+    deletedAt: _deletedAt,
+    deletedBy: _deletedBy,
+    ...connection
+}: Connection): ConnectionView => connection;

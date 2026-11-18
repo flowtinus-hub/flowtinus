@@ -24,6 +24,7 @@ export type FlowVersionView = {
     createdAt: Date;
     createdBy: string | null;
     createdByName?: string;
+    commit: string | null;
 };
 
 export type DeploymentAction = 'deploy' | 'promote' | 'rollback' | 'undeploy';
@@ -35,6 +36,7 @@ export type DeploymentEventView = {
     at: Date;
     by: string | null;
     byName?: string;
+    commit: string | null;
 };
 
 export type FlowDeploymentsView = {
@@ -62,16 +64,30 @@ async function names(db: Database, ids: (string | null)[]): Promise<Map<string, 
 
 export async function loadDeployments(db: Database, workspaceId: string, flowId: string): Promise<FlowDeploymentsView> {
     const [versions, deployed, history] = await Promise.all([
-        db.query<{ id: string; number: number; definition: FlowFile; created_at: Date; created_by: string | null }>(
-            `SELECT id, number, definition, created_at, created_by FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 ORDER BY number DESC`,
+        db.query<{
+            id: string;
+            number: number;
+            definition: FlowFile;
+            created_at: Date;
+            created_by: string | null;
+            commit_sha: string | null;
+        }>(
+            `SELECT id, number, definition, created_at, created_by, commit_sha FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 ORDER BY number DESC`,
             [workspaceId, flowId],
         ),
         db.query<{ flow_version_id: string; deployed_at: Date; deployed_by: string | null }>(
             `SELECT flow_version_id, deployed_at, deployed_by FROM deployments WHERE workspace_id = $1 AND flow_id = $2`,
             [workspaceId, flowId],
         ),
-        db.query<{ action: DeploymentAction; from_number: number | null; to_number: number | null; at: Date; by_user: string | null }>(
-            `SELECT h.action, f.number AS from_number, t.number AS to_number, h.at, h.by_user
+        db.query<{
+            action: DeploymentAction;
+            from_number: number | null;
+            to_number: number | null;
+            at: Date;
+            by_user: string | null;
+            commit_sha: string | null;
+        }>(
+            `SELECT h.action, f.number AS from_number, t.number AS to_number, h.at, h.by_user, h.commit_sha
        FROM deployment_history h
        LEFT JOIN flow_versions f ON f.id = h.from_version_id
        LEFT JOIN flow_versions t ON t.id = h.to_version_id
@@ -91,6 +107,7 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             createdAt: new Date(v.created_at),
             createdBy: v.created_by,
             ...(named(v.created_by) ? { createdByName: named(v.created_by) } : {}),
+            commit: v.commit_sha,
         })),
         deployed: current
             ? {
@@ -107,6 +124,7 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             at: new Date(h.at),
             by: h.by_user,
             ...(named(h.by_user) ? { byName: named(h.by_user) } : {}),
+            commit: h.commit_sha,
         })),
     };
 }
@@ -135,6 +153,7 @@ export async function setDeployed(
     action: DeploymentAction,
     from: string | null,
     to: string | null,
+    commit: string | null = null,
 ): Promise<void> {
     if (to) {
         await db.query(
@@ -147,8 +166,9 @@ export async function setDeployed(
     }
 
     await db.query(
-        `INSERT INTO deployment_history (workspace_id, flow_id, from_version_id, to_version_id, action, by_user) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [ctx.workspaceId, flowId, from, to, action, ctx.userId],
+        `INSERT INTO deployment_history (workspace_id, flow_id, from_version_id, to_version_id, action, by_user, commit_sha)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [ctx.workspaceId, flowId, from, to, action, ctx.userId, commit],
     );
 }
 
@@ -170,13 +190,14 @@ export async function insertVersion(
     ctx: { workspaceId: string; userId: string },
     flowId: string,
     definition: FlowFile,
+    commit: string | null = null,
 ): Promise<{ id: string; number: number }> {
     const id = crypto.randomUUID();
     const [row] = await db.query<{ number: number }>(
-        `INSERT INTO flow_versions (id, workspace_id, flow_id, number, definition, content_hash, created_by)
-     SELECT $1, $2, $3, coalesce(max(number), 0) + 1, $4::text::jsonb, $5, $6 FROM flow_versions WHERE flow_id = $3
+        `INSERT INTO flow_versions (id, workspace_id, flow_id, number, definition, content_hash, created_by, commit_sha)
+     SELECT $1, $2, $3, coalesce(max(number), 0) + 1, $4::text::jsonb, $5, $6, $7 FROM flow_versions WHERE flow_id = $3
      RETURNING number`,
-        [id, ctx.workspaceId, flowId, pgJson(definition), contentHash(definition), ctx.userId],
+        [id, ctx.workspaceId, flowId, pgJson(definition), contentHash(definition), ctx.userId, commit],
     );
     return { id, number: row!.number };
 }
@@ -203,7 +224,12 @@ export async function deployedDefinitions(
  * stop being deployed, as an undeploy in their history, and their schedules and webhooks are turned off (restoring one
  * turns nothing back on). In the archive's transaction.
  */
-export async function undeployArchived(db: Database, ctx: { workspaceId: string; userId: string }, flowIds: string[]): Promise<void> {
+export async function undeployArchived(
+    db: Database,
+    ctx: { workspaceId: string; userId: string },
+    flowIds: string[],
+    commit: string | null = null,
+): Promise<void> {
     if (flowIds.length === 0) {
         return;
     }
@@ -218,7 +244,7 @@ export async function undeployArchived(db: Database, ctx: { workspaceId: string;
         await lockFlowDeployments(db, flowId);
         const current = await currentDeployment(db, ctx.workspaceId, flowId);
         if (current) {
-            await setDeployed(db, ctx, flowId, 'undeploy', current.id, null);
+            await setDeployed(db, ctx, flowId, 'undeploy', current.id, null, commit);
         }
     }
 }

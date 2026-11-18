@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { GitOptions } from '#features/git/git-config';
-import { CreateTopologyHandler, GetGitConfigHandler, GetGitStatusHandler, GetTopologyHandler, GetTurnOnPlanHandler, RemoveGitConfigHandler, SaveGitConfigHandler, TestGitAccessHandler, TurnGitOnHandler } from '#features/git/git-handlers';
+import { CreateTopologyHandler, GetGitConfigHandler, GetGitStatusHandler, GetTopologyHandler, GetTurnOnPlanHandler, ReconcileHandler, RemoveGitConfigHandler, SaveGitConfigHandler, TestGitAccessHandler, TurnGitOnHandler } from '#features/git/git-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
 import { jsonBody } from './request-input';
@@ -17,5 +17,6 @@ export function gitRoutes(options: GitOptions) {
         )
         .get('/on', async c => toHttpResult(c, await new GetTurnOnPlanHandler(options).handle({}, c.get('useCase'))))
         .post('/on', async c => toHttpResult(c, await new TurnGitOnHandler(options).handle(await jsonBody(c), c.get('useCase'))))
+        .post('/reconcile', async c => toHttpResult(c, await new ReconcileHandler(options).handle({}, c.get('useCase'))))
         .delete('/', async c => toHttpResult(c, await new RemoveGitConfigHandler().handle({}, c.get('useCase'))));
 }

@@ -27,9 +27,10 @@ export const flowsInRepo = (db: Database, workspaceId: string, flowIds: string[]
 export async function exportWorkspace(db: Database, workspaceId: string): Promise<RepoFiles> {
     const [[workspace], connections, projects, flowVersions, scripts, scriptFolders] = await Promise.all([
         db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]),
-        db.query<{ id: string; name: string; type: ConnectionTypeName }>('SELECT id, name, type FROM connections WHERE workspace_id = $1', [
-            workspaceId,
-        ]),
+        db.query<{ id: string; name: string; type: ConnectionTypeName }>(
+            'SELECT id, name, type FROM connections WHERE workspace_id = $1 AND deleted_at IS NULL',
+            [workspaceId],
+        ),
         db.query<{ id: string; name: string; description: string; icon: string; color: string }>(
             'SELECT id, name, description, icon, color FROM projects WHERE workspace_id = $1 AND deleted_at IS NULL',
             [workspaceId],

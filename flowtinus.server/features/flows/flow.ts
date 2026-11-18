@@ -26,6 +26,7 @@ export const flows = pgTable('flows', {
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     deletedBy: text('deleted_by'),
+    deletedByCommit: text('deleted_by_commit'),
     removedAt: timestamp('removed_at', { withTimezone: true }),
     removedBy: text('removed_by'),
 });

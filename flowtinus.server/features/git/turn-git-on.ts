@@ -28,7 +28,10 @@ export type TurnOnChoice = 'git' | 'server';
 
 export type TurnOnOutcome = 'exported' | 'imported' | 'server-replaced-git' | 'git-replaced-server';
 
-async function environmentBranch(remote: GitRemote, environment: string): Promise<UseCaseResult<{ branch: string; tip: string | null }>> {
+export async function environmentBranch(
+    remote: GitRemote,
+    environment: string,
+): Promise<UseCaseResult<{ branch: string; tip: string | null }>> {
     const branches = await remote.branches();
     const topology = await readTopology(remote, environment, branches);
     if (!topology.exists) {

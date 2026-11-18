@@ -1,4 +1,4 @@
-import { inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
 import { ConnectionRepository } from '#features/connections/connection-store';
 import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, undeployArchived } from '#features/deployments/deployments';
@@ -29,7 +29,9 @@ export async function isWorkspaceEmpty(db: Database, workspaceId: string): Promi
 export async function importEnvironment(db: Database, workspaceId: string): Promise<WorkspaceTree['environment']> {
     const [connections, secrets, variables] = await Promise.all([
         // a connection only declared (it came from git) has an empty configuration: it is not configured here
-        db.query<{ id: string }>(`SELECT id FROM connections WHERE workspace_id = $1 AND config <> '{}'::jsonb`, [workspaceId]),
+        db.query<{ id: string }>(`SELECT id FROM connections WHERE workspace_id = $1 AND deleted_at IS NULL AND config <> '{}'::jsonb`, [
+            workspaceId,
+        ]),
         db.query<{ name: string }>('SELECT name FROM secrets WHERE workspace_id = $1', [workspaceId]),
         db.query<{ name: string }>('SELECT name FROM variables WHERE workspace_id = $1', [workspaceId]),
     ]);
@@ -109,20 +111,24 @@ function folderAt(folders: LiveFolder[], names: string[]): string | null | undef
     return parentId;
 }
 
-export async function draftClashes(db: Database, workspaceId: string, slug: string, files: RepoFiles): Promise<TreeIssue[]> {
+type DraftOnly = { id: string; project_id: string; folder_id: string | null; name: string };
+
+type DraftClash = { path: string; flowName: string; draft: DraftOnly };
+
+async function clashingDrafts(db: Database, workspaceId: string, slug: string, files: RepoFiles): Promise<DraftClash[]> {
     const { projects, flows } = entriesOf(files, slug);
     const projectIds = new Map(projects.map(({ text, entry }) => [entry.project, idOf(projectFromYaml(text))]));
     const inTree = flows.flatMap(({ path, text, entry }) => {
         const read = repoFlowFromYaml(text, nfc(entry.name));
         return read.ok ? [{ path, entry, name: read.value.flow.name, id: read.value.flow.id! }] : [];
     });
-    const drafts = await db.query<{ project_id: string; folder_id: string | null; name: string }>(
-        `SELECT project_id, folder_id, name FROM flows f WHERE workspace_id = $1 AND deleted_at IS NULL AND NOT (id::text = ANY($2::text[]))
+    const drafts = await db.query<DraftOnly>(
+        `SELECT id, project_id, folder_id, name FROM flows f WHERE workspace_id = $1 AND deleted_at IS NULL AND NOT (id::text = ANY($2::text[]))
        AND NOT EXISTS (SELECT 1 FROM flow_versions v WHERE v.flow_id = f.id)`,
         [workspaceId, inTree.map(f => f.id)],
     );
 
-    const issues: TreeIssue[] = [];
+    const clashes: DraftClash[] = [];
     const folders = new Map<string, LiveFolder[]>();
     for (const flow of inTree) {
         const projectId = projectIds.get(flow.entry.project);
@@ -136,31 +142,46 @@ export async function draftClashes(db: Database, workspaceId: string, slug: stri
         const folderId = folderAt(live, flow.entry.folders.map(nfc));
         const taken = folderId === undefined ? undefined : named.find(d => d.folder_id === folderId);
         if (taken) {
-            issues.push({
-                path: flow.path,
-                message: `The flow ${flow.entry.name} in git has the name of a draft here, ${taken.name}: rename the draft first.`,
-            });
+            clashes.push({ path: flow.path, flowName: flow.entry.name, draft: taken });
         }
     }
-    return issues;
+    return clashes;
 }
+
+const clashMessage = ({ flowName, draft }: DraftClash) =>
+    `The flow ${flowName} in git has the name of a draft here, ${draft.name}: rename the draft first.`;
+
+export const draftClashes = async (db: Database, workspaceId: string, slug: string, files: RepoFiles): Promise<TreeIssue[]> =>
+    (await clashingDrafts(db, workspaceId, slug, files)).map(clash => ({ path: clash.path, message: clashMessage(clash) }));
 
 export class ImportConflict extends Error {}
 
-export async function importWorkspace(ctx: UseCaseContext, slug: string, files: RepoFiles): Promise<void> {
-    const [clash] = await draftClashes(ctx.db, ctx.workspaceId, slug, files);
-    if (clash) {
-        throw new ImportConflict(clash.message);
+export type RenamedDraft = { id: string; from: string; to: string };
+
+// a reconcile (with its commit) archives what git removed and renames a draft-only flow whose name git takes;
+// turning git on deletes the connections and refuses the clash instead, as its preview said
+export type ImportOptions = { commit?: string };
+
+export async function importWorkspace(
+    ctx: UseCaseContext,
+    slug: string,
+    files: RepoFiles,
+    options: ImportOptions = {},
+): Promise<{ renamedDrafts: RenamedDraft[] }> {
+    const clashes = await clashingDrafts(ctx.db, ctx.workspaceId, slug, files);
+    if (!options.commit && clashes[0]) {
+        throw new ImportConflict(clashMessage(clashes[0]));
     }
 
     const entries = entriesOf(files, slug);
-    await importConnections(ctx, entries.connections);
+    const renamedDrafts = await renameDrafts(ctx, clashes, entries.flows);
+    await importConnections(ctx, entries.connections, options);
     const projectIds = await importProjects(ctx, entries.projects);
     const folders = new ProjectFolders(ctx, projectIds);
     for (const { entry } of entries.folders) {
         await folders.folderOf(entry.project, entry.folders);
     }
-    await importFlows(ctx, entries.flows, projectIds, folders);
+    await importFlows(ctx, entries.flows, projectIds, folders, options);
     await folders.archiveUnused();
     await importScripts(ctx, entries.scripts, entries.scriptFolders, projectIds);
 
@@ -170,25 +191,57 @@ export async function importWorkspace(ctx: UseCaseContext, slug: string, files: 
             await archiveProject(ctx.db, ctx, id);
         }
     }
+    return { renamedDrafts };
+}
+
+async function renameDrafts(ctx: UseCaseContext, clashes: DraftClash[], inTree: Entry<'flow'>[]): Promise<RenamedDraft[]> {
+    const repository = new FlowRepository(ctx.db, ctx.workspaceId);
+    const renamed: RenamedDraft[] = [];
+    for (const { draft } of clashes) {
+        const siblings = await repository.findMany(
+            and(
+                eq(flowsTable.projectId, draft.project_id),
+                draft.folder_id ? eq(flowsTable.folderId, draft.folder_id) : isNull(flowsTable.folderId),
+            ),
+        );
+        const taken = new Set([...siblings.map(f => f.name), ...inTree.map(f => nfc(f.entry.name))].map(name => name.toLowerCase()));
+        let name = `${draft.name} (draft)`;
+        for (let n = 2; taken.has(name.toLowerCase()); n++) {
+            name = `${draft.name} (draft ${n})`;
+        }
+        await repository.update(draft.id, { name, updatedBy: ctx.userId, updatedAt: new Date() });
+        renamed.push({ id: draft.id, from: draft.name, to: name });
+    }
+    return renamed;
 }
 
 // two of them trading names would collide on the way: each one renamed takes its id as a name first
 const renameToIds = (db: Database, table: 'connections' | 'flows', workspaceId: string, ids: string[]) =>
     db.query(`UPDATE ${table} SET name = id::text WHERE workspace_id = $1 AND id = ANY($2::uuid[])`, [workspaceId, ids]);
 
-async function importConnections(ctx: UseCaseContext, entries: Entry<'connection'>[]): Promise<void> {
+async function importConnections(ctx: UseCaseContext, entries: Entry<'connection'>[], options: ImportOptions): Promise<void> {
     const { db, workspaceId, userId } = ctx;
     const repository = new ConnectionRepository(db, workspaceId);
     const declared = entries.map(({ text, entry }) => ({ ...read(connectionFromYaml(text)), name: nfc(entry.name) }));
     const ids = new Set(declared.map(c => c.id));
     const existing = new Map<string, { name: string; type: string; config: Record<string, string> }>();
-    for (const connection of await repository.findMany()) {
+    const archived: string[] = [];
+    for (const connection of options.commit ? await repository.findAll() : await repository.findMany()) {
         if (ids.has(connection.id)) {
-            existing.set(connection.id, connection);
-        } else {
+            existing.set(connection.id, connection.deletedAt ? { ...connection, name: connection.id } : connection);
+            if (connection.deletedAt) {
+                archived.push(connection.id);
+            }
+        } else if (!options.commit) {
             await repository.remove(connection.id);
+        } else if (!connection.deletedAt) {
+            await repository.softDelete(connection.id, userId);
         }
     }
+    await db.query(
+        'UPDATE connections SET name = id::text, deleted_at = NULL, deleted_by = NULL WHERE workspace_id = $1 AND id = ANY($2::uuid[])',
+        [workspaceId, archived],
+    );
 
     await renameToIds(
         db,
@@ -293,8 +346,10 @@ async function importFlows(
     entries: Entry<'flow'>[],
     projectIds: Map<string, string>,
     folders: ProjectFolders,
+    options: ImportOptions,
 ): Promise<void> {
     const { db, workspaceId, userId } = ctx;
+    const commit = options.commit ?? null;
     const inTree = entries.map(({ text, entry }) => ({ entry, ...read(repoFlowFromYaml(text, nfc(entry.name))) }));
     const ids = inTree.map(f => f.flow.id!);
     const leaving = await db.query<{ id: string }>(
@@ -304,12 +359,13 @@ async function importFlows(
     );
     const repository = new FlowRepository(db, workspaceId);
     for (const { id } of leaving) {
-        await repository.update(id, { deletedAt: new Date(), deletedBy: userId });
+        await repository.update(id, { deletedAt: new Date(), deletedBy: userId, deletedByCommit: commit });
     }
     await undeployArchived(
         db,
         ctx,
         leaving.map(f => f.id),
+        commit,
     );
 
     // removed ones included: a flow git brings back comes back with its history
@@ -326,8 +382,8 @@ async function importFlows(
         const folderId = await folders.folderOf(entry.project, entry.folders);
         if (existing.has(id)) {
             await db.query(
-                `UPDATE flows SET project_id = $3, folder_id = $4, name = $5, deleted_at = NULL, deleted_by = NULL, removed_at = NULL,
-           removed_by = NULL, updated_by = $6, updated_at = now() WHERE workspace_id = $1 AND id = $2`,
+                `UPDATE flows SET project_id = $3, folder_id = $4, name = $5, deleted_at = NULL, deleted_by = NULL, deleted_by_commit = NULL,
+           removed_at = NULL, removed_by = NULL, updated_by = $6, updated_at = now() WHERE workspace_id = $1 AND id = $2`,
                 [workspaceId, id, projectId, folderId, flow.name, userId],
             );
             for (const table of ['flow_schedules', 'flow_webhooks']) {
@@ -342,28 +398,34 @@ async function importFlows(
             await repository.insert({ id, projectId, folderId, name: flow.name, draftDefinition: draft, updatedBy: userId });
         }
 
-        await deployAsInTree(ctx, id, flow, deployed);
+        await deployAsInTree(ctx, id, flow, deployed, commit);
     }
 }
 
-async function deployAsInTree(ctx: UseCaseContext, flowId: string, flow: FlowFile, deployed: boolean): Promise<void> {
+async function deployAsInTree(
+    ctx: UseCaseContext,
+    flowId: string,
+    flow: FlowFile,
+    deployed: boolean,
+    commit: string | null,
+): Promise<void> {
     const { db, workspaceId } = ctx;
     await lockFlowDeployments(db, flowId);
     const current = await currentDeployment(db, workspaceId, flowId);
     if (deployed) {
-        const version = (await newestVersionLike(db, workspaceId, flowId, flow)) ?? (await insertVersion(db, ctx, flowId, flow));
+        const version = (await newestVersionLike(db, workspaceId, flowId, flow)) ?? (await insertVersion(db, ctx, flowId, flow, commit));
         if (current?.id !== version.id) {
-            await setDeployed(db, ctx, flowId, 'deploy', current?.id ?? null, version.id);
+            await setDeployed(db, ctx, flowId, 'deploy', current?.id ?? null, version.id, commit);
         }
         return;
     }
 
     if (current) {
-        await setDeployed(db, ctx, flowId, 'undeploy', current.id, null);
+        await setDeployed(db, ctx, flowId, 'undeploy', current.id, null, commit);
     }
     const [inRepo] = await flowsInRepo(db, workspaceId, [flowId]);
     if (inRepo?.content_hash !== contentHash(flow)) {
-        await insertVersion(db, ctx, flowId, flow);
+        await insertVersion(db, ctx, flowId, flow, commit);
     }
 }
 
