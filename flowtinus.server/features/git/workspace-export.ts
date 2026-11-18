@@ -27,8 +27,17 @@ export const flowsInRepo = (db: Database, workspaceId: string, flowIds: string[]
 
 export type FlowToCommit = { definition: FlowFile; deployed: boolean };
 
-/** `flows`: these flows' files as they are to be, not as they are deployed */
-export async function exportWorkspace(db: Database, workspaceId: string, flows = new Map<string, FlowToCommit>()): Promise<RepoFiles> {
+/** a project's script: its key in TreeOverrides */
+export const scriptKey = (projectId: string, path: string) => `${projectId}/${path}`;
+
+/**
+ * What a commit is to change, against the tree as it is: these flows' files as they are to be (not as they are
+ * deployed), these scripts' content (null: removed), by scriptKey.
+ */
+export type TreeOverrides = { flows?: Map<string, FlowToCommit>; scripts?: Map<string, string | null> };
+
+// with git on, a script is in the tree as it was committed (the deployed set), not as it is being edited
+export async function exportWorkspace(db: Database, workspaceId: string, overrides: TreeOverrides = {}): Promise<RepoFiles> {
     const [[workspace], connections, projects, flowVersions, scripts, scriptFolders] = await Promise.all([
         db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]),
         db.query<{ id: string; name: string; type: ConnectionTypeName }>(
@@ -41,7 +50,10 @@ export async function exportWorkspace(db: Database, workspaceId: string, flows =
         ),
         flowsInRepo(db, workspaceId),
         db.query<{ project_id: string; path: string; content: string }>(
-            'SELECT project_id, path, content FROM scripts WHERE workspace_id = $1',
+            `SELECT coalesce(d.project_id, s.project_id) AS project_id, coalesce(d.path, s.path) AS path, coalesce(b.content, s.content) AS content
+       FROM (SELECT * FROM scripts WHERE workspace_id = $1) s
+       FULL JOIN (deployed_scripts d JOIN script_blobs b ON b.workspace_id = d.workspace_id AND b.hash = d.hash AND d.workspace_id = $1)
+         ON d.project_id = s.project_id AND d.path = s.path`,
             [workspaceId],
         ),
         db.query<{ project_id: string; path: string }>('SELECT project_id, path FROM script_folders WHERE workspace_id = $1', [
@@ -49,7 +61,17 @@ export async function exportWorkspace(db: Database, workspaceId: string, flows =
         ]),
     ]);
     const slug = workspace!.slug;
-    const versions = new Map<string, FlowToCommit>([...flowVersions.map(v => [v.flow_id, v] as const), ...flows]);
+    const versions = new Map<string, FlowToCommit>([...flowVersions.map(v => [v.flow_id, v] as const), ...(overrides.flows ?? [])]);
+    const contents = new Map(scripts.map(s => [scriptKey(s.project_id, s.path), s]));
+    for (const [key, content] of overrides.scripts ?? []) {
+        const at = key.indexOf('/');
+        if (content === null) {
+            contents.delete(key);
+        } else {
+            contents.set(key, { project_id: key.slice(0, at), path: key.slice(at + 1), content });
+        }
+    }
+    const scriptsNow = [...contents.values()];
     const files: RepoFiles = {
         [repoPath.gitattributes]: GITATTRIBUTES,
         [repoPath.workspace(slug)]: workspaceToYaml(),
@@ -82,7 +104,7 @@ export async function exportWorkspace(db: Database, workspaceId: string, flows =
             }
         }
 
-        const projectScripts = scripts.filter(s => s.project_id === project.id);
+        const projectScripts = scriptsNow.filter(s => s.project_id === project.id);
         for (const script of projectScripts) {
             files[repoPath.script(slug, project.name, script.path)] = script.content;
         }

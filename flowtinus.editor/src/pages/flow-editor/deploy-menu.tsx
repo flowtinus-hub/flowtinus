@@ -65,7 +65,7 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
     const [busy, setBusy] = useState(false);
     const [versionsOpen, setVersionsOpen] = useState(false);
     const [compareOpen, setCompareOpen] = useState(false);
-    const [committing, setCommitting] = useState<{ number: number; warnings: string[]; saved: boolean } | null>(null);
+    const [committing, setCommitting] = useState<{ number: number; warnings: string[]; saved: boolean; scripts: string[] } | null>(null);
     const current = deployments?.flowId === flowId ? deployments.value : NO_DEPLOYMENTS;
     const git = current.git;
     const target = git ? (git.branch ?? 'git') : environment;
@@ -144,7 +144,12 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
         const before = deployedVersion(latest);
         const warnings = latest.warnings ?? [];
         if (latest.git) {
-            setCommitting({ number: nextNumber(latest, draftNow()), warnings, saved: saved === 'saved' });
+            setCommitting({
+                number: nextNumber(latest, draftNow()),
+                warnings,
+                saved: saved === 'saved',
+                scripts: latest.changedScripts ?? [],
+            });
             return;
         }
 
@@ -229,7 +234,7 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
             onConfirm: () => act(() => undeployFlow(flowId)),
         });
 
-    const nothingToDeploy = state.kind === 'deployed' && !state.changed;
+    const nothingToDeploy = state.kind === 'deployed' && !state.changed && !current.changedScripts?.length;
 
     return (
         <>
@@ -314,7 +319,8 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                     flowName={draftNow()?.name ?? 'flow'}
                     warnings={committing.warnings}
                     saved={committing.saved}
-                    onCommit={message => act(() => deployFlow(flowId, message))}
+                    scripts={committing.scripts}
+                    onCommit={(message, scripts) => act(() => deployFlow(flowId, message, scripts))}
                     onClose={() => setCommitting(null)}
                 />
             )}
@@ -329,16 +335,24 @@ function CommitDialog(props: {
     flowName: string;
     warnings: string[];
     saved: boolean;
-    onCommit: (message: string) => Promise<ApiResult<FlowDeployments>>;
+    /** the changed scripts the draft imports: checked, they go in the same commit */
+    scripts: string[];
+    onCommit: (message: string, scripts: string[]) => Promise<ApiResult<FlowDeployments>>;
     onClose: () => void;
 }) {
-    const { branch, number, flowName, warnings, saved, onCommit, onClose } = props;
+    const { branch, number, flowName, warnings, saved, scripts, onCommit, onClose } = props;
     const [message, setMessage] = useState(`Update ${flowName}`);
+    const [checked, setChecked] = useState(() => new Set(scripts));
     const [busy, setBusy] = useState(false);
     const [outcome, setOutcome] = useState<ApiResult<FlowDeployments> | null>(null);
     const commit = async () => {
         setBusy(true);
-        setOutcome(await onCommit(message.trim()));
+        setOutcome(
+            await onCommit(
+                message.trim(),
+                scripts.filter(s => checked.has(s)),
+            ),
+        );
         setBusy(false);
     };
     const applied = outcome?.ok ? outcome.value : null;
@@ -377,6 +391,32 @@ function CommitDialog(props: {
                             onKeyDown={e => e.key === 'Enter' && message.trim() && !busy && void commit()}
                             autoFocus
                         />
+                        {scripts.length > 0 && (
+                            <fieldset className="grid gap-1 text-sm">
+                                <legend className="mb-1 text-muted-foreground">Changed scripts it imports, in the same commit:</legend>
+                                {scripts.map(path => (
+                                    <label key={path} className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={checked.has(path)}
+                                            disabled={busy}
+                                            onChange={e =>
+                                                setChecked(current => {
+                                                    const next = new Set(current);
+                                                    if (e.target.checked) {
+                                                        next.add(path);
+                                                    } else {
+                                                        next.delete(path);
+                                                    }
+                                                    return next;
+                                                })
+                                            }
+                                        />
+                                        <span className="font-mono text-xs">{path}.ts</span>
+                                    </label>
+                                ))}
+                            </fieldset>
+                        )}
                         {warnings.length > 0 && (
                             <div className="flex flex-col gap-1 text-sm text-amber-700 dark:text-amber-400">
                                 {warnings.map(w => (

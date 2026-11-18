@@ -51,6 +51,17 @@ export function scriptImports(code: string): string[] {
     return [...found];
 }
 
+/** the code with its imports of scripts under `from` (a script or a folder) moved to `to` */
+export function movedScriptImports(code: string, from: string, to: string): string {
+    const pattern = new RegExp(
+        String.raw`((?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"]))` + PREFIX_PATTERN + String.raw`([^'"]+)\2`,
+        'g',
+    );
+    return code.replace(pattern, (whole, head: string, quote: string, path: string) =>
+        insideScriptFolder(path, from) ? `${head}${scriptImport(movedScriptPath(path, from, to))}${quote}` : whole,
+    );
+}
+
 export const insideScriptFolder = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 export const movedScriptPath = (path: string, from: string, to: string) =>

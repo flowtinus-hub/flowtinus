@@ -1,5 +1,5 @@
 import type { Flow } from '#features/flows/flow';
-import { commitFlows } from '#features/git/git-first';
+import { commitTree } from '#features/git/git-first';
 import type { FlowToCommit } from '#features/git/workspace-export';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -9,28 +9,30 @@ import { loadDeployments, lockFlowDeployments, type FlowDeploymentsView } from '
 export type CommittedDeployments = FlowDeploymentsView & { commit?: string };
 
 /**
- * With git on, a change of what is deployed is a commit of the flow's file; the reconcile of that commit deploys it.
- * `toCommit` may refuse: what the catch-up applied before (a draft merged or marked) is kept, nothing is committed.
+ * With git on, a change of what is deployed is a commit of the flow's file (and of the scripts `toCommit` adds); the
+ * reconcile of that commit deploys it.
  */
 export async function commitDeploy(
     ctx: UseCaseContext,
     flow: Flow,
     message: string,
-    toCommit: (db: Database) => Promise<FlowToCommit | UseCaseError>,
+    toCommit: (db: Database) => Promise<(FlowToCommit & { scripts?: Map<string, string> }) | UseCaseError>,
 ): Promise<UseCaseResult<CommittedDeployments>> {
-    let refused: UseCaseError | null = null;
-    const commit = await commitFlows(ctx, message, async db => {
+    const committed = await commitTree(ctx, message, async db => {
         await lockFlowDeployments(db, flow.id);
         const to = await toCommit(db);
         if ('code' in to) {
-            refused = to;
-            return new Map();
+            return to;
         }
-        return new Map([[flow.id, to]]);
+        const { scripts, ...file } = to;
+        return { flows: new Map([[flow.id, file]]), ...(scripts ? { scripts } : {}) };
     });
-    if (refused) {
-        return { ok: false, error: refused };
+    if (!committed.ok) {
+        return committed;
     }
 
-    return success({ ...(await loadDeployments(ctx.db, ctx.workspaceId, flow.id)), ...(commit ? { commit } : {}) });
+    return success({
+        ...(await loadDeployments(ctx.db, ctx.workspaceId, flow.id)),
+        ...(committed.value ? { commit: committed.value } : {}),
+    });
 }

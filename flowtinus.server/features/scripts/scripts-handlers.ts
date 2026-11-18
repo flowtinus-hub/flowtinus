@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { changeTree } from '#features/git/git-first';
+import { changeTree, commitTree } from '#features/git/git-first';
+import { isGitOn } from '#features/git/git-config';
+import type { Database } from '#shared/database/database';
+import { rewriteMovedScript, scriptStates, type ScriptState } from './script-git';
 import { movedScriptPath, normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
 import { pathTooLong, requireActiveProject } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
@@ -16,7 +19,7 @@ const invalidPath = (error: string) => fail('validation', 'The request has inval
 const conflict = () => fail('conflict', 'This script was changed elsewhere. Reload it to see the latest version.');
 const tooLarge = (error: string) => fail('validation', 'The request has invalid fields.', { content: error });
 
-export type ScriptsView = { scripts: ScriptEntry[]; folders: string[] };
+export type ScriptsView = { scripts: (ScriptEntry & Partial<ScriptState>)[]; folders: string[] };
 
 export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ScriptsView>> {
@@ -31,7 +34,8 @@ export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
         }
 
         const { scripts, folders } = await listScripts(ctx.db, ctx.workspaceId, parsed.value.projectId);
-        return success({ scripts, folders: allFolders(scripts, folders) });
+        const states = await scriptStates(ctx.db, ctx.workspaceId, parsed.value.projectId);
+        return success({ scripts: scripts.map(s => ({ ...s, ...states?.get(s.path) })), folders: allFolders(scripts, folders) });
     }
 }
 
@@ -188,11 +192,17 @@ export class MoveScriptPathHandler implements UseCaseHandler<{ path: string }> {
             return tooLong;
         }
 
-        await changeTree(
-            ctx,
-            () => `Move script ${from} to ${to}`,
-            db => moveScriptPath(db, ctx.workspaceId, id, from, to, ctx.userId),
-        );
+        const message = `Move script ${from} to ${to}`;
+        const move = async (db: Database) => {
+            await moveScriptPath(db, ctx.workspaceId, id, from, to, ctx.userId);
+            return rewriteMovedScript({ ...ctx, db }, id, from, to);
+        };
+        if (await isGitOn(ctx.db, ctx.workspaceId)) {
+            const committed = await commitTree(ctx, message, move);
+            return committed.ok ? success({ path: to }) : committed;
+        }
+
+        await changeTree(ctx, () => message, move);
         return success({ path: to });
     }
 }

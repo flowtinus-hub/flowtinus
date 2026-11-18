@@ -15,6 +15,7 @@ type DeploymentsDto = {
     git?: { branch: string | null };
     commit?: string;
     draftConflict?: string;
+    changedScripts?: string[];
 };
 
 export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
@@ -25,6 +26,7 @@ export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
     ...(dto.git ? { git: dto.git } : {}),
     ...(dto.commit ? { commit: dto.commit } : {}),
     ...(dto.draftConflict ? { draftConflict: dto.draftConflict } : {}),
+    ...(dto.changedScripts ? { changedScripts: dto.changedScripts } : {}),
 });
 
 async function deployments(path: string, method = 'POST', body?: unknown): Promise<ApiResult<FlowDeployments>> {
@@ -39,8 +41,8 @@ export const getDeployments = (flowId: string) => deployments(`/flows/${flowId}/
  * deploys the saved draft as a new version (refused when it is not a valid flow, or is the deployed version already);
  * with git on, a commit of the draft with this message, which the reconcile deploys
  */
-export const deployFlow = (flowId: string, message?: string) =>
-    deployments(`/flows/${flowId}/deploy`, 'POST', message ? { message } : undefined);
+export const deployFlow = (flowId: string, message?: string, scripts?: string[]) =>
+    deployments(`/flows/${flowId}/deploy`, 'POST', message ? { message, ...(scripts?.length ? { scripts } : {}) } : undefined);
 
 /** makes an existing version the deployed one (an older one: a rollback) */
 export const deployVersion = (flowId: string, versionId: string) => deployments(`/flows/${flowId}/versions/${versionId}/deploy`);

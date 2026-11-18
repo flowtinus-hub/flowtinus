@@ -46,7 +46,7 @@ export async function getScript(
 
 export const exportsOf = (content: string) => JSON.stringify(scriptExports(content));
 
-const scriptHash = (text: string) => new Bun.CryptoHasher('sha256').update(text).digest('hex');
+export const scriptHash = (text: string) => new Bun.CryptoHasher('sha256').update(text).digest('hex');
 
 export const saveBlob = async (db: Database, workspaceId: string, content: string) => {
     const hash = scriptHash(content);
@@ -194,6 +194,18 @@ export async function moveScriptPath(db: Database, workspaceId: string, projectI
                 [workspaceId, projectId, script.path, movedScriptPath(script.path, from, to), userId],
             );
         }
+        const committed = await tx.query<{ path: string }>(
+            'SELECT path FROM deployed_scripts WHERE workspace_id = $1 AND project_id = $2',
+            [workspaceId, projectId],
+        );
+        for (const { path } of committed.filter(s => insideScriptFolder(s.path, from))) {
+            await tx.query('UPDATE deployed_scripts SET path = $4 WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
+                workspaceId,
+                projectId,
+                path,
+                movedScriptPath(path, from, to),
+            ]);
+        }
         for (const folder of folders.filter(f => insideScriptFolder(f, from))) {
             await tx.query('UPDATE script_folders SET path = $4 WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
                 workspaceId,
@@ -206,6 +218,10 @@ export async function moveScriptPath(db: Database, workspaceId: string, projectI
 }
 
 export async function deleteScriptPath(db: Database, workspaceId: string, projectId: string, path: string) {
+    await db.query(
+        `DELETE FROM deployed_scripts WHERE workspace_id = $1 AND project_id = $2 AND (path = $3 OR starts_with(path, $3 || '/'))`,
+        [workspaceId, projectId, path],
+    );
     await db.query(`DELETE FROM scripts WHERE workspace_id = $1 AND project_id = $2 AND (path = $3 OR starts_with(path, $3 || '/'))`, [
         workspaceId,
         projectId,

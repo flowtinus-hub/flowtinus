@@ -52,6 +52,8 @@ export type FlowDeployments = {
     commit?: string;
     /** with git on: the commit the draft could not be merged with; it cannot be committed until it is discarded */
     draftConflict?: string;
+    /** with git on: the changed scripts the draft imports (directly or through another script), offered to its Commit */
+    changedScripts?: string[];
 };
 
 /** a commit as the editor shows it */

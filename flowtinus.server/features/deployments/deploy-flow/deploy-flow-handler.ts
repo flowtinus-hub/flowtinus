@@ -9,10 +9,15 @@ import { validate } from '#shared/use-cases/validate';
 import { changeTree } from '#features/git/git-first';
 import { isGitOn } from '#features/git/git-config';
 import { draftToCommit } from '#features/git/draft-merge';
+import { scriptsToCommit } from '#features/scripts/script-git';
 import { commitDeploy, type CommittedDeployments } from '../commit-deploy';
 import { activeFlow, contentHash, currentDeployment, insertVersion, loadDeployments, lockFlowDeployments, newestVersionLike, setDeployed } from '../deployments';
 
-export const DeployFlowCommand = z.object({ id: z.uuid('Invalid'), message: z.string().trim().min(1).max(1000).optional() });
+export const DeployFlowCommand = z.object({
+    id: z.uuid('Invalid'),
+    message: z.string().trim().min(1).max(1000).optional(),
+    scripts: z.array(z.string()).optional(),
+});
 
 export class DeployFlowHandler implements UseCaseHandler<CommittedDeployments> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CommittedDeployments>> {
@@ -37,11 +42,15 @@ export class DeployFlowHandler implements UseCaseHandler<CommittedDeployments> {
                 if ('code' in draft) {
                     return draft;
                 }
+                const scripts = await scriptsToCommit(db, ctx.workspaceId, row.projectId, parsed.value.scripts ?? []);
+                if (!(scripts instanceof Map)) {
+                    return scripts;
+                }
                 const current = await currentDeployment(db, ctx.workspaceId, row.id);
-                if (current?.hash === contentHash(draft)) {
+                if (current?.hash === contentHash(draft) && scripts.size === 0) {
                     return { code: 'validation', message: `Nothing to commit: the draft is v${current.number}.` };
                 }
-                return { definition: draft, deployed: true };
+                return { definition: draft, deployed: true, scripts };
             });
         }
 
