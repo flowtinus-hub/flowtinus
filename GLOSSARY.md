@@ -1,6 +1,6 @@
 # Flowtinus
 
-Visual data flows: an engine that runs them, a server that schedules them and an editor that draws them. This glossary covers the vocabulary of the performance benchmarks (`flowtinus.perf`) and how their history is kept and read, loops, flow calls and how an agent reads a run.
+Visual data flows: an engine that runs them, a server that schedules them and an editor that draws them. This glossary covers the vocabulary of the performance benchmarks (`flowtinus.perf`) and how their history is kept and read, loops, flow calls, how an agent reads a run, and git sync.
 
 ## Language
 
@@ -95,3 +95,33 @@ _Avoid_: Run output (only the End's envelopes), run record (the engine's full re
 **Run summary**:
 The detail of a run per component: envelopes in and out per port, errors, writes, a Flow Invoker's calls and a few envelopes. What an agent gets for a run that is not clean, or when it asks for it.
 _Avoid_: Run result, run record (the summary is shrunk from it)
+
+### Git sync
+
+**Environment**:
+One server's place in the topology, with the branch it deploys from and the environments it promotes to.
+_Avoid_: Stage, instance (the server itself), target
+
+**Topology**:
+The environments of a repository and how flows are promoted between them, kept on a branch of its own outside the pipeline.
+_Avoid_: Pipeline config, environments file
+
+**Environment's branch**:
+The branch an environment deploys from. With git on, what is on its tip is what that environment should run.
+_Avoid_: Deploy branch, main, release branch
+
+**Reconcile**:
+Applying the tree at the tip of the environment's branch to the server, whole or not at all. It is what deploys, with git on.
+_Avoid_: Sync, import, pull
+
+**Refused commit**:
+A commit on the environment's branch whose tree is not valid: the reconcile leaves the server on the last commit it applied, and shows why.
+_Avoid_: Failed deploy, broken commit
+
+**Git ahead**:
+The state of an environment whose branch has a commit the server has not applied: refused, or not reconciled yet.
+_Avoid_: Out of sync, drift, behind
+
+**Deployed script set**:
+The scripts at the commit an environment last applied: what its schedules, webhooks and deployed runs import. The editor's Run uses the scripts being edited instead.
+_Avoid_: Script version, published scripts
