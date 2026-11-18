@@ -21,6 +21,7 @@ describe('database', () => {
                     'api_tokens',
                     'connections',
                     'deployment_history',
+                    'deployed_scripts',
                     'deployments',
                     'flow_schedules',
                     'flow_versions',

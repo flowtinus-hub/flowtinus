@@ -36,10 +36,13 @@ export async function readState(db: Database, workspaceId: string): Promise<Reco
     return state ?? { applied: null, refused: null };
 }
 
-export const markApplied = (ctx: UseCaseContext, commit: string) =>
+const markApplied = (ctx: UseCaseContext, commit: string) =>
     writeWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING, { applied: commit, refused: null }, ctx.userId);
 
-export const forgetReconcile = (ctx: UseCaseContext) => deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
+export async function forgetReconcile(ctx: UseCaseContext) {
+    await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
+    await ctx.db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1', [ctx.workspaceId]);
+}
 
 export async function applyCommit(ctx: UseCaseContext, slug: string, commit: string, files: RepoFiles): Promise<RenamedDraft[]> {
     const { renamedDrafts } = await importWorkspace(ctx, slug, files, { commit });

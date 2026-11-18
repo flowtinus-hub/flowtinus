@@ -46,27 +46,52 @@ export async function getScript(
 
 export const exportsOf = (content: string) => JSON.stringify(scriptExports(content));
 
-const sha256 = (text: string) => new Bun.CryptoHasher('sha256').update(text).digest('hex');
+const scriptHash = (text: string) => new Bun.CryptoHasher('sha256').update(text).digest('hex');
+
+export const saveBlob = async (db: Database, workspaceId: string, content: string) => {
+    const hash = scriptHash(content);
+    await db.query('INSERT INTO script_blobs (workspace_id, hash, content) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [
+        workspaceId,
+        hash,
+        content,
+    ]);
+    return hash;
+};
 
 export type ScriptUser = { label: string; code: string };
+
+export type ScriptSource = 'editing' | 'deployed';
+
+export async function scriptContents(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+    source: ScriptSource,
+    paths?: string[],
+): Promise<{ path: string; content: string }[]> {
+    const only = paths ? 'AND s.path = ANY($3::text[])' : '';
+    return db.query<{ path: string; content: string }>(
+        source === 'editing'
+            ? `SELECT s.path, s.content FROM scripts s WHERE s.workspace_id = $1 AND s.project_id = $2 ${only} ORDER BY s.path`
+            : `SELECT s.path, b.content FROM deployed_scripts s JOIN script_blobs b ON b.workspace_id = s.workspace_id AND b.hash = s.hash
+               WHERE s.workspace_id = $1 AND s.project_id = $2 ${only} ORDER BY s.path`,
+        paths ? [workspaceId, projectId, paths] : [workspaceId, projectId],
+    );
+}
 
 export async function scriptsForRun(
     db: Database,
     workspaceId: string,
     projectId: string,
     users: ScriptUser[],
+    source: ScriptSource,
 ): Promise<{ scripts: Record<string, string>; error?: string }> {
     const contents = new Map<string, string>();
     for (const user of users) {
         let wanted = scriptImports(user.code).map(path => ({ path, from: null as string | null }));
         while (wanted.length > 0) {
             const fresh = wanted.filter(w => !contents.has(w.path));
-            const rows = fresh.length
-                ? await db.query<{ path: string; content: string }>(
-                      'SELECT path, content FROM scripts WHERE workspace_id = $1 AND project_id = $2 AND path = ANY($3::text[])',
-                      [workspaceId, projectId, [...new Set(fresh.map(w => w.path))]],
-                  )
-                : [];
+            const rows = fresh.length ? await scriptContents(db, workspaceId, projectId, source, [...new Set(fresh.map(w => w.path))]) : [];
             rows.forEach(r => contents.set(r.path, r.content));
             const missing = fresh.find(w => !contents.has(w.path));
             if (missing) {
@@ -80,13 +105,7 @@ export async function scriptsForRun(
 
     const scripts: Record<string, string> = {};
     for (const [path, content] of contents) {
-        const hash = sha256(content);
-        await db.query('INSERT INTO script_blobs (workspace_id, hash, content) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [
-            workspaceId,
-            hash,
-            content,
-        ]);
-        scripts[path] = hash;
+        scripts[path] = await saveBlob(db, workspaceId, content);
     }
 
     return { scripts };

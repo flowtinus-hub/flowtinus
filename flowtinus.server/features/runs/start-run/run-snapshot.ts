@@ -1,6 +1,7 @@
 import { COMPONENT_TYPE, dynamicTargets, scriptCodeOf, scriptImport, type FlowFile } from '@flowtinus/core';
 import type { ProjectTree } from '#features/folders/project-tree';
-import { listScripts, scriptsForRun } from '#features/scripts/script-store';
+import { isGitOn } from '#features/git/git-config';
+import { scriptContents, scriptsForRun, type ScriptSource } from '#features/scripts/script-store';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { calledFlows, type CalledFlow } from './called-flows';
 
@@ -14,6 +15,7 @@ export async function runSnapshot(
     source: 'draft' | 'deployed',
 ): Promise<RunSnapshot> {
     const called = await calledFlows(ctx, projectId, tree, root, source);
+    const scripts: ScriptSource = source === 'deployed' && (await isGitOn(ctx.db, ctx.workspaceId)) ? 'deployed' : 'editing';
     const usersOf = (file: FlowFile) =>
         file.nodes.flatMap(n => {
             const code = scriptCodeOf(n.type, n.config);
@@ -24,7 +26,7 @@ export async function runSnapshot(
     // a flow taken only because one is named by expression: a script it lacks makes it one that cannot be called
     for (const c of called.filter(c => c.flow && c.anyFlow && !c.unavailable)) {
         const own = usersOf(c.flow!);
-        const missing = own.length ? (await scriptsForRun(ctx.db, ctx.workspaceId, projectId, own)).error : undefined;
+        const missing = own.length ? (await scriptsForRun(ctx.db, ctx.workspaceId, projectId, own, scripts)).error : undefined;
         if (missing) {
             c.unavailable = missing;
         } else {
@@ -34,14 +36,14 @@ export async function runSnapshot(
     // a Script Invoker that names its function by expression may call any script: every one that resolves goes
     const files = [root, ...called.flatMap(c => (c.flow && !c.unavailable ? [c.flow] : []))];
     if (files.some(file => dynamicTargets(file.nodes).scripts)) {
-        for (const script of (await listScripts(ctx.db, ctx.workspaceId, projectId)).scripts) {
+        for (const script of await scriptContents(ctx.db, ctx.workspaceId, projectId, scripts)) {
             const user = { label: 'Script Invoker (by path)', code: `import '${scriptImport(script.path)}';` };
-            if (!(await scriptsForRun(ctx.db, ctx.workspaceId, projectId, [user])).error) {
+            if (!(await scriptsForRun(ctx.db, ctx.workspaceId, projectId, [user], scripts)).error) {
                 users.push(user);
             }
         }
     }
 
-    const imported = await scriptsForRun(ctx.db, ctx.workspaceId, projectId, users);
+    const imported = await scriptsForRun(ctx.db, ctx.workspaceId, projectId, users, scripts);
     return imported.error ? { ok: false, error: imported.error } : { ok: true, calledFlows: called, scripts: imported.scripts };
 }

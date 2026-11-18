@@ -7,7 +7,7 @@ import type { StoredDraft } from '#features/flows/flow-draft';
 import { FlowRepository, FolderRepository, loadTree } from '#features/folders/project-tree';
 import { archiveProject } from '#features/projects/archive-project/archive-project-handler';
 import { ProjectRepository } from '#features/projects/project-repository';
-import { exportsOf } from '#features/scripts/script-store';
+import { exportsOf, saveBlob } from '#features/scripts/script-store';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { GitRemote } from './git-remote';
@@ -191,7 +191,7 @@ export async function importWorkspace(
     }
     await importFlows(ctx, entries.flows, projectIds, folders, options);
     await folders.archiveUnused();
-    await importScripts(ctx, entries.scripts, entries.scriptFolders, projectIds);
+    await importScripts(ctx, entries.scripts, entries.scriptFolders, projectIds, options.commit);
 
     const kept = new Set(projectIds.values());
     for (const { id } of await new ProjectRepository(ctx.db, ctx.workspaceId).findMany()) {
@@ -442,23 +442,45 @@ async function importScripts(
     scripts: Entry<'script'>[],
     scriptFolders: Entry<'scriptFolder'>[],
     projectIds: Map<string, string>,
+    commit: string | undefined,
 ): Promise<void> {
     const { db, workspaceId, userId } = ctx;
     const projects = [...projectIds.values()];
+    const key = (projectId: string, path: string) => `${projectId}/${path}`;
     const existing = new Map(
         (
             await db.query<{ project_id: string; path: string; content: string }>(
                 'SELECT project_id, path, content FROM scripts WHERE workspace_id = $1 AND project_id = ANY($2::uuid[])',
                 [workspaceId, projects],
             )
-        ).map(s => [`${s.project_id}/${s.path}`, s]),
+        ).map(s => [key(s.project_id, s.path), s]),
+    );
+    const deployed = new Map(
+        (
+            await db.query<{ project_id: string; path: string; hash: string }>(
+                'SELECT project_id, path, hash FROM deployed_scripts WHERE workspace_id = $1',
+                [workspaceId],
+            )
+        ).map(s => [key(s.project_id, s.path), s]),
     );
     const inTree = new Set<string>();
     for (const { text, entry } of scripts) {
         const projectId = projectIds.get(entry.project)!;
         const path = nfc(entry.path);
-        const was = existing.get(`${projectId}/${path}`);
-        inTree.add(`${projectId}/${path}`);
+        const was = existing.get(key(projectId, path));
+        inTree.add(key(projectId, path));
+        // with a commit, an editing copy git did not change since the last reconcile keeps its edits
+        if (commit) {
+            const hash = await saveBlob(db, workspaceId, text);
+            if (deployed.get(key(projectId, path))?.hash === hash && was) {
+                continue;
+            }
+            await db.query(
+                `INSERT INTO deployed_scripts (workspace_id, project_id, path, hash, commit_sha) VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (project_id, path) DO UPDATE SET workspace_id = $1, hash = $4, commit_sha = $5`,
+                [workspaceId, projectId, path, hash, commit],
+            );
+        }
         if (!was) {
             await db.query(
                 'INSERT INTO scripts (id, workspace_id, project_id, path, content, exports, updated_by) VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7)',
@@ -472,8 +494,18 @@ async function importScripts(
             );
         }
     }
-    for (const [key, script] of existing) {
-        if (!inTree.has(key)) {
+    for (const [at, script] of deployed) {
+        if (commit && !inTree.has(at)) {
+            await db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
+                workspaceId,
+                script.project_id,
+                script.path,
+            ]);
+        }
+    }
+    for (const [at, script] of existing) {
+        // with a commit, only what git removed goes: a script never committed is not git's to remove
+        if (!inTree.has(at) && (!commit || deployed.has(at))) {
             await db.query('DELETE FROM scripts WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
                 workspaceId,
                 script.project_id,

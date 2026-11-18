@@ -6,7 +6,7 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { gitAuthorOf, readGitState, saveGitConfig, type GitConfig } from './git-config';
 import { commitFirst } from './git-first';
 import { GitError, type GitRemote } from './git-remote';
-import { lockReconcile, markApplied } from './reconcile';
+import { applyCommit, lockReconcile } from './reconcile';
 import { exportWorkspace, repoChanges, type GitChanges, type RepoFiles } from './workspace-export';
 import { draftClashes, holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
@@ -184,7 +184,7 @@ async function turnOnInTransaction(
     if (Object.keys(changes).length > 0) {
         await commitFirst(ctx, state.config, remote, message, changes);
     } else {
-        await markApplied(ctx, tip);
+        await applyCommit(ctx, slug, tip, onBranch);
     }
 
     return success({ outcome, branch, warnings });
