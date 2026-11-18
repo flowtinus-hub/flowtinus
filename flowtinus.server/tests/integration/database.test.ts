@@ -28,6 +28,7 @@ describe('database', () => {
                     'flow_webhooks',
                     'flows',
                     'folders',
+                    'git_commits',
                     'workspace_members',
                     'workspace_settings',
                     'workspaces',

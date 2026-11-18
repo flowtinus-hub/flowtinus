@@ -25,7 +25,10 @@ export const flowsInRepo = (db: Database, workspaceId: string, flowIds: string[]
         [workspaceId, flowIds],
     );
 
-export async function exportWorkspace(db: Database, workspaceId: string): Promise<RepoFiles> {
+export type FlowToCommit = { definition: FlowFile; deployed: boolean };
+
+/** `flows`: these flows' files as they are to be, not as they are deployed */
+export async function exportWorkspace(db: Database, workspaceId: string, flows = new Map<string, FlowToCommit>()): Promise<RepoFiles> {
     const [[workspace], connections, projects, flowVersions, scripts, scriptFolders] = await Promise.all([
         db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]),
         db.query<{ id: string; name: string; type: ConnectionTypeName }>(
@@ -46,7 +49,7 @@ export async function exportWorkspace(db: Database, workspaceId: string): Promis
         ]),
     ]);
     const slug = workspace!.slug;
-    const versions = new Map(flowVersions.map(v => [v.flow_id, v]));
+    const versions = new Map<string, FlowToCommit>([...flowVersions.map(v => [v.flow_id, v] as const), ...flows]);
     const files: RepoFiles = {
         [repoPath.gitattributes]: GITATTRIBUTES,
         [repoPath.workspace(slug)]: workspaceToYaml(),

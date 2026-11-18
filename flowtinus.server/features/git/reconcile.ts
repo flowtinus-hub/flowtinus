@@ -4,7 +4,7 @@ import { deleteWorkspaceSetting, readWorkspaceSetting, writeWorkspaceSetting } f
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
-import { isGitOn, type GitConfig } from './git-config';
+import { isGitOn, RECONCILE_SETTING, type GitConfig } from './git-config';
 import type { GitRemote } from './git-remote';
 import type { RepoFiles } from './workspace-export';
 import { importWorkspace, readBranchWorkspace, validateImport, type RenamedDraft } from './workspace-import';
@@ -22,9 +22,7 @@ export type ReconcileResult = {
     refusedAt?: string;
 };
 
-type ReconcileState = { applied: string | null; refused: { commit: string; errors: TreeIssue[]; at: string } | null };
-
-const RECONCILE_SETTING = 'git-reconcile';
+type ReconcileState = { applied: string | null; branch?: string; refused: { commit: string; errors: TreeIssue[]; at: string } | null };
 
 const lockKey = (workspaceId: string) => `reconcile:${workspaceId}`;
 
@@ -36,18 +34,39 @@ export async function readState(db: Database, workspaceId: string): Promise<Reco
     return state ?? { applied: null, refused: null };
 }
 
-const markApplied = (ctx: UseCaseContext, commit: string) =>
-    writeWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING, { applied: commit, refused: null }, ctx.userId);
+const markApplied = (ctx: UseCaseContext, { branch, commit }: BranchCommit) =>
+    writeWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING, { applied: commit, branch, refused: null }, ctx.userId);
 
 export async function forgetReconcile(ctx: UseCaseContext) {
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
     await ctx.db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1', [ctx.workspaceId]);
 }
 
-export async function applyCommit(ctx: UseCaseContext, slug: string, commit: string, files: RepoFiles): Promise<RenamedDraft[]> {
-    const { renamedDrafts } = await importWorkspace(ctx, slug, files, { commit });
-    await markApplied(ctx, commit);
+export type BranchCommit = { branch: string; commit: string };
+
+export async function applyCommit(
+    ctx: UseCaseContext,
+    remote: GitRemote,
+    applied: BranchCommit,
+    slug: string,
+    files: RepoFiles,
+): Promise<RenamedDraft[]> {
+    const by = await recordCommit(ctx, remote, applied.commit);
+    const { renamedDrafts } = await importWorkspace(ctx, slug, files, { commit: applied.commit, by });
+    await markApplied(ctx, applied);
     return renamedDrafts;
+}
+
+// the commit's author is the app user with that email, if there is one
+async function recordCommit(ctx: UseCaseContext, remote: GitRemote, commit: string): Promise<string | null> {
+    const [name, email, at, message] = (await remote.run(['show', '-s', '--format=%an%x00%ae%x00%aI%x00%B', commit])).split('\0');
+    await ctx.db.query(
+        `INSERT INTO git_commits (workspace_id, sha, message, author_name, author_email, authored_at) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT DO NOTHING`,
+        [ctx.workspaceId, commit, (message ?? '').trim(), name, email, at],
+    );
+    const [user] = await ctx.db.query<{ id: string }>('SELECT id FROM users WHERE lower(email) = lower($1)', [email]);
+    return user?.id ?? null;
 }
 
 export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<UseCaseResult<ReconcileResult>> {
@@ -91,7 +110,7 @@ export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: 
             return success({ ...result, outcome: 'refused' as const, errors: refused.errors, refusedAt: refused.at });
         }
 
-        const renamedDrafts = await applyCommit(tx, slug, tip, files);
+        const renamedDrafts = await applyCommit(tx, remote, { branch, commit: tip }, slug, files);
         return success({ ...result, outcome: 'applied' as const, warnings: validation.warnings, renamedDrafts });
     });
 }

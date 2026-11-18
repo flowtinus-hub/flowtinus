@@ -7,12 +7,15 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { changeTree } from '#features/git/git-first';
-import { activeFlow, contentHash, currentDeployment, insertVersion, loadDeployments, lockFlowDeployments, newestVersionLike, setDeployed, type FlowDeploymentsView } from '../deployments';
+import { isGitOn } from '#features/git/git-config';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
+import { commitDeploy, type CommittedDeployments } from '../commit-deploy';
+import { activeFlow, contentHash, currentDeployment, insertVersion, loadDeployments, lockFlowDeployments, newestVersionLike, setDeployed } from '../deployments';
 
-export const DeployFlowCommand = z.object({ id: z.uuid('Invalid') });
+export const DeployFlowCommand = z.object({ id: z.uuid('Invalid'), message: z.string().trim().min(1).max(1000).optional() });
 
-export class DeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<FlowDeploymentsView>> {
+export class DeployFlowHandler implements UseCaseHandler<CommittedDeployments> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CommittedDeployments>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
             return denied;
@@ -34,6 +37,16 @@ export class DeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> {
         }
 
         const draft = checked.value;
+        if (await isGitOn(ctx.db, ctx.workspaceId)) {
+            return commitDeploy(ctx, row, parsed.value.message ?? `Update ${row.name}`, async db => {
+                const current = await currentDeployment(db, ctx.workspaceId, row.id);
+                if (current?.hash === contentHash(draft)) {
+                    throw new UseCaseFailure('validation', `Nothing to commit: the draft is v${current.number}.`);
+                }
+                return { definition: draft, deployed: true };
+            });
+        }
+
         const deployed = await changeTree<{ deployed: boolean; number: number }>(
             ctx,
             done => `Deploy ${row.name} v${done.number}`,

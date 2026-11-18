@@ -3,6 +3,7 @@ import type { Database } from '#shared/database/database';
 import { pgJson } from '#shared/database/jsonb';
 import type { Flow } from '#features/flows/flow';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
+import { gitBranch } from '#features/git/git-config';
 import { withUpdatedByName } from '#features/users/user-names';
 import { SCHEDULES_CHANNEL } from '#features/schedules/schedules';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -25,6 +26,7 @@ export type FlowVersionView = {
     createdBy: string | null;
     createdByName?: string;
     commit: string | null;
+    commitMessage?: string;
 };
 
 export type DeploymentAction = 'deploy' | 'promote' | 'rollback' | 'undeploy';
@@ -43,6 +45,8 @@ export type FlowDeploymentsView = {
     versions: FlowVersionView[];
     deployed: { versionId: string; deployedAt: Date; deployedBy: string | null; deployedByName?: string } | null;
     history: DeploymentEventView[];
+    /** with git on: the environment's branch, where a deploy is a commit */
+    git?: { branch: string | null };
 };
 
 /** what makes two versions the same flow (core's deployContent): not its name, nor where its components are */
@@ -63,7 +67,7 @@ async function names(db: Database, ids: (string | null)[]): Promise<Map<string, 
 }
 
 export async function loadDeployments(db: Database, workspaceId: string, flowId: string): Promise<FlowDeploymentsView> {
-    const [versions, deployed, history] = await Promise.all([
+    const [versions, deployed, history, commits, git] = await Promise.all([
         db.query<{
             id: string;
             number: number;
@@ -94,9 +98,18 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
        WHERE h.workspace_id = $1 AND h.flow_id = $2 ORDER BY h.id DESC LIMIT 200`,
             [workspaceId, flowId],
         ),
+        db.query<{ sha: string; message: string; author_name: string }>(
+            `SELECT sha, message, author_name FROM git_commits WHERE workspace_id = $1 AND sha IN (
+               SELECT commit_sha FROM flow_versions WHERE flow_id = $2 UNION SELECT commit_sha FROM deployment_history WHERE flow_id = $2)`,
+            [workspaceId, flowId],
+        ),
+        gitBranch(db, workspaceId),
     ]);
+    const commit = new Map(commits.map(c => [c.sha, c]));
     const who = await names(db, [...versions.map(v => v.created_by), ...deployed.map(d => d.deployed_by), ...history.map(h => h.by_user)]);
-    const named = (id: string | null) => (id && who.has(id) ? who.get(id) : undefined);
+    // a commit's author who is no app user is named as git has it
+    const named = (id: string | null, sha: string | null = null) =>
+        id && who.has(id) ? who.get(id) : !id && sha ? commit.get(sha)?.author_name : undefined;
     const current = deployed[0];
     return {
         versions: versions.map(v => ({
@@ -106,8 +119,9 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             definition: v.definition,
             createdAt: new Date(v.created_at),
             createdBy: v.created_by,
-            ...(named(v.created_by) ? { createdByName: named(v.created_by) } : {}),
+            ...(named(v.created_by, v.commit_sha) ? { createdByName: named(v.created_by, v.commit_sha) } : {}),
             commit: v.commit_sha,
+            ...(v.commit_sha && commit.has(v.commit_sha) ? { commitMessage: commit.get(v.commit_sha)!.message } : {}),
         })),
         deployed: current
             ? {
@@ -123,9 +137,10 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             toNumber: h.to_number,
             at: new Date(h.at),
             by: h.by_user,
-            ...(named(h.by_user) ? { byName: named(h.by_user) } : {}),
+            ...(named(h.by_user, h.commit_sha) ? { byName: named(h.by_user, h.commit_sha) } : {}),
             commit: h.commit_sha,
         })),
+        ...(git ? { git } : {}),
     };
 }
 
@@ -146,9 +161,12 @@ export async function currentDeployment(
 export const lockFlowDeployments = (db: Database, flowId: string) =>
     db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`deploy:${flowId}`]);
 
+/** who changes what is deployed: null for a commit whose author is no app user */
+export type Actor = { workspaceId: string; userId: string | null };
+
 export async function setDeployed(
     db: Database,
-    ctx: { workspaceId: string; userId: string },
+    ctx: Actor,
     flowId: string,
     action: DeploymentAction,
     from: string | null,
@@ -187,7 +205,7 @@ export async function newestVersionLike(
 
 export async function insertVersion(
     db: Database,
-    ctx: { workspaceId: string; userId: string },
+    ctx: Actor,
     flowId: string,
     definition: FlowFile,
     commit: string | null = null,
@@ -224,12 +242,7 @@ export async function deployedDefinitions(
  * stop being deployed, as an undeploy in their history, and their schedules and webhooks are turned off (restoring one
  * turns nothing back on). In the archive's transaction.
  */
-export async function undeployArchived(
-    db: Database,
-    ctx: { workspaceId: string; userId: string },
-    flowIds: string[],
-    commit: string | null = null,
-): Promise<void> {
+export async function undeployArchived(db: Database, ctx: Actor, flowIds: string[], commit: string | null = null): Promise<void> {
     if (flowIds.length === 0) {
         return;
     }
@@ -249,7 +262,7 @@ export async function undeployArchived(
     }
 }
 
-async function turnOffTriggers(db: Database, ctx: { workspaceId: string; userId: string }, flowIds: string[]): Promise<void> {
+async function turnOffTriggers(db: Database, ctx: Actor, flowIds: string[]): Promise<void> {
     const schedules = await db.query<{ flow_id: string }>(
         `UPDATE flow_schedules SET enabled = false, next_fire_at = NULL, updated_by = $3, updated_at = now()
      WHERE workspace_id = $1 AND flow_id = ANY($2::uuid[]) AND enabled RETURNING flow_id`,

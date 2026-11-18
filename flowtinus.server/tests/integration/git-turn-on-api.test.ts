@@ -85,7 +85,7 @@ describe('turning git on', () => {
         expect((await call('GET', '/git')).body).toMatchObject({ on: true });
 
         await deploy(await newFlow(sales, 'Invoices'));
-        expect(commits()[0]).toBe('Ana|Deploy Invoices v1');
+        expect(commits()[0]).toBe('Ana|Update Invoices');
         expect((await call('POST', '/git/on', {})).body.error).toEqual({ code: 'conflict', message: 'Git is already on.' });
     });
 
