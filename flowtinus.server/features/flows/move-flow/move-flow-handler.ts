@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
 import { FlowRepository, folderLabel, loadTree, location, nameInTree, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -40,7 +40,7 @@ export class MoveFlowHandler implements UseCaseHandler<FlowView> {
             return named;
         }
 
-        const moved = await mirrorGitChange(
+        const moved = await changeTree(
             ctx,
             () => `Move flow ${flow.name} to ${folderLabel(tree, folderId)}`,
             db => new FlowRepository(db, ctx.workspaceId).update(id, { folderId, updatedAt: new Date(), updatedBy: ctx.userId }),

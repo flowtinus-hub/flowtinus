@@ -7,13 +7,18 @@ import { validate } from '#shared/use-cases/validate';
 import { z } from 'zod';
 import { findTokenSecret, gitAccess, gitAuthorOf, gitConfigSchema, readGitConfig, readGitState, removeGitConfig, saveGitConfig, type GitConfig, type GitOptions } from './git-config';
 import { GitError, withThrowawayClone, withWorkspaceClone, type GitRemote } from './git-remote';
-import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type EnvironmentDecl } from './topology';
+import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type EnvironmentDecl, type Mode } from './topology';
 import { readTopology, type TopologyView } from './workspace-topology';
-import { clearPendingCommits, gitSyncStatus, pushPendingCommits, type GitSyncView } from './git-commits';
 import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
+import { forgetReconcile, lockReconcile, reconcile, type ReconcileResult } from './reconcile';
+import { ensureHookToken, forgetHookToken, hookPath, readHookToken, renewHookToken } from './git-hook';
+import { readLastPoll, recordPoll, type LastPoll } from './git-poll-state';
+import { readState } from './reconcile';
+import { workspaceSlug } from '#features/folders/project-tree';
 
-export type GitConfigView = { config: GitConfig | null; on: boolean };
+/** hook (admins): the webhook's path on the server; lastPoll: the last fetch of the environment's branch, and why it could not reconcile */
+export type GitConfigView = { config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll };
 
 export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<GitConfigView>> {
@@ -23,7 +28,14 @@ export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
         }
 
         const state = await readGitState(ctx.db, ctx.workspaceId);
-        return success({ config: state?.config ?? null, on: state?.on ?? false });
+        const token = ctx.role === 'admin' ? await readHookToken(ctx.db, ctx.workspaceId) : null;
+        const lastPoll = state?.on ? await readLastPoll(ctx.db, ctx.workspaceId) : null;
+        return success({
+            config: state?.config ?? null,
+            on: state?.on ?? false,
+            ...(token ? { hook: hookPath(await workspaceSlug(ctx), token) } : {}),
+            ...(lastPoll ? { lastPoll } : {}),
+        });
     }
 }
 
@@ -54,14 +66,19 @@ export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig;
             return config;
         }
 
-        const saved = await readGitState(ctx.db, ctx.workspaceId);
-        const on =
-            !!saved?.on && saved.config.repository === config.value.repository && saved.config.environment === config.value.environment;
-        await saveGitConfig(ctx, config.value, on);
-        if (!on) {
-            await clearPendingCommits(ctx);
-        }
-
+        const on = await ctx.db.transaction(async db => {
+            const tx = { ...ctx, db };
+            // waits for a running reconcile, which would write the deployed set after it is forgotten
+            await lockReconcile(db, ctx.workspaceId);
+            const saved = await readGitState(db, ctx.workspaceId);
+            const stays =
+                !!saved?.on && saved.config.repository === config.value.repository && saved.config.environment === config.value.environment;
+            await saveGitConfig(tx, config.value, stays);
+            if (!stays) {
+                await forgetReconcile(tx);
+            }
+            return stays;
+        });
         return success({ config: config.value, on });
     }
 }
@@ -156,7 +173,7 @@ async function testAccess(remote: GitRemote, environment: string): Promise<Acces
     return result(await readTopology(remote, environment, branches).catch(() => null));
 }
 
-async function onWorkspaceRepository<T>(
+export async function onWorkspaceRepository<T>(
     ctx: UseCaseContext,
     options: GitOptions,
     work: (remote: GitRemote, config: GitConfig) => Promise<UseCaseResult<T>>,
@@ -261,7 +278,7 @@ export const TurnGitOnCommand = z.object({
     choice: z.enum(['git', 'server'], 'git or server').optional(),
 });
 
-export type TurnOnResult = { outcome: TurnOnOutcome; branch: string; warnings: TreeIssue[]; status: GitSyncView | null };
+export type TurnOnResult = { outcome: TurnOnOutcome; branch: string; warnings: TreeIssue[] };
 
 export class TurnGitOnHandler implements UseCaseHandler<TurnOnResult> {
     constructor(private readonly options: GitOptions) {}
@@ -278,23 +295,24 @@ export class TurnGitOnHandler implements UseCaseHandler<TurnOnResult> {
         }
 
         const turned = await onWorkspaceRepository(ctx, this.options, (remote, config) => turnGitOn(ctx, remote, config, parsed.value));
-        if (!turned.ok) {
-            return turned;
+        if (turned.ok) {
+            await ensureHookToken(ctx);
         }
-
-        return success({ ...turned.value, status: await pushPendingCommits(ctx, this.options) });
+        return turned;
     }
 }
 
-export class GetGitStatusHandler implements UseCaseHandler<{ status: GitSyncView | null }> {
-    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ status: GitSyncView | null }>> {
-        const denied = requireRole(ctx, 'viewer');
+export class RenewHookTokenHandler implements UseCaseHandler<{ hook: string }> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ hook: string }>> {
+        const denied = requireRole(ctx, 'admin');
         if (denied) {
             return denied;
         }
+        if (!(await readGitState(ctx.db, ctx.workspaceId))?.on) {
+            return fail('conflict', 'Git is off in this workspace.');
+        }
 
-        const state = await readGitState(ctx.db, ctx.workspaceId);
-        return success({ status: state?.on ? await gitSyncStatus(ctx.db, ctx.workspaceId) : null });
+        return success({ hook: hookPath(await workspaceSlug(ctx), await renewHookToken(ctx)) });
     }
 }
 
@@ -305,8 +323,89 @@ export class RemoveGitConfigHandler implements UseCaseHandler<{ config: null }> 
             return denied;
         }
 
-        await removeGitConfig(ctx);
-        await clearPendingCommits(ctx);
+        await ctx.db.transaction(async db => {
+            const tx = { ...ctx, db };
+            // waits for a running reconcile, which would write the deployed set after it is forgotten
+            await lockReconcile(db, ctx.workspaceId);
+            await removeGitConfig(tx);
+            await forgetReconcile(tx);
+            await forgetHookToken(tx);
+        });
         return success({ config: null });
+    }
+}
+
+export class ReconcileHandler implements UseCaseHandler<ReconcileResult> {
+    constructor(private readonly options: GitOptions) {}
+
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ReconcileResult>> {
+        const denied = requireRole(ctx, 'editor');
+        if (denied) {
+            return denied;
+        }
+
+        const result = await onWorkspaceRepository(ctx, this.options, (remote, config) => reconcile(ctx, remote, config));
+        // Reconcile now is a fetch like a poll's: what it found is what the git section shows (another one running is not)
+        if (
+            (result.ok || result.error.message !== 'A reconcile of this workspace is already running.') &&
+            (await readGitState(ctx.db, ctx.workspaceId))?.on
+        ) {
+            await recordPoll(ctx.db, ctx.workspaceId, new Date(), result.ok ? undefined : result.error.message);
+        }
+        return result;
+    }
+}
+
+export type GitCommitView = { sha: string; message?: string; author?: string; at?: string };
+
+/**
+ * What the git section and the sidebar show with git on: the commit the deploy is on, a commit git is at that was
+ * refused (with its errors per file), git unreachable (since when), and the warnings of the commit applied.
+ */
+export type GitStatusView =
+    | { on: false }
+    | {
+          on: true;
+          branch: string | null;
+          /** the environment's mode in the topology: not direct, the tree's changes come only from git */
+          mode: Mode;
+          deploy: GitCommitView | null;
+          refused: (GitCommitView & { errors: TreeIssue[]; refusedAt: string }) | null;
+          unreachable: { since: string; error: string } | null;
+          warnings: TreeIssue[];
+          lastPoll: LastPoll | null;
+      };
+
+export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<GitStatusView>> {
+        const denied = requireRole(ctx, 'viewer');
+        if (denied) {
+            return denied;
+        }
+        if (!(await readGitState(ctx.db, ctx.workspaceId))?.on) {
+            return success({ on: false });
+        }
+
+        const state = await readState(ctx.db, ctx.workspaceId);
+        const shas = [state.applied, state.refused?.commit].filter((sha): sha is string => !!sha);
+        const commits = await ctx.db.query<{ sha: string; message: string; author_name: string; authored_at: Date }>(
+            'SELECT sha, message, author_name, authored_at FROM git_commits WHERE workspace_id = $1 AND sha = ANY($2::text[])',
+            [ctx.workspaceId, shas],
+        );
+        const commit = (sha: string): GitCommitView => {
+            const row = commits.find(c => c.sha === sha);
+            return row ? { sha, message: row.message, author: row.author_name, at: new Date(row.authored_at).toISOString() } : { sha };
+        };
+        const lastPoll = await readLastPoll(ctx.db, ctx.workspaceId);
+        return success({
+            on: true,
+            branch: state.branch ?? null,
+            mode: state.mode ?? 'direct',
+            deploy: state.applied ? commit(state.applied) : null,
+            refused: state.refused ? { ...commit(state.refused.commit), errors: state.refused.errors, refusedAt: state.refused.at } : null,
+            unreachable: lastPoll?.error ? { since: lastPoll.since ?? lastPoll.at, error: lastPoll.error } : null,
+            warnings: state.warnings ?? [],
+            lastPoll,
+        });
     }
 }

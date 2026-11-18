@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { isFolderVisible, subtreeIds } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -37,7 +37,7 @@ export class ArchiveFolderHandler implements UseCaseHandler<{ id: string }> {
 
         const subtree = subtreeIds(tree.folders, id);
         const archive = { deletedAt: new Date(), deletedBy: ctx.userId };
-        await mirrorGitChange(
+        await changeTree(
             ctx,
             () => `Archive folder ${folder.name}`,
             async tx => {

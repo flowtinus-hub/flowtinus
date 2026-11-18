@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree, commitTree } from '#features/git/git-first';
+import { isGitOn } from '#features/git/git-config';
+import type { Database } from '#shared/database/database';
+import { rewriteMovedScript, scriptStates, type ScriptState } from './script-git';
 import { movedScriptPath, normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
 import { pathTooLong, requireActiveProject } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
@@ -16,7 +19,7 @@ const invalidPath = (error: string) => fail('validation', 'The request has inval
 const conflict = () => fail('conflict', 'This script was changed elsewhere. Reload it to see the latest version.');
 const tooLarge = (error: string) => fail('validation', 'The request has invalid fields.', { content: error });
 
-export type ScriptsView = { scripts: ScriptEntry[]; folders: string[] };
+export type ScriptsView = { scripts: (ScriptEntry & Partial<ScriptState>)[]; folders: string[] };
 
 export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ScriptsView>> {
@@ -31,7 +34,8 @@ export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
         }
 
         const { scripts, folders } = await listScripts(ctx.db, ctx.workspaceId, parsed.value.projectId);
-        return success({ scripts, folders: allFolders(scripts, folders) });
+        const states = await scriptStates(ctx.db, ctx.workspaceId, parsed.value.projectId);
+        return success({ scripts: scripts.map(s => ({ ...s, ...states?.get(s.path) })), folders: allFolders(scripts, folders) });
     }
 }
 
@@ -82,7 +86,7 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
         }
 
         if (kind === 'folder') {
-            await mirrorGitChange(
+            await changeTree(
                 ctx,
                 () => `Create script folder ${target}`,
                 db =>
@@ -95,7 +99,7 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
             return success({ path: target, revision: 0 });
         }
 
-        await mirrorGitChange(
+        await changeTree(
             ctx,
             () => `Create script ${target}`,
             db =>
@@ -131,15 +135,10 @@ export class SaveScriptHandler implements UseCaseHandler<{ revision: number }> {
             return tooLarge(large);
         }
 
-        const [saved] = await mirrorGitChange(
-            ctx,
-            () => `Save script ${target}`,
-            db =>
-                db.query<{ revision: number }>(
-                    `UPDATE scripts SET content = $4, exports = $7::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
+        const [saved] = await ctx.db.query<{ revision: number }>(
+            `UPDATE scripts SET content = $4, exports = $7::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
        WHERE workspace_id = $1 AND project_id = $2 AND path = $3 AND revision = $5 RETURNING revision`,
-                    [ctx.workspaceId, id, target, content, revision, ctx.userId, exportsOf(content)],
-                ),
+            [ctx.workspaceId, id, target, content, revision, ctx.userId, exportsOf(content)],
         );
         if (saved) {
             return success({ revision: saved.revision });
@@ -193,11 +192,17 @@ export class MoveScriptPathHandler implements UseCaseHandler<{ path: string }> {
             return tooLong;
         }
 
-        await mirrorGitChange(
-            ctx,
-            () => `Move script ${from} to ${to}`,
-            db => moveScriptPath(db, ctx.workspaceId, id, from, to, ctx.userId),
-        );
+        const message = `Move script ${from} to ${to}`;
+        const move = async (db: Database) => {
+            await moveScriptPath(db, ctx.workspaceId, id, from, to, ctx.userId);
+            return rewriteMovedScript({ ...ctx, db }, id, from, to);
+        };
+        if (await isGitOn(ctx.db, ctx.workspaceId)) {
+            const committed = await commitTree(ctx, message, move);
+            return committed.ok ? success({ path: to }) : committed;
+        }
+
+        await changeTree(ctx, () => message, move);
         return success({ path: to });
     }
 }
@@ -219,7 +224,7 @@ export class DeleteScriptPathHandler implements UseCaseHandler<{ path: string }>
             return missing;
         }
 
-        await mirrorGitChange(
+        await changeTree(
             ctx,
             () => `Delete script ${parsed.value.path}`,
             db => deleteScriptPath(db, ctx.workspaceId, parsed.value.projectId, parsed.value.path),

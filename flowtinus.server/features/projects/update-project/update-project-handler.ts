@@ -1,4 +1,4 @@
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -35,7 +35,7 @@ export class UpdateProjectHandler implements UseCaseHandler<UpdateProjectRespons
             }
         }
 
-        const project = await mirrorGitChange<Project | null>(
+        const project = await changeTree<Project | null>(
             ctx,
             updated => `Update project ${updated?.name ?? ''}`,
             db => new ProjectRepository(db, ctx.workspaceId).update(id, changes),

@@ -1,7 +1,11 @@
 import type { TreeIssue } from '@flowtinus/core';
 import { api } from '@/lib/api';
 
-export type GitConfig = { repository: string; tokenSecret: string; environment: string };
+/** pollSeconds: how often the server fetches the environment's branch (60 when absent) */
+export type GitConfig = { repository: string; tokenSecret: string; environment: string; pollSeconds?: number };
+
+/** the last fetch of the environment's branch, and why it could not reconcile */
+export type LastPoll = { at: string; error?: string; since?: string };
 
 export type Mode = 'direct' | 'pull-request' | 'protected';
 
@@ -25,11 +29,50 @@ export type AccessTest = {
     note: string;
 };
 
-export type GitStatus = { pending: number; reason: string | null; since: string | null };
-
 export const CONFIG_BRANCH = 'flowtinus/config';
 
-export const getGitConfig = (ws: string) => api<{ config: GitConfig | null; on: boolean }>(`/w/${ws}/git`);
+/** hook (admins): the webhook's path on the server (git/hook/<workspace>/<token>) */
+export const getGitConfig = (ws: string) =>
+    api<{ config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll }>(`/w/${ws}/git`);
+
+export type GitCommitView = { sha: string; message?: string; author?: string; at?: string };
+
+/** with git on: the commit the deploy is on, a refused commit git is at (errors per file), git unreachable since, warnings */
+export type GitStatus =
+    | { on: false }
+    | {
+          on: true;
+          branch: string | null;
+          /** not direct: this server takes the tree's changes only from git (pull requests) */
+          mode: Mode;
+          deploy: GitCommitView | null;
+          refused: (GitCommitView & { errors: TreeIssue[]; refusedAt: string }) | null;
+          unreachable: { since: string; error: string } | null;
+          warnings: TreeIssue[];
+          lastPoll: LastPoll | null;
+      };
+
+export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
+
+/** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
+export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';
+
+/** what the editor says where it turns off the Commit and the tree's actions */
+export const ONLY_PULL_REQUESTS = 'This environment only takes pull requests: edit in git.';
+
+/** git ahead of the deploy: a refused commit, or git unreachable */
+export const gitAhead = (status: GitStatus) => status.on && (!!status.refused || !!status.unreachable);
+
+export type ReconcileOutcome = 'applied' | 'up-to-date' | 'refused';
+
+/** Reconcile now: the branch's tip applied, or refused, or already applied */
+export const reconcileNow = (ws: string) =>
+    api<{ outcome: ReconcileOutcome; commit: string; errors: TreeIssue[]; warnings: TreeIssue[] }>(`/w/${ws}/git/reconcile`, {
+        method: 'POST',
+    });
+
+/** a new token for the webhook: the old URL stops working */
+export const renewHookToken = (ws: string) => api<{ hook: string }>(`/w/${ws}/git/hook-token`, { method: 'POST' });
 
 export const saveGitConfig = (ws: string, config: GitConfig) =>
     api<{ config: GitConfig; on: boolean }>(`/w/${ws}/git`, { method: 'PUT', body: config });
@@ -37,8 +80,6 @@ export const saveGitConfig = (ws: string, config: GitConfig) =>
 export const removeGitConfig = (ws: string) => api<{ config: null }>(`/w/${ws}/git`, { method: 'DELETE' });
 
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
-
-export const getGitStatus = (ws: string) => api<{ status: GitStatus | null }>(`/w/${ws}/git/status`);
 
 export const getTopology = (ws: string) => api<{ topology: Topology }>(`/w/${ws}/git/topology`);
 
@@ -63,7 +104,6 @@ export type TurnOnResult = {
     outcome: 'exported' | 'imported' | 'server-replaced-git' | 'git-replaced-server';
     branch: string;
     warnings: TreeIssue[];
-    status: GitStatus | null;
 };
 
 export const getTurnOnPlan = (ws: string) => api<TurnOnPlan>(`/w/${ws}/git/on`);

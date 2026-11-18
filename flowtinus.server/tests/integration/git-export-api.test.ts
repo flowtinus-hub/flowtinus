@@ -122,7 +122,8 @@ describe('every change of the workspace follows into the repository', () => {
             'projects/Sales/project.yaml',
         ]);
         expect(lastCommit()).toBe('Ana|Restore folder Daily');
-    });
+        // a dozen commits, each pushed and reconciled: beside the other suites it outlasts 30 s
+    }, 60_000);
 
     test('an archived flow leaves the repository; restored, it comes back not deployed', async () => {
         const { call, newProject, newFlow, deploy, tree, show, lastCommit } = await newWorkspace();
@@ -159,7 +160,7 @@ describe('every change of the workspace follows into the repository', () => {
         expect(lastCommit()).toBe('Ana|Restore project Revenue');
     });
 
-    test('scripts are files at their paths: a change, a move and a delete are commits; an empty script folder keeps a .gitkeep', async () => {
+    test('scripts are files at their paths: a save is not a commit, a move (of the script as committed) and a delete are; an empty script folder keeps a .gitkeep', async () => {
         const { call, newProject, tree, show, lastCommit } = await newWorkspace();
         const sales = await newProject('Sales');
         const scripts = `/projects/${sales}/scripts`;
@@ -172,12 +173,13 @@ describe('every change of the workspace follows into the repository', () => {
 
         const saved = await call('PUT', `${scripts}/content`, { path: 'lib/money', content: 'export const cents = 1000;\n', revision: 0 });
         expect(saved.status).toBe(200);
-        expect(show('projects/Sales/scripts/lib/money.ts')).toBe('export const cents = 1000;');
-        expect(lastCommit()).toBe('Ana|Save script lib/money');
+        expect(show('projects/Sales/scripts/lib/money.ts')).toBe('export const cents = 100;');
+        expect(lastCommit()).toBe('Ana|Create script lib/money');
 
         expect((await call('POST', `${scripts}/move`, { from: 'lib', to: 'shared' })).status).toBe(200);
         expect(tree()).toEqual(['projects/Sales/project.yaml', 'projects/Sales/scripts/shared/money.ts']);
         expect(lastCommit()).toBe('Ana|Move script lib to shared');
+        expect(show('projects/Sales/scripts/shared/money.ts')).toBe('export const cents = 100;');
 
         expect((await call('POST', scripts, { path: 'drafts', kind: 'folder' })).status).toBe(201);
         expect(lastCommit()).toBe('Ana|Create script folder drafts');

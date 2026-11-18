@@ -17,6 +17,9 @@ export type FlowVersion = {
     createdAt: Date;
     createdBy: string | null;
     createdByName?: string;
+    /** with git: the commit it came from, and its message */
+    commit?: string | null;
+    commitMessage?: string;
 };
 
 export type DeploymentAction = 'deploy' | 'promote' | 'rollback' | 'undeploy';
@@ -31,6 +34,7 @@ export type DeploymentEvent = {
     at: Date;
     by: string | null;
     byName?: string;
+    commit?: string | null;
 };
 
 export type FlowDeployments = {
@@ -42,7 +46,18 @@ export type FlowDeployments = {
     history: DeploymentEvent[];
     /** what deploying the saved draft now would leave broken (a flow it calls that is not deployed); not a refusal */
     warnings?: string[];
+    /** with git on: a deploy is a commit to the environment's branch (null until a commit is applied) */
+    git?: { branch: string | null; mode: 'direct' | 'pull-request' | 'protected' };
+    /** the commit a Commit applied */
+    commit?: string;
+    /** with git on: the commit the draft could not be merged with; it cannot be committed until it is discarded */
+    draftConflict?: string;
+    /** with git on: the changed scripts the draft imports (directly or through another script), offered to its Commit */
+    changedScripts?: string[];
 };
+
+/** a commit as the editor shows it */
+export const shortSha = (sha: string) => sha.slice(0, 7);
 
 export const NO_DEPLOYMENTS: FlowDeployments = { versions: [], deployed: null, history: [] };
 

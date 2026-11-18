@@ -67,7 +67,6 @@ describe('turning git on', () => {
         await newFlow(sales, 'Draft only');
         expect(commits()).toEqual(['Someone|start']);
         expect((await call('GET', '/git')).body).toMatchObject({ on: false });
-        expect((await call('GET', '/git/status')).body).toEqual({ status: null });
 
         const plan = (await call('GET', '/git/on')).body;
         expect(plan).toMatchObject({ branch: 'dev', branchExists: true, case: 'export', toServer: [], errors: [], warnings: [] });
@@ -80,13 +79,13 @@ describe('turning git on', () => {
 
         const on = await call('POST', '/git/on', {});
         expect(on.status).toBe(200);
-        expect(on.body).toMatchObject({ outcome: 'exported', branch: 'dev', status: { pending: 0, reason: null } });
+        expect(on.body).toMatchObject({ outcome: 'exported', branch: 'dev' });
         expect(commits()).toEqual([`Ana|First export of ${slug}`, 'Someone|start']);
         expect(tree()).toEqual(Object.keys(await exportWorkspace(db, id)));
         expect((await call('GET', '/git')).body).toMatchObject({ on: true });
 
         await deploy(await newFlow(sales, 'Invoices'));
-        expect(commits()[0]).toBe('Ana|Deploy Invoices v1');
+        expect(commits()[0]).toBe('Ana|Update Invoices');
         expect((await call('POST', '/git/on', {})).body.error).toEqual({ code: 'conflict', message: 'Git is already on.' });
     });
 
@@ -115,10 +114,8 @@ describe('turning git on', () => {
         await call('POST', '/secrets', { name: 'other-token', value: 'tok3n' });
 
         expect((await call('PUT', '/git', { ...config, tokenSecret: 'other-token' })).body.on).toBe(true);
-        expect((await call('GET', '/git/status')).body.status).toMatchObject({ pending: 0 });
         expect((await call('PUT', '/git', { ...config, environment: 'PROD' })).body.on).toBe(false);
         expect((await call('GET', '/git')).body.on).toBe(false);
-        expect((await call('GET', '/git/status')).body).toEqual({ status: null });
     });
 
     test('a workspace with projects and connections but no flows is empty: the branch imports, no choice asked', async () => {
@@ -190,7 +187,7 @@ describe('turning git on', () => {
         const { id, slug, call, tree, commits } = await bothWithContent();
 
         const on = await call('POST', '/git/on', { choice: 'server' });
-        expect(on.body).toMatchObject({ outcome: 'server-replaced-git', status: { pending: 0 } });
+        expect(on.body).toMatchObject({ outcome: 'server-replaced-git' });
         expect(commits()).toEqual([`Ana|DEV replaces ${slug} in git`, 'Someone|files']);
         expect(tree()).toEqual(Object.keys(await exportWorkspace(db, id)));
         expect(tree()).not.toContain(`${slug}/projects/Sales/flows/Draft only.flow.yaml`);
@@ -232,7 +229,7 @@ describe('turning git on', () => {
         commitFiles(repo, 'dev', files);
 
         const on = await call('POST', '/git/on', { choice: 'git' });
-        expect(on.body).toMatchObject({ outcome: 'git-replaced-server', status: { pending: 0 } });
+        expect(on.body).toMatchObject({ outcome: 'git-replaced-server' });
         expect(await exportWorkspace(db, id)).toEqual(files);
         expect(commits()[0]).toBe('Someone|files');
 

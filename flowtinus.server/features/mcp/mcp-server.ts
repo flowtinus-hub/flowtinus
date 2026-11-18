@@ -6,6 +6,7 @@ import { buildFlowPrompt, debugRunPrompt, SERVER_INSTRUCTIONS } from './prompts'
 import { registerResources } from './resources';
 import { MCP_TOOLS } from './tools';
 import { failed, toolContext, type McpOptions } from './tools/tool';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { workspaceOfCall } from './workspace-of-call';
 
 export { MAX_YAML_BYTES, type McpOptions } from './tools/tool';
@@ -47,6 +48,9 @@ export function createMcpServer(options: McpOptions): McpServer {
                     }
                     return await tool.run(args, t.value);
                 } catch (error) {
+                    if (error instanceof UseCaseFailure) {
+                        return failed(error.error);
+                    }
                     console.error(`MCP tool ${tool.name} failed`, error);
                     return failed({ code: 'internal' as UseCaseError['code'], message: 'Unexpected error.' });
                 }

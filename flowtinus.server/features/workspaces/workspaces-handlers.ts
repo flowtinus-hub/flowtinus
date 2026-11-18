@@ -106,7 +106,7 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
         }>(
             `SELECT w.id, w.slug, w.name, w.description, w.icon, w.color, w.created_at, w.deleted_at, m.role,
               (SELECT count(*) FROM projects p WHERE p.workspace_id = w.id AND p.deleted_at IS NULL) AS projects,
-              (SELECT count(*) FROM connections c WHERE c.workspace_id = w.id) AS connections,
+              (SELECT count(*) FROM connections c WHERE c.workspace_id = w.id AND c.deleted_at IS NULL) AS connections,
               (SELECT count(*) FROM secrets s WHERE s.workspace_id = w.id) AS secrets,
               (SELECT count(*) FROM variables v WHERE v.workspace_id = w.id) AS variables,
               (SELECT count(*) FROM workspace_members x WHERE x.workspace_id = w.id) AS members

@@ -1,4 +1,4 @@
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -25,7 +25,7 @@ export class CreateProjectHandler implements UseCaseHandler<CreateProjectRespons
             return fail('conflict', `A project named "${command.name}" already exists.`, { name: 'Already in use' });
         }
 
-        const project = await mirrorGitChange(
+        const project = await changeTree(
             ctx,
             () => `Create project ${command.name}`,
             db => new ProjectRepository(db, ctx.workspaceId).insert({ id: crypto.randomUUID(), ...command }),

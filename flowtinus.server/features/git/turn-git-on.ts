@@ -1,14 +1,15 @@
 import { repoEntry, repoPath, type TreeIssue } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { gitAuthorOf, readGitState, saveGitConfig, type GitConfig } from './git-config';
-import { lockGitCommits, queueGitCommit, type GitChanges } from './git-commits';
-import type { GitRemote } from './git-remote';
-import { CONFIG_BRANCH } from './topology';
-import { exportWorkspace, repoChanges, type RepoFiles } from './workspace-export';
-import { draftClashes, holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, readBranchWorkspace, validateImport } from './workspace-import';
-import { readTopology } from './workspace-topology';
+import { commitFirst } from './git-first';
+import { GitError, type GitRemote } from './git-remote';
+import { applyCommit, lockReconcile } from './reconcile';
+import { exportWorkspace, repoChanges, type GitChanges, type RepoFiles } from './workspace-export';
+import { draftClashes, holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
+import { environmentBranch } from './workspace-topology';
 
 export type FileChange = { path: string; change: 'added' | 'changed' | 'removed'; note?: string };
 
@@ -27,20 +28,6 @@ export type TurnOnPlan = {
 export type TurnOnChoice = 'git' | 'server';
 
 export type TurnOnOutcome = 'exported' | 'imported' | 'server-replaced-git' | 'git-replaced-server';
-
-async function environmentBranch(remote: GitRemote, environment: string): Promise<UseCaseResult<{ branch: string; tip: string | null }>> {
-    const branches = await remote.branches();
-    const topology = await readTopology(remote, environment, branches);
-    if (!topology.exists) {
-        return fail('conflict', `The repository has no ${CONFIG_BRANCH} branch.`);
-    }
-    if (!topology.environment) {
-        return fail('conflict', `${environment} is not in the topology.`);
-    }
-
-    const branch = topology.environment.branch;
-    return success({ branch, tip: await remote.fetch(branch, branches) });
-}
 
 const inFormat = (files: RepoFiles): RepoFiles =>
     Object.fromEntries(Object.entries(files).filter(([path]) => repoEntry(path).kind !== 'unknown'));
@@ -129,10 +116,18 @@ export async function turnGitOn(
     const slug = await workspaceSlug(ctx);
     const onBranch = await readBranchWorkspace(remote, tip, slug);
     try {
-        return await ctx.db.transaction(tx => turnOnInTransaction({ ...ctx, db: tx }, input, branch, slug, onBranch));
+        return await ctx.db.transaction(tx =>
+            turnOnInTransaction({ ...ctx, db: tx }, remote, input, { branch, tip: tip!, slug, onBranch }),
+        );
     } catch (e) {
         if (e instanceof ImportConflict) {
             return fail('conflict', e.message);
+        }
+        if (e instanceof UseCaseFailure) {
+            return { ok: false, error: e.error };
+        }
+        if (e instanceof GitError) {
+            return fail('unavailable', `Git could not be reached, git stays off: ${e.message}`);
         }
         throw e;
     }
@@ -140,12 +135,11 @@ export async function turnGitOn(
 
 async function turnOnInTransaction(
     ctx: UseCaseContext,
+    remote: GitRemote,
     input: { choice?: TurnOnChoice },
-    branch: string,
-    slug: string,
-    onBranch: RepoFiles,
+    { branch, tip, slug, onBranch }: { branch: string; tip: string; slug: string; onBranch: RepoFiles },
 ): Promise<UseCaseResult<{ outcome: TurnOnOutcome; branch: string; warnings: TreeIssue[] }>> {
-    await lockGitCommits(ctx.db, ctx.workspaceId);
+    await lockReconcile(ctx.db, ctx.workspaceId);
     const state = await readGitState(ctx.db, ctx.workspaceId);
     if (!state) {
         return fail('conflict', 'This workspace has no git configuration.');
@@ -172,11 +166,11 @@ async function turnOnInTransaction(
 
         const validation = await validateImport(ctx.db, ctx.workspaceId, slug, onBranch);
         if (validation.errors.length > 0) {
-            const fields: Record<string, string> = {};
-            for (const { path, message } of validation.errors) {
-                fields[path] = fields[path] ? `${fields[path]}\n${message}` : message;
-            }
-            return fail('validation', `The workspace on ${branch} is not valid: nothing was ${empty ? 'imported' : 'replaced'}.`, fields);
+            return fail(
+                'validation',
+                `The workspace on ${branch} is not valid: nothing was ${empty ? 'imported' : 'replaced'}.`,
+                issueFields(validation.errors),
+            );
         }
 
         await importWorkspace(ctx, slug, onBranch);
@@ -188,7 +182,9 @@ async function turnOnInTransaction(
     await saveGitConfig(ctx, state.config, true);
     const changes = branchChanges(onBranch, await exportWorkspace(ctx.db, ctx.workspaceId));
     if (Object.keys(changes).length > 0) {
-        await queueGitCommit(ctx, { message, changes: async () => changes });
+        await commitFirst(ctx, state.config, remote, message, changes);
+    } else {
+        await applyCommit(ctx, remote, { branch, commit: tip }, slug, onBranch, warnings);
     }
 
     return success({ outcome, branch, warnings });

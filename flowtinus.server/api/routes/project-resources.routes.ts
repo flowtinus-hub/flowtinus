@@ -13,6 +13,7 @@ import { CreateVariableHandler } from '#features/variables/create-variable/creat
 import { DeleteVariableHandler } from '#features/variables/delete-variable/delete-variable-handler';
 import { ListVariablesHandler } from '#features/variables/list-variables/list-variables-handler';
 import { UpdateVariableHandler } from '#features/variables/update-variable/update-variable-handler';
+import { CommitScriptsHandler, DiscardScriptHandler } from '#features/scripts/script-git';
 import { CreateScriptPathHandler, DeleteScriptPathHandler, GetScriptHandler, ListScriptsHandler, MoveScriptPathHandler, SaveScriptHandler, ScriptUsageHandler } from '#features/scripts/scripts-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
@@ -88,6 +89,18 @@ export function projectResourcesRoutes() {
                 toHttpResult(
                     c,
                     await new MoveScriptPathHandler().handle(await bodyWith(c, { projectId: c.req.param('id') }), c.get('useCase')),
+                ),
+            )
+            .post('/projects/:id/scripts/commit', async c =>
+                toHttpResult(
+                    c,
+                    await new CommitScriptsHandler().handle(await bodyWith(c, { projectId: c.req.param('id') }), c.get('useCase')),
+                ),
+            )
+            .post('/projects/:id/scripts/discard', async c =>
+                toHttpResult(
+                    c,
+                    await new DiscardScriptHandler().handle(await bodyWith(c, { projectId: c.req.param('id') }), c.get('useCase')),
                 ),
             )
             .post('/projects/:id/scripts/delete', async c =>

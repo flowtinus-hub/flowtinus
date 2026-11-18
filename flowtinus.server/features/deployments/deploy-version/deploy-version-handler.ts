@@ -4,8 +4,11 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { mirrorGitChange } from '#features/git/git-mirror';
-import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed, type FlowDeploymentsView } from '../deployments';
+import type { FlowFile } from '@flowtinus/core';
+import { changeTree } from '#features/git/git-first';
+import { isGitOn } from '#features/git/git-config';
+import { commitDeploy, type CommittedDeployments } from '../commit-deploy';
+import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed } from '../deployments';
 
 export const DeployVersionCommand = z.object({ id: z.uuid('Invalid'), versionId: z.uuid('Invalid') });
 
@@ -13,8 +16,8 @@ export const DeployVersionCommand = z.object({ id: z.uuid('Invalid'), versionId:
  * Makes one of the flow's versions the deployed one: older than the deployed is a rollback; a newer one (after a
  * rollback), or any one while nothing is deployed, is a deploy. The versions never change.
  */
-export class DeployVersionHandler implements UseCaseHandler<FlowDeploymentsView> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<FlowDeploymentsView>> {
+export class DeployVersionHandler implements UseCaseHandler<CommittedDeployments> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CommittedDeployments>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
             return denied;
@@ -30,15 +33,29 @@ export class DeployVersionHandler implements UseCaseHandler<FlowDeploymentsView>
             return fail('not-found', 'Flow not found.');
         }
 
-        const [version] = await ctx.db.query<{ id: string; number: number }>(
-            'SELECT id, number FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 AND id = $3',
+        const [version] = await ctx.db.query<{ id: string; number: number; definition: FlowFile }>(
+            'SELECT id, number, definition FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 AND id = $3',
             [ctx.workspaceId, row.id, parsed.value.versionId],
         );
         if (!version) {
             return fail('not-found', 'Version not found.');
         }
 
-        const action = await mirrorGitChange(
+        if (await isGitOn(ctx.db, ctx.workspaceId)) {
+            const [newest] = await ctx.db.query<{ number: number }>('SELECT max(number) AS number FROM flow_versions WHERE flow_id = $1', [
+                row.id,
+            ]);
+            const message =
+                version.number < newest!.number ? `Revert ${row.name} to v${version.number}` : `Deploy ${row.name} v${version.number}`;
+            return commitDeploy(ctx, row, message, async db => {
+                if ((await currentDeployment(db, ctx.workspaceId, row.id))?.id === version.id) {
+                    return { code: 'validation', message: `v${version.number} is already deployed.` };
+                }
+                return { definition: version.definition, deployed: true };
+            });
+        }
+
+        const action = await changeTree(
             ctx,
             done => (done === 'rollback' ? `Roll back ${row.name} to v${version.number}` : `Deploy ${row.name} v${version.number}`),
             async tx => {

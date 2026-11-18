@@ -116,6 +116,7 @@ export type FlowView = {
     updatedAt: Date;
     updatedBy: string | null;
     archivedAt: Date | null;
+    archivedByCommit: string | null;
 };
 
 export const toFolderView = (folder: Folder): FolderView => ({
@@ -137,6 +138,7 @@ export const toFlowView = (flow: Flow): FlowView => ({
     updatedAt: flow.updatedAt,
     updatedBy: flow.updatedBy,
     archivedAt: flow.deletedAt,
+    archivedByCommit: flow.deletedByCommit,
 });
 
 export const nameTaken = (kind: 'folder' | 'flow', name: string) =>

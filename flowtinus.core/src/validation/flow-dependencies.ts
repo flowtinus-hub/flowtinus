@@ -1,9 +1,12 @@
 import type { ExecutableFlow } from '#types/executable-flow.type';
+import type { FlowFile } from '../flows/flow-file';
+import { COMPONENT_TYPE } from '#components/component-types';
+import { scriptInvoker } from '../components/built-in/script-invoker';
 import { MAX_FLOW_DEPTH } from '#engine/constants';
 import { componentSettings, settingVisible } from '../components/settings';
 import { scriptCodeOf } from '../components/built-in/script-invoker';
 import { DYNAMIC_TARGET } from '../components/dynamic-target';
-import { scriptImports } from '../scripts/script-path';
+import { movedScriptImports, movedScriptPath, scriptImports } from '../scripts/script-path';
 import { inputTypeRef } from '../scripts/type-shape';
 
 export type FlowCall = {
@@ -153,6 +156,36 @@ export function flowScriptUses(flows: ExecutableFlow[]): ScriptUse[] {
             return [...uses.values()];
         }),
     );
+}
+
+/**
+ * The flow with what it names under `from` (a script or a folder) moved to `to`: the imports of its TypeScript
+ * components, the function its Script Invokers call, the script types it names. Undefined: nothing changes.
+ */
+export function flowWithScriptsMoved(flow: FlowFile, from: string, to: string): FlowFile | undefined {
+    const ref = (value: unknown) => {
+        const target = inputTypeRef(value);
+        return target ? `${movedScriptPath(target.path, from, to)}#${target.name}` : value;
+    };
+    let changed = false;
+    const nodes = flow.nodes.map(n => {
+        const config = { ...n.config };
+        if (n.type === COMPONENT_TYPE.typescript && typeof config.code === 'string') {
+            config.code = movedScriptImports(config.code, from, to);
+        }
+        if (n.type === scriptInvoker.type) {
+            config.function = ref(config.function);
+        }
+        for (const field of componentSettings(n.type).filter(f => f.kind === 'script-type')) {
+            config[field.key] = ref(config[field.key]);
+        }
+        if (Object.keys(config).some(key => config[key] !== n.config[key])) {
+            changed = true;
+            return { ...n, config };
+        }
+        return n;
+    });
+    return changed ? { ...flow, nodes } : undefined;
 }
 
 export function scriptLinks(scripts: { path: string; content: string }[]): { from: string; to: string }[] {

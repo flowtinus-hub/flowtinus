@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, nameKey, type FlowFile } from '@flowtinus/core';
 import { longRepoPath, workspaceSlug } from '#features/folders/project-tree';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { undeployArchived } from '#features/deployments/deployments';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -151,7 +151,7 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
         const flowIds = flows.map(f => f.id);
         const deployed = flows.filter(f => f.deployed).length;
         const message = `Move project ${project.name} from ${await workspaceSlug(ctx)} to ${toWorkspace}`;
-        await mirrorGitChange(
+        await changeTree(
             ctx,
             () => message,
             async tx => {

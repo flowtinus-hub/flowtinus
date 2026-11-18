@@ -12,6 +12,10 @@ type DeploymentsDto = {
     deployed: (Omit<NonNullable<FlowDeployments['deployed']>, 'deployedAt'> & { deployedAt: string }) | null;
     history: (Omit<FlowDeployments['history'][number], 'at'> & { at: string })[];
     warnings?: string[];
+    git?: { branch: string | null; mode: 'direct' | 'pull-request' | 'protected' };
+    commit?: string;
+    draftConflict?: string;
+    changedScripts?: string[];
 };
 
 export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
@@ -19,24 +23,37 @@ export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
     deployed: dto.deployed ? { ...dto.deployed, deployedAt: new Date(dto.deployed.deployedAt) } : null,
     history: dto.history.map(e => ({ ...e, at: new Date(e.at) })),
     ...(dto.warnings ? { warnings: dto.warnings } : {}),
+    ...(dto.git ? { git: dto.git } : {}),
+    ...(dto.commit ? { commit: dto.commit } : {}),
+    ...(dto.draftConflict ? { draftConflict: dto.draftConflict } : {}),
+    ...(dto.changedScripts ? { changedScripts: dto.changedScripts } : {}),
 });
 
-async function deployments(path: string, method = 'POST'): Promise<ApiResult<FlowDeployments>> {
-    const result = await api<DeploymentsDto>(path, { method });
+async function deployments(path: string, method = 'POST', body?: unknown): Promise<ApiResult<FlowDeployments>> {
+    const result = await api<DeploymentsDto>(path, { method, body });
     return result.ok ? { ok: true, value: toDeployments(result.value) } : result;
 }
 
 /** the flow's versions, the deployed one and the history */
 export const getDeployments = (flowId: string) => deployments(`/flows/${flowId}/deployments`, 'GET');
 
-/** deploys the saved draft as a new version (refused when it is not a valid flow, or is the deployed version already) */
-export const deployFlow = (flowId: string) => deployments(`/flows/${flowId}/deploy`);
+/**
+ * deploys the saved draft as a new version (refused when it is not a valid flow, or is the deployed version already);
+ * with git on, a commit of the draft with this message, which the reconcile deploys
+ */
+export const deployFlow = (flowId: string, message?: string, scripts?: string[]) =>
+    deployments(`/flows/${flowId}/deploy`, 'POST', message ? { message, ...(scripts?.length ? { scripts } : {}) } : undefined);
 
 /** makes an existing version the deployed one (an older one: a rollback) */
 export const deployVersion = (flowId: string, versionId: string) => deployments(`/flows/${flowId}/versions/${versionId}/deploy`);
 
 /** nothing deployed anymore (its versions stay) */
 export const undeployFlow = (flowId: string) => deployments(`/flows/${flowId}/undeploy`);
+
+/** with git on, the draft takes git's content; `copyAs` first keeps it as a new flow (a draft only) under that name */
+export function discardDraft(flowId: string, copyAs?: string): Promise<ApiResult<{ revision: number; copy?: { id: string } }>> {
+    return api(`/flows/${flowId}/draft/discard`, { method: 'POST', body: copyAs === undefined ? {} : { copyAs } });
+}
 
 /** replaces the draft by a version's flow (the draft as it is now is lost) */
 export function restoreDraft(flowId: string, versionId: string): Promise<ApiResult<{ revision: number }>> {

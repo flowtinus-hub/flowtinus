@@ -3,6 +3,9 @@ import type { Database } from '#shared/database/database';
 import { pgJson } from '#shared/database/jsonb';
 import type { Flow } from '#features/flows/flow';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
+import { gitBranch } from '#features/git/git-config';
+import type { Mode } from '#features/git/topology';
+import { changedImports } from '#features/scripts/script-git';
 import { withUpdatedByName } from '#features/users/user-names';
 import { SCHEDULES_CHANNEL } from '#features/schedules/schedules';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -24,6 +27,8 @@ export type FlowVersionView = {
     createdAt: Date;
     createdBy: string | null;
     createdByName?: string;
+    commit: string | null;
+    commitMessage?: string;
 };
 
 export type DeploymentAction = 'deploy' | 'promote' | 'rollback' | 'undeploy';
@@ -35,12 +40,19 @@ export type DeploymentEventView = {
     at: Date;
     by: string | null;
     byName?: string;
+    commit: string | null;
 };
 
 export type FlowDeploymentsView = {
     versions: FlowVersionView[];
     deployed: { versionId: string; deployedAt: Date; deployedBy: string | null; deployedByName?: string } | null;
     history: DeploymentEventView[];
+    /** with git on: the environment's branch, where a deploy is a commit */
+    git?: { branch: string | null; mode: Mode };
+    /** with git on: the commit the draft could not be merged with */
+    draftConflict?: string;
+    /** with git on: the changed scripts the draft imports, directly or through another script, which a Commit can take along */
+    changedScripts?: string[];
 };
 
 /** what makes two versions the same flow (core's deployContent): not its name, nor where its components are */
@@ -61,26 +73,53 @@ async function names(db: Database, ids: (string | null)[]): Promise<Map<string, 
 }
 
 export async function loadDeployments(db: Database, workspaceId: string, flowId: string): Promise<FlowDeploymentsView> {
-    const [versions, deployed, history] = await Promise.all([
-        db.query<{ id: string; number: number; definition: FlowFile; created_at: Date; created_by: string | null }>(
-            `SELECT id, number, definition, created_at, created_by FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 ORDER BY number DESC`,
+    const [versions, deployed, history, commits, git, [flow]] = await Promise.all([
+        db.query<{
+            id: string;
+            number: number;
+            definition: FlowFile;
+            created_at: Date;
+            created_by: string | null;
+            commit_sha: string | null;
+        }>(
+            `SELECT id, number, definition, created_at, created_by, commit_sha FROM flow_versions WHERE workspace_id = $1 AND flow_id = $2 ORDER BY number DESC`,
             [workspaceId, flowId],
         ),
         db.query<{ flow_version_id: string; deployed_at: Date; deployed_by: string | null }>(
             `SELECT flow_version_id, deployed_at, deployed_by FROM deployments WHERE workspace_id = $1 AND flow_id = $2`,
             [workspaceId, flowId],
         ),
-        db.query<{ action: DeploymentAction; from_number: number | null; to_number: number | null; at: Date; by_user: string | null }>(
-            `SELECT h.action, f.number AS from_number, t.number AS to_number, h.at, h.by_user
+        db.query<{
+            action: DeploymentAction;
+            from_number: number | null;
+            to_number: number | null;
+            at: Date;
+            by_user: string | null;
+            commit_sha: string | null;
+        }>(
+            `SELECT h.action, f.number AS from_number, t.number AS to_number, h.at, h.by_user, h.commit_sha
        FROM deployment_history h
        LEFT JOIN flow_versions f ON f.id = h.from_version_id
        LEFT JOIN flow_versions t ON t.id = h.to_version_id
        WHERE h.workspace_id = $1 AND h.flow_id = $2 ORDER BY h.id DESC LIMIT 200`,
             [workspaceId, flowId],
         ),
+        db.query<{ sha: string; message: string; author_name: string }>(
+            `SELECT sha, message, author_name FROM git_commits WHERE workspace_id = $1 AND sha IN (
+               SELECT commit_sha FROM flow_versions WHERE flow_id = $2 UNION SELECT commit_sha FROM deployment_history WHERE flow_id = $2)`,
+            [workspaceId, flowId],
+        ),
+        gitBranch(db, workspaceId),
+        db.query<{ draft_conflict: string | null; project_id: string; draft_definition: { flow?: FlowFile } | null }>(
+            'SELECT draft_conflict, project_id, draft_definition FROM flows WHERE id = $1',
+            [flowId],
+        ),
     ]);
+    const commit = new Map(commits.map(c => [c.sha, c]));
     const who = await names(db, [...versions.map(v => v.created_by), ...deployed.map(d => d.deployed_by), ...history.map(h => h.by_user)]);
-    const named = (id: string | null) => (id && who.has(id) ? who.get(id) : undefined);
+    // a commit's author who is no app user is named as git has it
+    const named = (id: string | null, sha: string | null = null) =>
+        id && who.has(id) ? who.get(id) : !id && sha ? commit.get(sha)?.author_name : undefined;
     const current = deployed[0];
     return {
         versions: versions.map(v => ({
@@ -90,7 +129,9 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             definition: v.definition,
             createdAt: new Date(v.created_at),
             createdBy: v.created_by,
-            ...(named(v.created_by) ? { createdByName: named(v.created_by) } : {}),
+            ...(named(v.created_by, v.commit_sha) ? { createdByName: named(v.created_by, v.commit_sha) } : {}),
+            commit: v.commit_sha,
+            ...(v.commit_sha && commit.has(v.commit_sha) ? { commitMessage: commit.get(v.commit_sha)!.message } : {}),
         })),
         deployed: current
             ? {
@@ -106,8 +147,14 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             toNumber: h.to_number,
             at: new Date(h.at),
             by: h.by_user,
-            ...(named(h.by_user) ? { byName: named(h.by_user) } : {}),
+            ...(named(h.by_user, h.commit_sha) ? { byName: named(h.by_user, h.commit_sha) } : {}),
+            commit: h.commit_sha,
         })),
+        ...(git ? { git } : {}),
+        ...(git && flow?.draft_conflict ? { draftConflict: flow.draft_conflict } : {}),
+        ...(git && flow?.draft_definition?.flow
+            ? { changedScripts: await changedImports(db, workspaceId, flow.project_id, flow.draft_definition.flow) }
+            : {}),
     };
 }
 
@@ -128,13 +175,17 @@ export async function currentDeployment(
 export const lockFlowDeployments = (db: Database, flowId: string) =>
     db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`deploy:${flowId}`]);
 
+/** who changes what is deployed: null for a commit whose author is no app user */
+export type Actor = { workspaceId: string; userId: string | null };
+
 export async function setDeployed(
     db: Database,
-    ctx: { workspaceId: string; userId: string },
+    ctx: Actor,
     flowId: string,
     action: DeploymentAction,
     from: string | null,
     to: string | null,
+    commit: string | null = null,
 ): Promise<void> {
     if (to) {
         await db.query(
@@ -147,8 +198,9 @@ export async function setDeployed(
     }
 
     await db.query(
-        `INSERT INTO deployment_history (workspace_id, flow_id, from_version_id, to_version_id, action, by_user) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [ctx.workspaceId, flowId, from, to, action, ctx.userId],
+        `INSERT INTO deployment_history (workspace_id, flow_id, from_version_id, to_version_id, action, by_user, commit_sha)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [ctx.workspaceId, flowId, from, to, action, ctx.userId, commit],
     );
 }
 
@@ -167,16 +219,17 @@ export async function newestVersionLike(
 
 export async function insertVersion(
     db: Database,
-    ctx: { workspaceId: string; userId: string },
+    ctx: Actor,
     flowId: string,
     definition: FlowFile,
+    commit: string | null = null,
 ): Promise<{ id: string; number: number }> {
     const id = crypto.randomUUID();
     const [row] = await db.query<{ number: number }>(
-        `INSERT INTO flow_versions (id, workspace_id, flow_id, number, definition, content_hash, created_by)
-     SELECT $1, $2, $3, coalesce(max(number), 0) + 1, $4::text::jsonb, $5, $6 FROM flow_versions WHERE flow_id = $3
+        `INSERT INTO flow_versions (id, workspace_id, flow_id, number, definition, content_hash, created_by, commit_sha)
+     SELECT $1, $2, $3, coalesce(max(number), 0) + 1, $4::text::jsonb, $5, $6, $7 FROM flow_versions WHERE flow_id = $3
      RETURNING number`,
-        [id, ctx.workspaceId, flowId, pgJson(definition), contentHash(definition), ctx.userId],
+        [id, ctx.workspaceId, flowId, pgJson(definition), contentHash(definition), ctx.userId, commit],
     );
     return { id, number: row!.number };
 }
@@ -203,7 +256,7 @@ export async function deployedDefinitions(
  * stop being deployed, as an undeploy in their history, and their schedules and webhooks are turned off (restoring one
  * turns nothing back on). In the archive's transaction.
  */
-export async function undeployArchived(db: Database, ctx: { workspaceId: string; userId: string }, flowIds: string[]): Promise<void> {
+export async function undeployArchived(db: Database, ctx: Actor, flowIds: string[], commit: string | null = null): Promise<void> {
     if (flowIds.length === 0) {
         return;
     }
@@ -218,12 +271,12 @@ export async function undeployArchived(db: Database, ctx: { workspaceId: string;
         await lockFlowDeployments(db, flowId);
         const current = await currentDeployment(db, ctx.workspaceId, flowId);
         if (current) {
-            await setDeployed(db, ctx, flowId, 'undeploy', current.id, null);
+            await setDeployed(db, ctx, flowId, 'undeploy', current.id, null, commit);
         }
     }
 }
 
-async function turnOffTriggers(db: Database, ctx: { workspaceId: string; userId: string }, flowIds: string[]): Promise<void> {
+async function turnOffTriggers(db: Database, ctx: Actor, flowIds: string[]): Promise<void> {
     const schedules = await db.query<{ flow_id: string }>(
         `UPDATE flow_schedules SET enabled = false, next_fire_at = NULL, updated_by = $3, updated_at = now()
      WHERE workspace_id = $1 AND flow_id = ANY($2::uuid[]) AND enabled RETURNING flow_id`,
