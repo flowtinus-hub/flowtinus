@@ -30,7 +30,7 @@ export type WorkspaceSummary = { projects: number; connections: number; secrets:
 export type Membership = { workspaceId: string; slug: string; name: string; role: WorkspaceRole };
 
 /** who is using the editor: an admin of the environment creates workspaces */
-export type Me = { id: string; name: string; email: string; isAdmin: boolean; workspaces: Membership[] };
+export type Me = { id: string; name: string; email: string; handle: string; isAdmin: boolean; workspaces: Membership[] };
 
 export type Member = { userId: string; name: string; email: string; role: WorkspaceRole; createdAt: Date };
 

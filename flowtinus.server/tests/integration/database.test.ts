@@ -41,6 +41,7 @@ describe('database', () => {
                     'secrets',
                     'supervisors',
                     'test_runs',
+                    'user_branches',
                     'users',
                     'variables',
                 ].sort(),
