@@ -7,6 +7,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
+import { withoutPinned } from '#features/pins/pins';
 import { flows } from '../flow';
 import { revisionOf, type StoredDraft } from '../flow-draft';
 
@@ -44,7 +45,8 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number }> {
             return conflict();
         }
 
-        const draft: StoredDraft = { revision: revision + 1, flow: { ...checked.value, id: row.id, name: row.name } };
+        // a pin is its user's (features/pins), never the draft's
+        const draft: StoredDraft = { revision: revision + 1, flow: withoutPinned({ ...checked.value, id: row.id, name: row.name }) };
         // only if nobody saved since it was read (the check above and this write are one step for the database)
         const saved = await ctx.db.orm
             .update(flows)

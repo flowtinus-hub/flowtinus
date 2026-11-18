@@ -246,22 +246,6 @@ describe('MCP (/mcp)', () => {
         expect((await mcp.call('get_flow', { flowId })).body.yaml).toContain('$n > 2');
     });
 
-    test('a pinned output stays when the yaml comes without it', async () => {
-        const [row] = await db.query<{ draft_definition: { revision: number; flow: { nodes: Record<string, unknown>[] } } }>(
-            'SELECT draft_definition FROM flows WHERE id = $1',
-            [flowId],
-        );
-        const draft = row!.draft_definition;
-        draft.flow.nodes = draft.flow.nodes.map(n => (n.id === 'grid' ? { ...n, pinned: { 'out-0': [{ n: 9 }] } } : n));
-        await db.query('UPDATE flows SET draft_definition = $2::text::jsonb WHERE id = $1', [flowId, JSON.stringify(draft)]);
-
-        const flow = await mcp.call('get_flow', { flowId });
-        expect(flow.body.pinnedNodes).toEqual(['grid']);
-        expect(flow.body.yaml).not.toContain('pinned');
-        await mcp.call('save_draft', { flowId, yaml: flow.body.yaml, expectedRevision: flow.body.revision });
-        expect((await mcp.call('get_flow', { flowId, includePinned: true })).body.yaml).toContain('pinned');
-    });
-
     test('resolve_url: a flow, a project, a run, and what is not a Flowtinus link', async () => {
         expect(
             (await mcp.call('resolve_url', { url: `https://any.host:9999/w/${ws}/projects/${projectId}/flows/${flowId}` })).body,

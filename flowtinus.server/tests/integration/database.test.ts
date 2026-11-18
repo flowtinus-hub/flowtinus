@@ -29,6 +29,7 @@ describe('database', () => {
                     'flows',
                     'folders',
                     'git_commits',
+                    'pins',
                     'workspace_members',
                     'workspace_settings',
                     'workspaces',
