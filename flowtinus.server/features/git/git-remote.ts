@@ -210,6 +210,10 @@ export class GitRemote {
         ]);
     }
 
+    async pushDryRun(commit: string, branch: string): Promise<void> {
+        await this.run(['push', '--quiet', '--porcelain', '--dry-run', 'origin', `${commit}:refs/heads/${branch}`]);
+    }
+
     async deleteBranch(branch: string): Promise<void> {
         await this.run(['push', '--quiet', '--porcelain', 'origin', '--delete', `refs/heads/${branch}`]);
     }

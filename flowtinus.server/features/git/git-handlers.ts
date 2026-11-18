@@ -122,6 +122,19 @@ async function testAccess(remote: GitRemote, environment: string): Promise<Acces
     }
 
     const branch = `flowtinus/access-check-${crypto.randomUUID().slice(0, 8)}`;
+    // an empty repository's first branch becomes its default, which GitLab and GitHub refuse to delete: a dry run
+    // still opens a push, where the server checks the token may write, and leaves the repository empty
+    if (branches.size === 0) {
+        try {
+            await remote.pushDryRun(await remote.commit({ parent: null, changes: {}, message: 'Flowtinus access check' }), branch);
+            checks.push({ step: 'write', ok: true, message: 'The repository is empty: a push was accepted without creating a branch.' });
+        } catch (e) {
+            checks.push({ step: 'write', ok: false, message: `Could not push to the repository: ${reason(e)}` });
+        }
+
+        return result(await readTopology(remote, environment, branches).catch(() => null));
+    }
+
     try {
         await remote.push(await remote.commit({ parent: null, changes: {}, message: 'Flowtinus access check' }), branch, null);
     } catch (e) {

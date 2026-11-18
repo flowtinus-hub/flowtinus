@@ -42,8 +42,35 @@ export function stateAfterRefusedSave(error: ApiError): SaveState {
 /** how a flush ended: saved (a run runs what is saved), not saved, the flow gone, or read-only */
 export type FlushResult = 'saved' | 'not-saved' | 'gone' | 'read-only';
 
-/** what is compared to know whether the canvas changed since the last save */
-export const draftFingerprint = (file: FlowFile) => JSON.stringify({ nodes: file.nodes, edges: file.edges, groups: file.groups ?? [] });
+const sortedKeys = (value: unknown): unknown =>
+    Array.isArray(value)
+        ? value.map(sortedKeys)
+        : value && typeof value === 'object'
+          ? Object.fromEntries(
+                Object.keys(value)
+                    .sort()
+                    .map(key => [key, sortedKeys((value as Record<string, unknown>)[key])]),
+            )
+          : value;
+
+const byKey =
+    <T>(key: (item: T) => string) =>
+    (a: T, b: T) =>
+        key(a).localeCompare(key(b));
+
+/**
+ * What is compared to know whether the canvas changed since the last save, in any order: the server gives the
+ * components in the repository's order (by id), the canvas in its own (containers first), so a flow just opened would
+ * otherwise look changed and save itself.
+ */
+export const draftFingerprint = (file: FlowFile) =>
+    JSON.stringify(
+        sortedKeys({
+            nodes: [...file.nodes].sort(byKey(n => n.id)),
+            edges: [...file.edges].sort(byKey(e => [e.source, e.sourcePort, e.target, e.targetPort].join('|'))),
+            groups: [...(file.groups ?? [])].sort(byKey(g => g.id)),
+        }),
+    );
 
 /** the draft's state and what can be done with it (the top bar shows it) */
 export type DraftSave = {
