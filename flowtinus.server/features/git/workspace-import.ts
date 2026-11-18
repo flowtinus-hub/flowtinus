@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
 import { ConnectionRepository } from '#features/connections/connection-store';
-import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, undeployArchived } from '#features/deployments/deployments';
+import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, undeployArchived, type Actor } from '#features/deployments/deployments';
 import { flows as flowsTable } from '#features/flows/flow';
 import type { StoredDraft } from '#features/flows/flow-draft';
 import { FlowRepository, FolderRepository, loadTree } from '#features/folders/project-tree';
@@ -168,7 +168,7 @@ export type RenamedDraft = { id: string; from: string; to: string };
 
 // a reconcile (with its commit) archives what git removed and renames a draft-only flow whose name git takes;
 // turning git on deletes the connections and refuses the clash instead, as its preview said
-export type ImportOptions = { commit?: string };
+export type ImportOptions = { commit?: string; by?: string | null };
 
 export async function importWorkspace(
     ctx: UseCaseContext,
@@ -358,6 +358,7 @@ async function importFlows(
 ): Promise<void> {
     const { db, workspaceId, userId } = ctx;
     const commit = options.commit ?? null;
+    const by = { workspaceId, userId: commit ? (options.by ?? null) : userId };
     const inTree = entries.map(({ text, entry }) => ({ entry, ...read(repoFlowFromYaml(text, nfc(entry.name))) }));
     const ids = inTree.map(f => f.flow.id!);
     const leaving = await db.query<{ id: string }>(
@@ -371,7 +372,7 @@ async function importFlows(
     }
     await undeployArchived(
         db,
-        ctx,
+        by,
         leaving.map(f => f.id),
         commit,
     );
@@ -406,34 +407,35 @@ async function importFlows(
             await repository.insert({ id, projectId, folderId, name: flow.name, draftDefinition: draft, updatedBy: userId });
         }
 
-        await deployAsInTree(ctx, id, flow, deployed, commit);
+        await deployAsInTree(db, by, id, flow, deployed, commit);
     }
 }
 
 async function deployAsInTree(
-    ctx: UseCaseContext,
+    db: Database,
+    by: Actor,
     flowId: string,
     flow: FlowFile,
     deployed: boolean,
     commit: string | null,
 ): Promise<void> {
-    const { db, workspaceId } = ctx;
+    const { workspaceId } = by;
     await lockFlowDeployments(db, flowId);
     const current = await currentDeployment(db, workspaceId, flowId);
     if (deployed) {
-        const version = (await newestVersionLike(db, workspaceId, flowId, flow)) ?? (await insertVersion(db, ctx, flowId, flow, commit));
+        const version = (await newestVersionLike(db, workspaceId, flowId, flow)) ?? (await insertVersion(db, by, flowId, flow, commit));
         if (current?.id !== version.id) {
-            await setDeployed(db, ctx, flowId, 'deploy', current?.id ?? null, version.id, commit);
+            await setDeployed(db, by, flowId, 'deploy', current?.id ?? null, version.id, commit);
         }
         return;
     }
 
     if (current) {
-        await setDeployed(db, ctx, flowId, 'undeploy', current.id, null, commit);
+        await setDeployed(db, by, flowId, 'undeploy', current.id, null, commit);
     }
     const [inRepo] = await flowsInRepo(db, workspaceId, [flowId]);
     if (inRepo?.content_hash !== contentHash(flow)) {
-        await insertVersion(db, ctx, flowId, flow, commit);
+        await insertVersion(db, by, flowId, flow, commit);
     }
 }
 

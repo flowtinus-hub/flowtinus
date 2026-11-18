@@ -85,7 +85,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect(file).not.toContain('name:');
         expect(file).not.toContain('deployed:');
         expect(commits(repo)).toEqual([
-            `Ana <${ANA}@example.com>|Deploy Orders v1`,
+            `Ana <${ANA}@example.com>|Update Orders`,
             `Ana <${ANA}@example.com>|Create folder Imports`,
             `Ana <${ANA}@example.com>|${firstExport}`,
             'Someone <someone@example.com>|start',
@@ -111,9 +111,9 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         ]);
         expect(show(repo, flowPath('Orders'))).toBe(deployedFile);
         expect(commits(repo)).toEqual([
-            `Ana <${ANA}@example.com>|Deploy Orders v1`,
+            `Ana <${ANA}@example.com>|Update Orders`,
             `Bia <${BIA}@example.com>|Undeploy Orders`,
-            `Ana <${ANA}@example.com>|Deploy Orders v1`,
+            `Ana <${ANA}@example.com>|Update Orders`,
             `Ana <${ANA}@example.com>|${firstExport}`,
             'Someone <someone@example.com>|start',
         ]);
@@ -135,9 +135,9 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect((await call('POST', `/flows/${flowId}/versions/${v1.id}/deploy`)).status).toBe(200);
         expect(show(repo, flowPath('Orders'))).not.toContain('label: Begin');
         expect(commits(repo).map(c => c.split('|')[1])).toEqual([
-            'Roll back Orders to v1',
-            'Deploy Orders v2',
-            'Deploy Orders v1',
+            'Revert Orders to v1',
+            'Update Orders',
+            'Update Orders',
             firstExport,
             'start',
         ]);
@@ -157,13 +157,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         await relabel('Begin');
 
         expect((await call('POST', `/flows/${flowId}/versions/${v1.id}/deploy`)).status).toBe(200);
-        expect(commits(repo).map(c => c.split('|')[1])).toEqual([
-            'Deploy Orders v3',
-            'Deploy Orders v2',
-            'Deploy Orders v1',
-            firstExport,
-            'start',
-        ]);
+        expect(commits(repo).map(c => c.split('|')[1])).toEqual(['Update Orders', 'Update Orders', 'Update Orders', firstExport, 'start']);
     });
 
     test('a push refused fails the deploy, saying why, and nothing changes', async () => {
@@ -181,7 +175,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
 
         await rm(hook);
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
-        expect(commits(repo)[0]).toEndWith('|Deploy Orders v1');
+        expect(commits(repo)[0]).toEndWith('|Update Orders');
     });
 
     test('when the branch moved before the push, the commit is rebuilt on the new tip once, and both apply', async () => {
@@ -202,7 +196,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         await chmod(hook, 0o755);
 
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
-        expect(commits(repo).map(c => c.split('|')[1])[0]).toBe('Deploy Orders v1');
+        expect(commits(repo).map(c => c.split('|')[1])[0]).toBe('Update Orders');
         expect(git(repo, 'rev-parse', 'dev~1')).toBe(moved);
         expect(show(repo, flowPath('Orders'))).toContain(`id: ${orders}`);
         expect((await call('GET', '/projects')).body.items).toEqual([

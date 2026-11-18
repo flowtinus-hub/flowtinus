@@ -4,13 +4,17 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
+import type { FlowFile } from '@flowtinus/core';
 import { changeTree } from '#features/git/git-first';
-import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed, type FlowDeploymentsView } from '../deployments';
+import { isGitOn } from '#features/git/git-config';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
+import { commitDeploy, type CommittedDeployments } from '../commit-deploy';
+import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed } from '../deployments';
 
 export const UndeployFlowCommand = z.object({ id: z.uuid('Invalid') });
 
-export class UndeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<FlowDeploymentsView>> {
+export class UndeployFlowHandler implements UseCaseHandler<CommittedDeployments> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CommittedDeployments>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
             return denied;
@@ -24,6 +28,19 @@ export class UndeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> 
         const row = await activeFlow(ctx, parsed.value.id);
         if (!row) {
             return fail('not-found', 'Flow not found.');
+        }
+
+        if (await isGitOn(ctx.db, ctx.workspaceId)) {
+            return commitDeploy(ctx, row, `Undeploy ${row.name}`, async db => {
+                const current = await currentDeployment(db, ctx.workspaceId, row.id);
+                if (!current) {
+                    throw new UseCaseFailure('validation', 'The flow is not deployed.');
+                }
+                const [version] = await db.query<{ definition: FlowFile }>('SELECT definition FROM flow_versions WHERE id = $1', [
+                    current.id,
+                ]);
+                return { definition: version!.definition, deployed: false };
+            });
         }
 
         const undeployed = await changeTree(

@@ -5,7 +5,7 @@ import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { gitAccess, gitAuthorOf, readGitState, type GitConfig } from './git-config';
 import { GitError, withWorkspaceClone, type GitRemote } from './git-remote';
 import { applyCommit, lockReconcile, readState } from './reconcile';
-import { exportWorkspace, repoChanges, type GitChanges } from './workspace-export';
+import { exportWorkspace, repoChanges, type FlowToCommit, type GitChanges } from './workspace-export';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
 
@@ -44,6 +44,33 @@ export async function changeTree<T>(
                 }
             }
             return value;
+        }),
+    );
+}
+
+/**
+ * Commits flows' files as `flows` gives them (worked out once git's newer commit is applied), then reconciles that
+ * commit, which deploys them. Answers the commit applied; nothing to change answers null.
+ */
+export async function commitFlows(
+    ctx: UseCaseContext,
+    message: string,
+    flows: (db: Database) => Promise<Map<string, FlowToCommit>>,
+): Promise<string | null> {
+    const state = await readGitState(ctx.db, ctx.workspaceId);
+    if (!state?.on) {
+        throw new UseCaseFailure('conflict', 'Git is off in this workspace.');
+    }
+
+    return withClones(ctx, [{ workspaceId: ctx.workspaceId, config: state.config }], [], ([cloned]) =>
+        ctx.db.transaction(async tx => {
+            const { config, remote } = cloned!;
+            const at = { ...ctx, db: tx };
+            await lockReconcile(tx, ctx.workspaceId);
+            await catchUp(at, config, remote);
+            const before = await exportWorkspace(tx, ctx.workspaceId);
+            const changes = repoChanges(before, await exportWorkspace(tx, ctx.workspaceId, await flows(tx)));
+            return Object.keys(changes).length > 0 ? commitFirst(at, config, remote, message, changes) : null;
         }),
     );
 }
@@ -89,7 +116,7 @@ async function branchTip(remote: GitRemote, config: GitConfig): Promise<{ branch
 // the change is worked out on the workspace as git has it: a commit made in git since the last reconcile is applied
 // first, or the change's files would overwrite it; a tip that is not valid is left to the validation of the change
 async function catchUp(ctx: UseCaseContext, config: GitConfig, remote: GitRemote): Promise<void> {
-    const { tip } = await branchTip(remote, config);
+    const { branch, tip } = await branchTip(remote, config);
     const state = await readState(ctx.db, ctx.workspaceId);
     if (tip === state.applied || tip === state.refused?.commit) {
         return;
@@ -98,11 +125,17 @@ async function catchUp(ctx: UseCaseContext, config: GitConfig, remote: GitRemote
     const slug = await workspaceSlug(ctx);
     const files = await readBranchWorkspace(remote, tip, slug);
     if ((await validateImport(ctx.db, ctx.workspaceId, slug, files)).errors.length === 0) {
-        await applyCommit(ctx, slug, tip, files);
+        await applyCommit(ctx, remote, { branch, commit: tip }, slug, files);
     }
 }
 
-export async function commitFirst(ctx: UseCaseContext, config: GitConfig, remote: GitRemote, message: string, changes: GitChanges) {
+export async function commitFirst(
+    ctx: UseCaseContext,
+    config: GitConfig,
+    remote: GitRemote,
+    message: string,
+    changes: GitChanges,
+): Promise<string> {
     const slug = await workspaceSlug(ctx);
     const author = await gitAuthorOf(ctx);
     let moved: string | null = null;
@@ -137,7 +170,7 @@ export async function commitFirst(ctx: UseCaseContext, config: GitConfig, remote
             continue;
         }
 
-        await applyCommit(ctx, slug, commit, files);
-        return;
+        await applyCommit(ctx, remote, { branch, commit }, slug, files);
+        return commit;
     }
 }

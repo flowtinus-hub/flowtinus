@@ -13,6 +13,8 @@ import { ENVIRONMENT_NAME } from './topology';
 
 export const GIT_SETTING = 'git';
 
+export const RECONCILE_SETTING = 'git-reconcile';
+
 export type GitConfig = { repository: string; tokenSecret: string; environment: string };
 
 export type GitOptions = {
@@ -70,6 +72,15 @@ export async function readGitState(db: Database, workspaceId: string): Promise<{
 export const readGitConfig = async (db: Database, workspaceId: string) => (await readGitState(db, workspaceId))?.config ?? null;
 
 export const isGitOn = async (db: Database, workspaceId: string) => (await readGitState(db, workspaceId))?.on ?? false;
+
+/** with git on, the environment's branch as of the last commit applied (null before the first) */
+export async function gitBranch(db: Database, workspaceId: string): Promise<{ branch: string | null } | null> {
+    if (!(await isGitOn(db, workspaceId))) {
+        return null;
+    }
+    const state = (await readWorkspaceSetting(db, workspaceId, RECONCILE_SETTING)) as { branch?: string } | null;
+    return { branch: state?.branch ?? null };
+}
 
 export const saveGitConfig = (ctx: UseCaseContext, config: GitConfig, on: boolean) =>
     writeWorkspaceSetting(ctx.db, ctx.workspaceId, GIT_SETTING, { ...config, on }, ctx.userId);

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CircleOff, GitCompareArrows, History, LoaderCircle, Rocket, RotateCcw, TriangleAlert, Undo2, Upload } from 'lucide-react';
+import { CircleCheck, CircleOff, GitCommitHorizontal, GitCompareArrows, History, LoaderCircle, Rocket, RotateCcw, TriangleAlert, Undo2, Upload } from 'lucide-react';
 import { flowChanges, type ComparedNode, type FlowFile } from '@flowtinus/core';
 import { componentInfo } from '@/editor/catalog';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, switchAction, type DeployState, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
+import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
 import { deployFlow, deployVersion, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
 import type { FlushResult } from '@/editor/flow-save';
 import type { ApiResult } from '@/lib/api';
@@ -64,7 +65,10 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
     const [busy, setBusy] = useState(false);
     const [versionsOpen, setVersionsOpen] = useState(false);
     const [compareOpen, setCompareOpen] = useState(false);
+    const [committing, setCommitting] = useState<{ number: number; warnings: string[]; saved: boolean } | null>(null);
     const current = deployments?.flowId === flowId ? deployments.value : NO_DEPLOYMENTS;
+    const git = current.git;
+    const target = git ? (git.branch ?? 'git') : environment;
 
     useEffect(() => {
         let gone = false;
@@ -88,7 +92,7 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
     }, [loadedFor, deployed, onDeployed]);
 
     /** runs an action that answers the new deployments (the dialog shows its error) */
-    const act = async (action: () => Promise<ApiResult<FlowDeployments>>): Promise<ApiResult<unknown>> => {
+    const act = async (action: () => Promise<ApiResult<FlowDeployments>>): Promise<ApiResult<FlowDeployments>> => {
         setBusy(true);
         const result = await action();
         setBusy(false);
@@ -112,6 +116,11 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
         const latest = fresh?.ok ? fresh.value : current;
         const before = deployedVersion(latest);
         const warnings = latest.warnings ?? [];
+        if (latest.git) {
+            setCommitting({ number: nextNumber(latest, draftNow()), warnings, saved: saved === 'saved' });
+            return;
+        }
+
         confirm({
             title: `Deploy v${nextNumber(latest, draftNow())} to ${environment}?`,
             description: (
@@ -140,6 +149,18 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
 
     const switchTo = (version: FlowVersion) => {
         const action = switchAction(current, version);
+        const newest = current.versions[0]?.number ?? version.number;
+        if (git) {
+            confirm({
+                title: version.number < newest ? `Commit a revert to v${version.number}?` : `Commit v${version.number} to ${target}?`,
+                description: `A commit to ${target} of v${version.number}'s content, deployed as a new version.${deployed ? ` Replaces v${deployed.number}.` : ''}`,
+                confirmLabel: 'Commit',
+                busyLabel: 'Committing…',
+                onConfirm: () => act(() => deployVersion(flowId, version.id)),
+            });
+            return;
+        }
+
         confirm({
             title: action === 'rollback' ? `Roll back to v${version.number}?` : `Deploy v${version.number} to ${environment}?`,
             description: deployed ? `Replaces v${deployed.number}.` : `Nothing is deployed now.`,
@@ -171,10 +192,12 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
 
     const undeploy = () =>
         confirm({
-            title: `Undeploy from ${environment}?`,
-            description: deployed ? `v${deployed.number} stops being deployed. Its versions are kept.` : '',
-            confirmLabel: 'Undeploy',
-            busyLabel: 'Undeploying…',
+            title: git ? `Commit an undeploy to ${target}?` : `Undeploy from ${environment}?`,
+            description: deployed
+                ? `v${deployed.number} stops being deployed${git ? ': its file stays, with deployed: false' : ''}. Its versions are kept.`
+                : '',
+            confirmLabel: git ? 'Commit undeploy' : 'Undeploy',
+            busyLabel: git ? 'Committing…' : 'Undeploying…',
             destructive: true,
             onConfirm: () => act(() => undeployFlow(flowId)),
         });
@@ -185,8 +208,15 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
         <>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="bg-card shadow-md" disabled={disabled} aria-label="Deploy">
-                        {busy ? <LoaderCircle className="animate-spin" /> : <Rocket />} Deploy
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="bg-card shadow-md"
+                        disabled={disabled}
+                        aria-label={git ? `Commit to ${target}` : 'Deploy'}
+                    >
+                        {busy ? <LoaderCircle className="animate-spin" /> : git ? <GitCommitHorizontal /> : <Rocket />}
+                        {git ? `Commit to ${target}` : 'Deploy'}
                         <DeployBadge state={state} />
                     </Button>
                 </DropdownMenuTrigger>
@@ -194,17 +224,17 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                     <DropdownMenuLabel className="font-normal text-muted-foreground">
                         {deployed && current.deployed ? (
                             <>
-                                <span className="font-medium text-foreground">v{deployed.number}</span> in {environment} ·{' '}
+                                <span className="font-medium text-foreground">v{deployed.number}</span> {git ? 'on' : 'in'} {target} ·{' '}
                                 <span title={formatDateTime(current.deployed.deployedAt)}>{relativeTime(current.deployed.deployedAt)}</span>
                                 {current.deployed.deployedByName && ` · ${current.deployed.deployedByName}`}
                             </>
                         ) : (
-                            `Not deployed in ${environment}`
+                            `Not deployed ${git ? 'on' : 'in'} ${target}`
                         )}
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem disabled={busy || nothingToDeploy} onSelect={() => void deploy()}>
-                        <Upload /> Deploy draft as v{nextNumber(current, draftNow())}
+                        {git ? <GitCommitHorizontal /> : <Upload />} {git ? 'Commit' : 'Deploy'} draft as v{nextNumber(current, draftNow())}
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled={current.versions.length === 0} onSelect={() => setVersionsOpen(true)}>
                         <History /> Versions
@@ -217,7 +247,7 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem variant="destructive" disabled={busy || !deployed} onSelect={undeploy}>
-                        <CircleOff /> Undeploy
+                        <CircleOff /> {git ? 'Commit undeploy' : 'Undeploy'}
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
@@ -230,7 +260,115 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                 onRestore={restore}
             />
             {deployed && compareOpen && <CompareDialog onClose={() => setCompareOpen(false)} version={deployed} draft={draftNow()} />}
+            {committing && (
+                <CommitDialog
+                    branch={target}
+                    number={committing.number}
+                    flowName={draftNow()?.name ?? 'flow'}
+                    warnings={committing.warnings}
+                    saved={committing.saved}
+                    onCommit={message => act(() => deployFlow(flowId, message))}
+                    onClose={() => setCommitting(null)}
+                />
+            )}
         </>
+    );
+}
+
+/** the Commit of the draft: its message, then the commit applied or why the branch refused it */
+function CommitDialog(props: {
+    branch: string;
+    number: number;
+    flowName: string;
+    warnings: string[];
+    saved: boolean;
+    onCommit: (message: string) => Promise<ApiResult<FlowDeployments>>;
+    onClose: () => void;
+}) {
+    const { branch, number, flowName, warnings, saved, onCommit, onClose } = props;
+    const [message, setMessage] = useState(`Update ${flowName}`);
+    const [busy, setBusy] = useState(false);
+    const [outcome, setOutcome] = useState<ApiResult<FlowDeployments> | null>(null);
+    const commit = async () => {
+        setBusy(true);
+        setOutcome(await onCommit(message.trim()));
+        setBusy(false);
+    };
+    const applied = outcome?.ok ? outcome.value : null;
+    const deployedNow = applied ? deployedVersion(applied) : undefined;
+
+    return (
+        <Dialog open onOpenChange={isOpen => !isOpen && !busy && onClose()}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Commit to {branch}</DialogTitle>
+                    <DialogDescription>
+                        {saved
+                            ? `The draft goes to ${branch} as v${number}; the commit is deployed once it applies.`
+                            : 'The draft could not be saved: what is pending is not committed.'}
+                    </DialogDescription>
+                </DialogHeader>
+                {applied ? (
+                    <p className="flex items-center gap-2 text-sm">
+                        <CircleCheck className="size-4 text-emerald-600" />
+                        {applied.commit ? (
+                            <span>
+                                <span className="font-mono">{shortSha(applied.commit)}</span> applied
+                                {deployedNow && ` · v${deployedNow.number} deployed`}
+                            </span>
+                        ) : (
+                            'Nothing changed in the branch.'
+                        )}
+                    </p>
+                ) : (
+                    <>
+                        <Input
+                            aria-label="Commit message"
+                            value={message}
+                            disabled={busy}
+                            onChange={e => setMessage(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && message.trim() && !busy && void commit()}
+                            autoFocus
+                        />
+                        {warnings.length > 0 && (
+                            <div className="flex flex-col gap-1 text-sm text-amber-700 dark:text-amber-400">
+                                {warnings.map(w => (
+                                    <span key={w} className="flex gap-1.5">
+                                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" /> {w}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        {outcome && !outcome.ok && (
+                            <div className="grid gap-1 rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">
+                                <span>{outcome.error.message}</span>
+                                {Object.entries(outcome.error.fields ?? {}).map(([file, errors]) => (
+                                    <span key={file} className="grid">
+                                        <span className="font-mono text-xs">{file}</span>
+                                        <span className="whitespace-pre-line text-xs">{errors}</span>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </>
+                )}
+                <DialogFooter>
+                    {applied ? (
+                        <Button onClick={onClose}>Close</Button>
+                    ) : (
+                        <>
+                            <Button variant="outline" disabled={busy} onClick={onClose}>
+                                Cancel
+                            </Button>
+                            <Button disabled={busy || !message.trim()} onClick={() => void commit()}>
+                                {busy ? <LoaderCircle className="animate-spin" /> : <GitCommitHorizontal />}
+                                {busy ? 'Committing…' : 'Commit'}
+                            </Button>
+                        </>
+                    )}
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -259,9 +397,17 @@ export function VersionsDialog(props: {
                         return (
                             <li key={version.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                                 <span className="w-10 font-mono font-medium">v{version.number}</span>
-                                <span className="min-w-0 flex-1 truncate text-muted-foreground" title={formatDateTime(version.createdAt)}>
-                                    {relativeTime(version.createdAt)}
-                                    {version.createdByName && ` · ${version.createdByName}`}
+                                <span className="grid min-w-0 flex-1 text-muted-foreground">
+                                    {version.commit && (
+                                        <span className="truncate text-foreground" title={version.commitMessage}>
+                                            <span className="font-mono text-xs text-muted-foreground">{shortSha(version.commit)}</span>{' '}
+                                            {version.commitMessage}
+                                        </span>
+                                    )}
+                                    <span className="truncate" title={formatDateTime(version.createdAt)}>
+                                        {relativeTime(version.createdAt)}
+                                        {version.createdByName && ` · ${version.createdByName}`}
+                                    </span>
                                 </span>
                                 {isDeployed ? (
                                     <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
@@ -269,8 +415,14 @@ export function VersionsDialog(props: {
                                     </span>
                                 ) : (
                                     <Button variant="ghost" size="sm" disabled={busy} onClick={() => onSwitch(version)}>
-                                        {action === 'rollback' ? <Undo2 /> : <Rocket />}
-                                        {action === 'rollback' ? 'Roll back' : 'Deploy'}
+                                        {action === 'rollback' ? <Undo2 /> : deployments.git ? <GitCommitHorizontal /> : <Rocket />}
+                                        {action === 'rollback'
+                                            ? deployments.git
+                                                ? 'Revert'
+                                                : 'Roll back'
+                                            : deployments.git
+                                              ? 'Commit'
+                                              : 'Deploy'}
                                     </Button>
                                 )}
                                 <Button
@@ -292,7 +444,12 @@ export function VersionsDialog(props: {
                         <ul className="max-h-48 divide-y overflow-y-auto rounded-md border">
                             {deployments.history.map((event, i) => (
                                 <li key={i} className="flex items-center gap-3 px-3 py-1.5 text-sm">
-                                    <span className="min-w-0 flex-1 truncate">{eventText(event)}</span>
+                                    <span className="min-w-0 flex-1 truncate">
+                                        {eventText(event)}
+                                        {event.commit && (
+                                            <span className="font-mono text-xs text-muted-foreground"> · {shortSha(event.commit)}</span>
+                                        )}
+                                    </span>
                                     <span className="shrink-0 text-xs text-muted-foreground" title={formatDateTime(event.at)}>
                                         {relativeTime(event.at)}
                                         {(event.byName ?? event.by) && ` · ${event.byName ?? event.by}`}

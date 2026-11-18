@@ -78,7 +78,15 @@ export function flowsRoutes() {
         .get('/:id/deployments', async c =>
             toHttpResult(c, await new GetDeploymentsHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
-        .post('/:id/deploy', async c => toHttpResult(c, await new DeployFlowHandler().handle({ id: c.req.param('id') }, c.get('useCase'))))
+        .post('/:id/deploy', async c =>
+            toHttpResult(
+                c,
+                await new DeployFlowHandler().handle(
+                    (await bodyWith(c, { id: c.req.param('id') })) ?? { id: c.req.param('id') },
+                    c.get('useCase'),
+                ),
+            ),
+        )
         .post('/:id/versions/:versionId/deploy', async c =>
             toHttpResult(
                 c,
