@@ -1,6 +1,6 @@
 import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getGitStatus, gitAhead, type GitStatus } from '@/data/git/git-api';
+import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -89,9 +89,11 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
         const read = () => void getGitStatus(slug).then(result => !gone && result.ok && setStatus({ slug, value: result.value }));
         read();
         const timer = setInterval(read, GIT_STATUS_MS);
+        window.addEventListener(GIT_STATUS_CHANGED, read);
         return () => {
             gone = true;
             clearInterval(timer);
+            window.removeEventListener(GIT_STATUS_CHANGED, read);
         };
     }, [slug, pathname]);
 

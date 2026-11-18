@@ -52,6 +52,9 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
+/** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
+export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';
+
 /** git ahead of the deploy: a refused commit, or git unreachable */
 export const gitAhead = (status: GitStatus) => status.on && (!!status.refused || !!status.unreachable);
 

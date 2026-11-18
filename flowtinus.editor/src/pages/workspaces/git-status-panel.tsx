@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CircleCheck, GitCommitHorizontal, LoaderCircle, RefreshCw, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { reconcileNow, type GitCommitView, type GitStatus, type ReconcileOutcome } from '@/data/git/git-api';
+import { GIT_STATUS_CHANGED, reconcileNow, type GitCommitView, type GitStatus, type ReconcileOutcome } from '@/data/git/git-api';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 
@@ -71,6 +71,7 @@ export function GitStatusPanel({
         setSaid(null);
         const result = await reconcileNow(slug);
         await onChanged();
+        window.dispatchEvent(new Event(GIT_STATUS_CHANGED));
         setBusy(false);
         setSaid(
             result.ok
