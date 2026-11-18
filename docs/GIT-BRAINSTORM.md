@@ -2,7 +2,7 @@
 
 Where the discussion on git sync stands. Not a spec: it records what was decided and why, so the spec and its tickets can be written from it.
 
-Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1"); the later steps stay here until the maintainer says otherwise.
+Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2's design is closed (see "Step 2"), not yet published as a spec and tickets; the later steps stay here until the maintainer says otherwise.
 
 ## Goal
 
@@ -292,7 +292,7 @@ Assumed:
 
 In the order they depend on each other, to be cut into tickets when step 1 is done:
 
-1. React to a commit (polling and the generic webhook) with the reconcile, the environment's branch becomes the source of truth and the Deploy button goes; scripts become versioned; the environment shows when git is ahead of its deploy and why.
+1. React to a commit (polling and the generic webhook) with the reconcile, the environment's branch becomes the source of truth and the Deploy button goes; scripts become versioned; the environment shows when git is ahead of its deploy and why. Designed: see "Step 2".
 2. The working copy and the editor's source control client: branches, changes, commit, discard, update, pull request, the three-way merge on a moved branch, the conflict screen; the environment modes.
 3. Schedules and webhooks in the flow's file, arriving disabled.
 4. Promotion: `promote/` branches, first-parent choice, the pre-flight, the table of the promotions the app opened, the lineage check and its repair; the Environments page.
@@ -303,3 +303,143 @@ In the order they depend on each other, to be cut into tickets when step 1 is do
 ### Local test setup
 
 A GitLab runs in the Compose project with `docker compose --profile git up -d gitlab`: http://localhost:8929 from the host, `http://gitlab:8929` from the other containers. The test repository for step 1 is `omc-solutions/test` there (private: it needs an access token with `read_repository` and `write_repository`).
+
+## Step 2
+
+The environment's branch becomes the source of truth. A commit on it, made by the app or straight in git, reaches the server through the reconcile; the Deploy button goes. Scripts become versioned. The environment shows when git is ahead of its deploy, and why. The decision is [ADR 0003](adr/0003-environment-branch-is-the-source-of-truth.md); the format it builds on is [ADR 0002](adr/0002-git-sync-repo-format.md).
+
+Still no working copy, no user branches, no promotion, no schedules or webhooks in the files: those are the later steps.
+
+Status: closed by the maintainer after three rounds of questions. Next: the spec and its tickets, from the cut below.
+
+### Git first
+
+- Every action that changes a file of the repo (a flow's commit, a rename, a move, an archive, a folder, a project, a connection, a script) builds a commit on the tip of the environment's branch, pushes it, and only then reaches Postgres, through the reconcile of that commit, in the same request.
+- `git_pending_commits` goes: nothing waits in Postgres for git.
+- When the branch moved before the push, the action rebuilds its commit on the new tip and tries once more.
+- When git cannot be reached, the action fails and says why. Nothing that is part of the tree changes while git is down; drafts and test runs still work.
+- The cost, accepted: about a second more per action, and no change to the tree while git is down.
+
+### What triggers the reconcile
+
+- Polling, every 60 s by default, set in the workspace's `git` setting.
+- A generic webhook, `POST /api/git/hook/<workspace>/<token>`, with a token per workspace made when git is turned on. It ignores the payload and only brings the fetch forward.
+- The app's own push, reconciled in the same request, so the user sees the outcome at once.
+- Polling and the webhook run in the server, not in the supervisors: the webhook's endpoint is the server's, the server already has `git`, its clones and the reconcile of its own pushes, and supervisors only run flows (they may run in a network that cannot reach the provider). A `pg_try_advisory_lock` per workspace keeps one reconcile of a workspace at a time, should two servers ever run.
+- While the server is down nothing reconciles, and nothing is edited either; schedules keep running what was last applied.
+
+### The reconcile applies the tip
+
+- It reads the tree at the tip of the environment's branch and applies that state. The commits in between are not replayed: ten commits at once give at most one new version per flow.
+- The new `flow_versions` rows and the `deployment_history` rows carry the tip's sha.
+
+### An invalid commit
+
+On top of what "Validation and identity" already decides (refused whole, the environment stays on the last good commit):
+
+- A refused sha is kept with its errors; polling does not validate the same sha again.
+- The app validates the tree before each push and never pushes an invalid one: only a commit made outside the app can be refused.
+- The next commit is validated on its own tree, not on top of the last good one, so a commit that fixes the error applies everything at once.
+
+### A connection removed by git
+
+- It is archived, not deleted: its configuration and credentials stay. A commit that brings the same `id` back brings it back configured.
+- Deleting it for good is an admin's action, on the environment's screen.
+- Step 1's import deletes it; turning git on keeps doing so only where its preview says it will.
+
+### Versioned scripts
+
+- The `scripts` table becomes the editing copy: the editor's Run reads it.
+- A new table holds the environment's deployed script set: project, path, the content's hash in `script_blobs`, and the commit's sha. The reconcile writes it.
+- Triggers resolve scripts from the deployed set: schedules, webhooks, and flows called from a deployed run.
+- A script has no version number: its version is its content's hash, and its history is git's.
+- Saving a script no longer commits.
+
+### Git ahead of the deploy
+
+- A notice in the workspace's git section and in the editor's sidebar: git at X (message, author, time), the deploy at Y, and why: the errors per file, or "git unreachable since …".
+- A "Reconcile now" button next to it.
+- The warnings of a commit that applied (a connection not configured, a secret with no value) show on the same screen.
+
+### Turning git off
+
+- Postgres becomes the source of truth again and the Deploy button comes back. Nothing is removed from the repo.
+
+### The Commit button
+
+- The Deploy button becomes "Commit to `<branch>`", with a message filled in ("Update <flow>"). It commits the draft, and the reconcile in the same request deploys it. The button shows the outcome: the sha applied, or the errors of the validation before the push.
+- An undeploy is a commit of `deployed: false`.
+- Deploying an older version is a commit of that version's content ("Revert <flow> to v3").
+- The emergency pin stays in step 7.
+
+### A draft when git moves
+
+- Each draft keeps its base: the hash of the version it started from. A script's editing copy keeps one too.
+- When a commit changes that flow or script: a draft equal to its base follows git; a draft with changes is merged three ways (base, what arrived, the draft) on the YAML in the stable order, with `git merge-file`. Clean: the base moves on, silently. A conflict: the draft is marked.
+- The same merge runs at a Commit when the branch moved since the draft's base.
+- Until the conflict screen (step 3), a conflicted draft cannot be committed and offers two ways out: discard it and take git's, or duplicate it as a new flow (draft only, under another name). No "overwrite with mine": it reverts a teammate's work in silence.
+- A flow deleted by git while it has a draft here goes to the archive with its draft, marked as deleted by that commit. Restoring it is a commit that brings the file back at its last version; the draft stays a draft.
+- A commit that brings a flow with the name of a draft-only flow here applies: the draft-only flow is renamed "<name> (draft)", and the environment's screen says so.
+
+### Scripts reach the branch
+
+- Saving a script writes only the editing copy.
+- The scripts page has a Commit that takes the scripts changed.
+- A flow's Commit lists the flow and the changed scripts it imports, directly or through another script, checked and uncheckable, so they go in the same commit.
+- Renaming a script is one commit that changes the script and the files of the flows that call it; it also rewrites those flows' drafts.
+
+### `pull-request` and `protected` environments
+
+- Before the working copy (step 3), their server turns off the Commit and the actions that change the tree, saying "this environment only takes pull requests: edit in git". Drafts, Run and the reconcile still work.
+- Committing to a `users/<slug>/…` branch with a link to open the pull request was considered and left to step 3.
+
+### A topology change
+
+- Polling also reads `flowtinus/config`. A commit that moves the environment to another branch makes the server follow the new branch and reconcile it as any commit, however large the change.
+- An environment taken out of the topology stops reconciling, and the screen says it is not in the topology.
+
+### Runs
+
+- A run's mode decides where its scripts and called flows come from. A draft run (the editor's Run, `test_run`, Run for real from the editor or the MCP) takes the scripts' editing copies and the called flows' drafts. A deployed run (a schedule, a webhook, and what they call) takes the deployed script set and the called flows' deployed versions.
+- Run for real of a draft stays allowed on a `pull-request` or `protected` environment, as today: it is deliberate, and the MCP already asks for the user's own words. The screen says the draft is not on the environment's branch.
+
+### What commits at once
+
+- A new flow is a draft only until its first Commit: it has no file. Renaming or moving a draft-only flow is local.
+- Creating a folder (`.gitkeep`), a project (`project.yaml`) or a connection commits at once, as does renaming, moving or archiving anything already in the repo.
+- Archiving a committed flow is a commit that removes its file.
+- Moving or renaming a committed flow with a draft commits the file at its committed content; the draft follows the flow by its `id`.
+
+### Authors and versions
+
+- A commit made by the app has the user as author and Flowtinus as committer.
+- A commit made outside the app shows in `deployment_history` as its author ("Name <email>"), tied to an app user when the email matches.
+- The Versions panel shows each version's sha, message and author next to its number, which stays each server's own.
+
+### The webhook's token
+
+- The workspace's git section shows the whole URL, with copy and make a new token.
+- No provider signature is checked, since the payload is ignored: the token lets its holder only bring a fetch forward. At most one fetch per workspace every 5 s; more calls are absorbed.
+
+### The MCP
+
+- No commit tool in this step, as there is no deploy tool today. `save_draft` and `save_script` write only the editing copy.
+- The tools that change the tree commit, and fail with the reason while git is down or on a `pull-request` or `protected` environment.
+
+### Cut into tickets
+
+In the order they depend on each other. To be published as a spec and its tickets.
+
+| #   | Ticket                                                                                                                                                                                                                                | Blocked by |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| A   | The reconcile of the tip: the whole tree applied or refused, the refused sha kept with its errors, a connection removed by git archived, a flow deleted with a draft archived with it, a draft-only flow whose name git takes renamed | none       |
+| B   | Git first: every action that changes the tree commits, pushes and reconciles in the request; one retry on a moved branch; `git_pending_commits` goes                                                                                  | A          |
+| C   | The deployed script set, and a run's mode deciding its scripts and called flows                                                                                                                                                       | A          |
+| D   | The Commit button: commit of the draft, undeploy and an older version as commits, the outcome on the button, authors on the Versions panel                                                                                            | B          |
+| E   | A draft's base and the three-way merge when git moves or at a Commit; a conflicted draft discarded or duplicated                                                                                                                      | D          |
+| F   | Scripts reach the branch: the scripts page's Commit, the changed scripts a flow imports in its Commit, a script's rename as one commit with its callers and their drafts                                                              | C, D       |
+| G   | Polling and the webhook in the server: the interval, the token and its limit, following a topology change                                                                                                                             | A          |
+| H   | Git ahead of the deploy: the notice, Reconcile now, a commit's warnings                                                                                                                                                               | A          |
+| I   | `pull-request` and `protected` environments: Commit and the tree's actions off, in the editor and the MCP; Run for real of a draft with its notice                                                                                    | B          |
+
+Turning git off brings the Deploy button back (D). Turning git on makes the webhook's token (G).
