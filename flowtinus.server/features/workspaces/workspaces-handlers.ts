@@ -55,7 +55,7 @@ async function findWorkspace(ctx: UseCaseContext): Promise<Workspace | null> {
 /** the user's id may be any text (a dev login), not always a uuid: compared as text, so Postgres never rejects it */
 const userIs = (userId: string) => sql`${users.id}::text = ${userId}`;
 
-export type MeView = { id: string; name: string; email: string; isAdmin: boolean; workspaces: Membership[] };
+export type MeView = { id: string; name: string; email: string; handle: string; isAdmin: boolean; workspaces: Membership[] };
 
 export class GetMeHandler implements UseCaseHandler<MeView> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<MeView>> {
@@ -68,6 +68,7 @@ export class GetMeHandler implements UseCaseHandler<MeView> {
             id: user.id,
             name: user.name,
             email: user.email,
+            handle: user.handle,
             isAdmin: user.isAdmin,
             workspaces: await membershipsOf(ctx.db, ctx.userId),
         });

@@ -54,6 +54,12 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
+/** the user's current branch in the workspace (the environment's branch until another is picked); null with git off */
+export const getCurrentBranch = (ws: string) => api<{ branch: string | null }>(`/w/${ws}/git/current-branch`);
+
+export const setCurrentBranch = (ws: string, branch: string) =>
+    api<{ branch: string }>(`/w/${ws}/git/current-branch`, { method: 'PUT', body: { branch } });
+
 /** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
 export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';
 

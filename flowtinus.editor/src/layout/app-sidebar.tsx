@@ -1,6 +1,6 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitBranch, GitPullRequest } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { getCurrentBranch, getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -126,6 +126,31 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     );
 }
 
+/** with git on, the branch the user is on in this workspace */
+function CurrentBranchItem({ slug }: { slug: string }) {
+    const [current, setCurrent] = useState<{ slug: string; branch: string | null } | null>(null);
+    useEffect(() => {
+        let gone = false;
+        void getCurrentBranch(slug).then(result => !gone && result.ok && setCurrent({ slug, branch: result.value.branch }));
+        return () => {
+            gone = true;
+        };
+    }, [slug]);
+
+    const branch = current?.slug === slug ? current.branch : null;
+    if (!branch) {
+        return null;
+    }
+    return (
+        <SidebarMenuItem>
+            <SidebarMenuButton tooltip={`On ${branch}`} className="text-muted-foreground" aria-label={`Current branch: ${branch}`}>
+                <GitBranch />
+                <span className="truncate font-mono text-xs">{branch}</span>
+            </SidebarMenuButton>
+        </SidebarMenuItem>
+    );
+}
+
 export function AppSidebar() {
     const { pathname } = useLocation();
     const { state } = useMe();
@@ -174,6 +199,7 @@ export function AppSidebar() {
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}
+                        {current && <CurrentBranchItem slug={current.slug} />}
                         {current && <GitAheadItem slug={current.slug} pathname={pathname} />}
                     </SidebarMenu>
                 </SidebarGroup>
