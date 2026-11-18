@@ -156,7 +156,7 @@ describe('a commit made with git arrives by polling and the webhook', () => {
         await app.gitPoller.tick(false);
         expect(await description()).toBe('On release');
         const flowId = (await call('POST', `/projects/${projectId}/flows`, { name: 'Orders' })).body.id as string;
-        expect((await call('GET', `/flows/${flowId}/deployments`)).body.git).toEqual({ branch: 'release' });
+        expect((await call('GET', `/flows/${flowId}/deployments`)).body.git).toEqual({ branch: 'release', mode: 'direct' });
     });
 
     test('an environment taken out of the topology stops reconciling, and says so', async () => {

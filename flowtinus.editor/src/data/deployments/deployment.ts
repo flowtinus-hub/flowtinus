@@ -47,7 +47,7 @@ export type FlowDeployments = {
     /** what deploying the saved draft now would leave broken (a flow it calls that is not deployed); not a refusal */
     warnings?: string[];
     /** with git on: a deploy is a commit to the environment's branch (null until a commit is applied) */
-    git?: { branch: string | null };
+    git?: { branch: string | null; mode: 'direct' | 'pull-request' | 'protected' };
     /** the commit a Commit applied */
     commit?: string;
     /** with git on: the commit the draft could not be merged with; it cannot be committed until it is discarded */

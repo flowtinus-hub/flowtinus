@@ -82,7 +82,7 @@ describe("with git on, a deploy is a Commit to the environment's branch", () => 
     test('a Commit writes the draft to the branch with its message; the reconcile deploys it as a version of that commit', async () => {
         const { call, newFlow, relabel, flowPath, show, tip, lastCommit } = await newWorkspace();
         const orders = await newFlow('Orders');
-        expect((await call('GET', `/flows/${orders}/deployments`)).body.git).toEqual({ branch: 'dev' });
+        expect((await call('GET', `/flows/${orders}/deployments`)).body.git).toEqual({ branch: 'dev', mode: 'direct' });
 
         const first = await call('POST', `/flows/${orders}/deploy`);
         expect(first.status).toBe(200);

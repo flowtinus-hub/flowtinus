@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { runForRealCheck } from '#features/api-tokens/run-scope';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
 import { StartRunHandler } from '#features/runs/start-run/start-run-handler';
+import { draftRunNotice } from '#features/git/git-config';
 import { runAnswer } from '../run-result';
 import { detailArg } from './get-run';
 import { DEFAULT_TEST_RUN_WAIT_S, MAX_TEST_RUN_WAIT_S, waitForEnd } from './test-run';
@@ -75,14 +76,16 @@ export const runForReal = defineTool({
             return failed(run.error);
         }
         const answer = runAnswer(run.value, { detail, sample, editorUrl: t.runLink(runId) });
-        return ok(
-            'components' in answer
+        const notice = await draftRunNotice(t.ctx.db, t.ctx.workspaceId);
+        return ok({
+            ...('components' in answer
                 ? {
                       ...answer,
                       ...(approval ? { userApproval: approval } : {}),
                       ...(allowed.byScope ? { approvedBy: "the token's run scope" } : {}),
                   }
-                : answer,
-        );
+                : answer),
+            ...(notice ? { notice } : {}),
+        });
     },
 });

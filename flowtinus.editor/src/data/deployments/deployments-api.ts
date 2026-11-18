@@ -12,7 +12,7 @@ type DeploymentsDto = {
     deployed: (Omit<NonNullable<FlowDeployments['deployed']>, 'deployedAt'> & { deployedAt: string }) | null;
     history: (Omit<FlowDeployments['history'][number], 'at'> & { at: string })[];
     warnings?: string[];
-    git?: { branch: string | null };
+    git?: { branch: string | null; mode: 'direct' | 'pull-request' | 'protected' };
     commit?: string;
     draftConflict?: string;
     changedScripts?: string[];

@@ -25,6 +25,7 @@ import { FlowCanvas, type CanvasHandle } from './flow-canvas';
 import { RunPanel } from './run-panel';
 import { portLabel } from '@/editor/run/port-label';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
+import { getGitStatus } from '@/data/git/git-api';
 import { cancelRun, getLastRun, getRun, startRun, type RunUsage } from '@/data/flows/flows-api';
 import { followRun } from '@/data/flows/run-events';
 import { knownVariablesAfter, writingComponents, type KnownVariables } from '@flowtinus/core';
@@ -41,7 +42,7 @@ type Loaded = { for: string; flow: Flow | null; folders: Folder[] };
  * top bar, and the canvas below. Outside the AppShell (see router.tsx).
  */
 export function FlowEditorPage() {
-    const { projectId = '', flowId = '' } = useParams();
+    const { projectId = '', flowId = '', ws = '' } = useParams();
     const project = useProject(projectId);
     const [loaded, setLoaded] = useState<Loaded | null>(null);
     // read again: after a restore, or when a save says the flow is no longer there (archived or removed)
@@ -250,7 +251,7 @@ export function FlowEditorPage() {
         }
     };
     // Run for real lists what is going to write outside the flow and asks first (a test run writes nothing)
-    const run = (kind: 'test' | 'real') => {
+    const run = async (kind: 'test' | 'real') => {
         const now = canvas.current?.snapshot();
         if (!now || !current?.flow || running) {
             return;
@@ -262,11 +263,18 @@ export function FlowEditorPage() {
         }
 
         const writers = writingComponents(canvasToFlowFile({ id: current.flow.id, name: current.flow.name }, now.nodes, now.edges));
+        // on an environment that only takes pull requests, the draft is not what its branch holds: said before it runs
+        const git = await getGitStatus(ws);
+        const notice =
+            git.ok && git.value.on && git.value.mode !== 'direct'
+                ? ` The draft is not on ${git.value.branch ?? "the environment's branch"}: this environment only takes pull requests, so what runs is a draft no commit holds.`
+                : '';
         setConfirm({
             title: 'Run for real?',
-            description: writers.length
-                ? `These components write outside the flow: ${writers.map(n => n.label || n.type).join(', ')}.`
-                : 'No component writes outside the flow.',
+            description:
+                (writers.length
+                    ? `These components write outside the flow: ${writers.map(n => n.label || n.type).join(', ')}.`
+                    : 'No component writes outside the flow.') + notice,
             confirmLabel: 'Run for real',
             busyLabel: 'Starting…',
             destructive: writers.length > 0,

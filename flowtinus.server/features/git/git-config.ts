@@ -9,7 +9,7 @@ import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import type { GitAccess, GitAuthor } from './git-remote';
-import { ENVIRONMENT_NAME } from './topology';
+import { ENVIRONMENT_NAME, type Mode } from './topology';
 
 export const GIT_SETTING = 'git';
 
@@ -88,12 +88,20 @@ export const readGitConfig = async (db: Database, workspaceId: string) => (await
 export const isGitOn = async (db: Database, workspaceId: string) => (await readGitState(db, workspaceId))?.on ?? false;
 
 /** with git on, the environment's branch as of the last commit applied (null before the first) */
-export async function gitBranch(db: Database, workspaceId: string): Promise<{ branch: string | null } | null> {
+export async function gitBranch(db: Database, workspaceId: string): Promise<{ branch: string | null; mode: Mode } | null> {
     if (!(await isGitOn(db, workspaceId))) {
         return null;
     }
-    const state = (await readWorkspaceSetting(db, workspaceId, RECONCILE_SETTING)) as { branch?: string } | null;
-    return { branch: state?.branch ?? null };
+    const state = (await readWorkspaceSetting(db, workspaceId, RECONCILE_SETTING)) as { branch?: string; mode?: Mode } | null;
+    return { branch: state?.branch ?? null, mode: state?.mode ?? 'direct' };
+}
+
+/** with git on, on an environment that only takes pull requests: what to say of a run of a draft (Run for real) */
+export async function draftRunNotice(db: Database, workspaceId: string): Promise<string | null> {
+    const git = await gitBranch(db, workspaceId);
+    return git && git.mode !== 'direct'
+        ? `The draft is not on ${git.branch ?? "the environment's branch"}: this environment only takes pull requests, so what runs is a draft no commit holds.`
+        : null;
 }
 
 export const saveGitConfig = (ctx: UseCaseContext, config: GitConfig, on: boolean) =>
