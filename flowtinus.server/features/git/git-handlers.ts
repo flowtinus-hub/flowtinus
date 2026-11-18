@@ -9,7 +9,6 @@ import { findTokenSecret, gitAccess, gitAuthorOf, gitConfigSchema, readGitConfig
 import { GitError, withThrowawayClone, withWorkspaceClone, type GitRemote } from './git-remote';
 import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type EnvironmentDecl } from './topology';
 import { readTopology, type TopologyView } from './workspace-topology';
-import { clearPendingCommits, gitSyncStatus, pushPendingCommits, type GitSyncView } from './git-commits';
 import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
 import { forgetReconcile, reconcile, type ReconcileResult } from './reconcile';
@@ -60,7 +59,6 @@ export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig;
             !!saved?.on && saved.config.repository === config.value.repository && saved.config.environment === config.value.environment;
         await saveGitConfig(ctx, config.value, on);
         if (!on) {
-            await clearPendingCommits(ctx);
             await forgetReconcile(ctx);
         }
 
@@ -263,7 +261,7 @@ export const TurnGitOnCommand = z.object({
     choice: z.enum(['git', 'server'], 'git or server').optional(),
 });
 
-export type TurnOnResult = { outcome: TurnOnOutcome; branch: string; warnings: TreeIssue[]; status: GitSyncView | null };
+export type TurnOnResult = { outcome: TurnOnOutcome; branch: string; warnings: TreeIssue[] };
 
 export class TurnGitOnHandler implements UseCaseHandler<TurnOnResult> {
     constructor(private readonly options: GitOptions) {}
@@ -279,24 +277,7 @@ export class TurnGitOnHandler implements UseCaseHandler<TurnOnResult> {
             return parsed;
         }
 
-        const turned = await onWorkspaceRepository(ctx, this.options, (remote, config) => turnGitOn(ctx, remote, config, parsed.value));
-        if (!turned.ok) {
-            return turned;
-        }
-
-        return success({ ...turned.value, status: await pushPendingCommits(ctx, this.options) });
-    }
-}
-
-export class GetGitStatusHandler implements UseCaseHandler<{ status: GitSyncView | null }> {
-    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ status: GitSyncView | null }>> {
-        const denied = requireRole(ctx, 'viewer');
-        if (denied) {
-            return denied;
-        }
-
-        const state = await readGitState(ctx.db, ctx.workspaceId);
-        return success({ status: state?.on ? await gitSyncStatus(ctx.db, ctx.workspaceId) : null });
+        return onWorkspaceRepository(ctx, this.options, (remote, config) => turnGitOn(ctx, remote, config, parsed.value));
     }
 }
 
@@ -308,7 +289,6 @@ export class RemoveGitConfigHandler implements UseCaseHandler<{ config: null }> 
         }
 
         await removeGitConfig(ctx);
-        await clearPendingCommits(ctx);
         await forgetReconcile(ctx);
         return success({ config: null });
     }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { insertSecret } from '#features/secrets/secret-store';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -34,7 +34,7 @@ export class UpdateConnectionHandler implements UseCaseHandler<ConnectionView> {
             return checked.failure;
         }
 
-        const updated = await mirrorGitChange(
+        const updated = await changeTree(
             ctx,
             () => `Update connection ${checked.value.name}`,
             async tx => {

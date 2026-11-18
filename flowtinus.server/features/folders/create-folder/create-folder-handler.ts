@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -44,7 +44,7 @@ export class CreateFolderHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const name = named.value;
-        const folder = await mirrorGitChange(
+        const folder = await changeTree(
             ctx,
             () => `Create folder ${name}`,
             db => new FolderRepository(db, ctx.workspaceId).insert({ id, projectId, parentId, name }),

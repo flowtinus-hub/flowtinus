@@ -189,8 +189,8 @@ export class GitRemote {
             const who = {
                 GIT_AUTHOR_NAME: author.name,
                 GIT_AUTHOR_EMAIL: author.email,
-                GIT_COMMITTER_NAME: author.name,
-                GIT_COMMITTER_EMAIL: author.email,
+                GIT_COMMITTER_NAME: FLOWTINUS.name,
+                GIT_COMMITTER_EMAIL: FLOWTINUS.email,
             };
             const parent = options.parent ? ['-p', options.parent] : [];
             return (await this.run(['commit-tree', tree, ...parent, '-F', '-'], { input: options.message, env: who })).trim();

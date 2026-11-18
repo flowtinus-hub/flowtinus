@@ -1,9 +1,10 @@
 import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, projectToYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
 import { loadTree } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
-import type { GitChanges } from './git-commits';
 
 export type RepoFiles = Record<string, string>;
+
+export type GitChanges = Record<string, string | null>;
 
 export type FlowInRepo = { flow_id: string; deployed: boolean; definition: FlowFile; content_hash: string };
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { undeployArchived } from '#features/deployments/deployments';
 import { FlowRepository } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -28,7 +28,7 @@ export class ArchiveFlowHandler implements UseCaseHandler<{ id: string }> {
 
         const { id } = parsed.value;
         const name = (await new FlowRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
-        const archived = await mirrorGitChange(
+        const archived = await changeTree(
             ctx,
             () => `Archive flow ${name}`,
             async tx => {

@@ -25,8 +25,6 @@ export type AccessTest = {
     note: string;
 };
 
-export type GitStatus = { pending: number; reason: string | null; since: string | null };
-
 export const CONFIG_BRANCH = 'flowtinus/config';
 
 export const getGitConfig = (ws: string) => api<{ config: GitConfig | null; on: boolean }>(`/w/${ws}/git`);
@@ -37,8 +35,6 @@ export const saveGitConfig = (ws: string, config: GitConfig) =>
 export const removeGitConfig = (ws: string) => api<{ config: null }>(`/w/${ws}/git`, { method: 'DELETE' });
 
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
-
-export const getGitStatus = (ws: string) => api<{ status: GitStatus | null }>(`/w/${ws}/git/status`);
 
 export const getTopology = (ws: string) => api<{ topology: Topology }>(`/w/${ws}/git/topology`);
 
@@ -63,7 +59,6 @@ export type TurnOnResult = {
     outcome: 'exported' | 'imported' | 'server-replaced-git' | 'git-replaced-server';
     branch: string;
     warnings: TreeIssue[];
-    status: GitStatus | null;
 };
 
 export const getTurnOnPlan = (ws: string) => api<TurnOnPlan>(`/w/${ws}/git/on`);

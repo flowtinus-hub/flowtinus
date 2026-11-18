@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
 import { FlowRepository, loadTree, nameInTree, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -40,7 +40,7 @@ export class RenameFlowHandler implements UseCaseHandler<FlowView> {
         }
 
         const name = named.value;
-        const renamed = await mirrorGitChange(
+        const renamed = await changeTree(
             ctx,
             () => `Rename flow ${flow.name} to ${name}`,
             db => new FlowRepository(db, ctx.workspaceId).update(flow.id, { name, updatedAt: new Date(), updatedBy: ctx.userId }),

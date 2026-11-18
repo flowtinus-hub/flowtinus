@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { canMoveFolder, isFolderVisible } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -44,7 +44,7 @@ export class MoveFolderHandler implements UseCaseHandler<FolderView> {
             return named;
         }
 
-        const moved = await mirrorGitChange(
+        const moved = await changeTree(
             ctx,
             () => `Move folder ${folder.name} to ${folderLabel(tree, parentId)}`,
             db => new FolderRepository(db, ctx.workspaceId).update(id, { parentId }),

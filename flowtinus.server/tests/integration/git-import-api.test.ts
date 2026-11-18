@@ -157,7 +157,7 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
         expect((await call('POST', '/git/on', {})).status).toBe(200);
         expect(await exportWorkspace(db, id)).toEqual(files);
         expect(git(repo, 'rev-parse', 'dev')).toBe(commit);
-        expect((await call('GET', '/git/status')).body.status.pending).toBe(0);
+        expect((await call('POST', '/git/reconcile')).body).toMatchObject({ outcome: 'up-to-date', commit });
     });
 
     test('a tree with any error is refused whole, its reasons listed by path: nothing is imported', async () => {

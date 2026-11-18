@@ -6,7 +6,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import { activeFlow, contentHash, currentDeployment, insertVersion, loadDeployments, lockFlowDeployments, newestVersionLike, setDeployed, type FlowDeploymentsView } from '../deployments';
 
 export const DeployFlowCommand = z.object({ id: z.uuid('Invalid') });
@@ -34,7 +34,7 @@ export class DeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> {
         }
 
         const draft = checked.value;
-        const deployed = await mirrorGitChange<{ deployed: boolean; number: number }>(
+        const deployed = await changeTree<{ deployed: boolean; number: number }>(
             ctx,
             done => `Deploy ${row.name} v${done.number}`,
             async tx => {

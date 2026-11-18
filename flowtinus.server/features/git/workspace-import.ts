@@ -156,6 +156,14 @@ export const draftClashes = async (db: Database, workspaceId: string, slug: stri
 
 export class ImportConflict extends Error {}
 
+export function issueFields(issues: TreeIssue[]): Record<string, string> {
+    const fields: Record<string, string> = {};
+    for (const { path, message } of issues) {
+        fields[path] = fields[path] ? `${fields[path]}\n${message}` : message;
+    }
+    return fields;
+}
+
 export type RenamedDraft = { id: string; from: string; to: string };
 
 // a reconcile (with its commit) archives what git removed and renames a draft-only flow whose name git takes;

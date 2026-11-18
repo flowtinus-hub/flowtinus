@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mirrorGitChange } from '#features/git/git-mirror';
+import { changeTree } from '#features/git/git-first';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -26,7 +26,7 @@ export class ArchiveProjectHandler implements UseCaseHandler<{ id: string }> {
 
         const { id } = parsed.value;
         const name = (await new ProjectRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
-        const archived = await mirrorGitChange(
+        const archived = await changeTree(
             ctx,
             () => `Archive project ${name}`,
             tx => archiveProject(tx, ctx, id),
