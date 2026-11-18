@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, CircleAlert, CircleCheck, LoaderCircle, RefreshCw } from 'lucide-react';
+import { Archive, ArchiveRestore, CircleAlert, CircleCheck, CircleDot, LoaderCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { DraftSave } from '@/editor/flow-save';
 
@@ -38,6 +38,13 @@ export function SaveStatus({
         case 'loading':
             return <Status icon={<LoaderCircle className="size-3.5 animate-spin" />} text="Opening…" />;
         case 'pending':
+            return (
+                <Status
+                    icon={<CircleDot className="size-3.5" />}
+                    text="Unsaved changes"
+                    title="Saves by itself in a moment; Ctrl+S saves now"
+                />
+            );
         case 'saving':
             return <Status icon={<LoaderCircle className="size-3.5 animate-spin" />} text="Saving…" />;
         case 'saved':

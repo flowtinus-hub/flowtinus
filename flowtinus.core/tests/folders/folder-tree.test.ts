@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { canMoveFolder, childrenOf, folderPath, isFolderVisible, itemCount, siblingNames, subtreeIds, validateName, type TreeFolder } from '../../src/folders/folder-tree';
+import { canMoveFolder, childrenOf, folderPath, isFolderVisible, itemCount, siblingNames, subtreeIds, type TreeFolder } from '../../src/folders/folder-tree';
 
 const folder = (id: string, parentId: string | null, archivedAt: Date | null = null): TreeFolder => ({
     id,
@@ -10,13 +10,6 @@ const folder = (id: string, parentId: string | null, archivedAt: Date | null = n
 
 // a > b > c, and d at the root
 const folders = [folder('a', null), folder('b', 'a'), folder('c', 'b'), folder('d', null)];
-
-test('names: trimmed, required, at most 100 characters, unique among siblings ignoring case', () => {
-    expect(validateName('  Import  ', [])).toEqual({ value: 'Import' });
-    expect(validateName('   ', []).error).toBe('Required');
-    expect(validateName('x'.repeat(101), []).error).toBe('At most 100 characters');
-    expect(validateName('IMPORT', [{ name: 'import' }]).error).toBe('Already in use');
-});
 
 test('a folder path goes from the root down; the root has none', () => {
     expect(folderPath(folders, 'c').map(f => f.id)).toEqual(['a', 'b', 'c']);

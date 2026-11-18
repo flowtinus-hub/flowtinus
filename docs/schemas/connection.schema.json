@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/flowtinus-hub/flowtinus/main/docs/schemas/connection.schema.json",
+  "title": "Flowtinus connection",
+  "description": "A connection declared; its name is the file name. Its configuration and credentials stay on each server.",
+  "type": "object",
+  "required": ["id", "type"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "the identity, a UUID in lower case: stays the same across renames and moves"
+    },
+    "type": {
+      "enum": [
+        "rest-basic",
+        "rest-oauth2",
+        "http-client",
+        "soap",
+        "s3",
+        "azure-blob",
+        "gcs",
+        "sftp",
+        "postgresql",
+        "sqlserver",
+        "mysql",
+        "mongodb",
+        "redshift",
+        "kafka",
+        "rabbitmq",
+        "azure-service-bus",
+        "sqs"
+      ]
+    }
+  }
+}

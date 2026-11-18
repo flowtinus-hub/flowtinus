@@ -4,6 +4,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed, type FlowDeploymentsView } from '../deployments';
 
 export const UndeployFlowCommand = z.object({ id: z.uuid('Invalid') });
@@ -25,18 +26,24 @@ export class UndeployFlowHandler implements UseCaseHandler<FlowDeploymentsView> 
             return fail('not-found', 'Flow not found.');
         }
 
-        const undeployed = await ctx.db.transaction(async tx => {
-            await lockFlowDeployments(tx, row.id);
-            const current = await currentDeployment(tx, ctx.workspaceId, row.id);
-            if (!current) {
-                return false;
-            }
+        const undeployed = await mirrorGitChange(
+            ctx,
+            () => `Undeploy ${row.name}`,
+            async tx => {
+                await lockFlowDeployments(tx, row.id);
+                const current = await currentDeployment(tx, ctx.workspaceId, row.id);
+                if (!current) {
+                    return false;
+                }
 
-            await setDeployed(tx, ctx, row.id, 'undeploy', current.id, null);
-            return true;
-        });
-        return undeployed
-            ? success(await loadDeployments(ctx.db, ctx.workspaceId, row.id))
-            : fail('validation', 'The flow is not deployed.');
+                await setDeployed(tx, ctx, row.id, 'undeploy', current.id, null);
+                return true;
+            },
+        );
+        if (!undeployed) {
+            return fail('validation', 'The flow is not deployed.');
+        }
+
+        return success(await loadDeployments(ctx.db, ctx.workspaceId, row.id));
     }
 }

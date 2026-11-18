@@ -1,6 +1,7 @@
 import type { Keyring } from '#shared/crypto/keyring';
 import type { Database } from '#shared/database/database';
 import type { WorkspaceRole } from '#features/workspaces/workspace-member';
+import type { GitOptions } from '#features/git/git-config';
 
 /**
  * Who is asking and where. Every handler gets it, so every repository can filter by workspaceId: a use case never
@@ -13,4 +14,5 @@ export type UseCaseContext = {
     workspaceIds?: string[];
     db: Database;
     keyring?: Keyring;
+    git?: GitOptions;
 };

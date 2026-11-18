@@ -1,11 +1,12 @@
 import { z } from 'zod';
-import { isFolderVisible, siblingNames, validateName } from '@flowtinus/core';
+import { mirrorGitChange } from '#features/git/git-mirror';
+import { isFolderVisible } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { FolderRepository, invalidName, loadTree, nameTaken, toFolderView, type FolderView } from '../project-tree';
+import { FolderRepository, loadTree, nameInTree, toFolderView, type FolderView } from '../project-tree';
 
 export const RenameFolderCommand = z.object({ id: z.uuid('Invalid'), name: z.string() });
 
@@ -28,12 +29,18 @@ export class RenameFolderHandler implements UseCaseHandler<FolderView> {
             return fail('not-found', 'Folder not found.');
         }
 
-        const { value: name, error } = validateName(parsed.value.name, siblingNames(tree, 'folder', folder.parentId, folder.id));
-        if (error) {
-            return error === 'Already in use' ? nameTaken('folder', name) : invalidName(error);
+        const item = { kind: 'folder' as const, id: folder.id, parentId: folder.parentId, name: parsed.value.name };
+        const named = await nameInTree(ctx, folder.projectId, tree, item);
+        if (!named.ok) {
+            return named;
         }
 
-        const renamed = await repository.update(folder.id, { name });
+        const name = named.value;
+        const renamed = await mirrorGitChange(
+            ctx,
+            () => `Rename folder ${folder.name} to ${name}`,
+            db => new FolderRepository(db, ctx.workspaceId).update(folder.id, { name }),
+        );
         return renamed ? success(toFolderView(renamed)) : fail('not-found', 'Folder not found.');
     }
 }

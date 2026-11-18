@@ -1,3 +1,4 @@
+import { NAME_MAX, validateName } from '@flowtinus/core';
 import { isProjectColor, isProjectIcon, type ProjectColorName, type ProjectIconName } from './project-appearance';
 
 /*
@@ -39,7 +40,7 @@ export type NewProject = Pick<Project, 'name' | 'description' | 'icon' | 'color'
 
 export type NewProjectErrors = Partial<Record<keyof NewProject, string>>;
 
-export const NAME_MAX = 100;
+export { NAME_MAX };
 export const DESCRIPTION_MAX = 500;
 
 /** the fields trimmed, and the error of each invalid one (none = can be saved); `exceptId` is the project being edited */
@@ -48,16 +49,13 @@ export function validateNewProject(
     existing: Project[],
     exceptId?: string,
 ): { value: NewProject; errors: NewProjectErrors } {
-    const value = { ...input, name: input.name.trim(), description: input.description.trim() };
-    const errors: NewProjectErrors = {};
-
-    if (value.name === '') {
-        errors.name = 'Required';
-    } else if (value.name.length > NAME_MAX) {
-        errors.name = `At most ${NAME_MAX} characters`;
-    } else if (existing.some(project => project.id !== exceptId && project.name.toLowerCase() === value.name.toLowerCase())) {
-        errors.name = 'Already in use';
-    }
+    const name = validateName(
+        input.name,
+        existing.filter(project => project.id !== exceptId),
+        'project',
+    );
+    const value = { ...input, name: name.value, description: input.description.trim() };
+    const errors: NewProjectErrors = name.error ? { name: name.error } : {};
 
     if (value.description.length > DESCRIPTION_MAX) {
         errors.description = `At most ${DESCRIPTION_MAX} characters`;

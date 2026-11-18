@@ -8,7 +8,7 @@ import { StatusFilter, type ListStatus } from '@/components/status-filter';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Flow, Folder, ProjectContents } from '@/data/flows/flow';
-import { anyTriggerOn, flowsTaken, folderPath, isFolderVisible, siblingNames, triggersOn } from '@/data/flows/project-tree';
+import { anyTriggerOn, flowsTaken, folderPath, isFolderVisible, projectRepoPaths, repoPathIssue, siblingNames, triggersOn, withFlow, withFolder, type TreeContents } from '@/data/flows/project-tree';
 import { useProjectContents } from '@/data/flows/use-project-contents';
 import { useProject } from '@/data/projects/use-project';
 import type { ApiResult } from '@/lib/api';
@@ -50,7 +50,7 @@ export function revealFolder(expanded: Set<string>, folders: Folder[], folderId:
  * and the folder being shown (?folder=<id>, e.g. from a breadcrumb): Cards shows its contents, Tree opens down to it.
  */
 export function ProjectFlowsPage() {
-    const { projectId = '' } = useParams();
+    const { projectId = '', ws = '' } = useParams();
     const [params, setParams] = useSearchParams();
     const status: ListStatus = params.get('status') === 'archived' ? 'archived' : 'active';
     const [view, setView] = useView();
@@ -102,6 +102,9 @@ export function ProjectFlowsPage() {
 
     const allFolderIds = () => new Set(contents.folders.map(f => f.id));
 
+    const pathIssue = (change: (name: string) => TreeContents) => (name: string) =>
+        project.status === 'ready' ? repoPathIssue(projectRepoPaths(ws, project.project.name, change(name))) : undefined;
+
     const actions: ItemActions = {
         openFolder: id => changeParams({ folder: id }),
         newFolder: parentId =>
@@ -110,7 +113,9 @@ export function ProjectFlowsPage() {
                 description: describe(parentId),
                 initial: '',
                 submitLabel: 'Create',
+                kind: 'folder',
                 siblings: siblingNames(contents, 'folder', parentId),
+                pathIssue: pathIssue(name => withFolder(contents, { id: '', parentId, name })),
                 onSave: async name => {
                     const result = await store.createFolder(parentId, name);
                     if (result.ok && parentId) {
@@ -126,7 +131,9 @@ export function ProjectFlowsPage() {
                 description: describe(folder),
                 initial: '',
                 submitLabel: 'Create',
+                kind: 'flow',
                 siblings: siblingNames(contents, 'flow', folder),
+                pathIssue: pathIssue(name => withFlow(contents, { id: '', folderId: folder, name })),
                 onSave: async name => {
                     const result = await store.createFlow(folder, name);
                     if (result.ok && folder) {
@@ -142,7 +149,13 @@ export function ProjectFlowsPage() {
                 title: kind === 'folder' ? 'Rename folder' : 'Rename flow',
                 initial: item.name,
                 submitLabel: 'Save',
+                kind,
                 siblings: siblingNames(contents, kind, parentId, item.id),
+                pathIssue: pathIssue(name =>
+                    kind === 'folder'
+                        ? withFolder(contents, { id: item.id, parentId, name })
+                        : withFlow(contents, { id: item.id, folderId: parentId, name }),
+                ),
                 onSave: name => (kind === 'folder' ? store.renameFolder(item.id, name) : store.renameFlow(item.id, name)),
             });
         },
@@ -165,7 +178,9 @@ export function ProjectFlowsPage() {
                 description: `A copy of ${flow.name}. ${describe(flow.folderId)}`,
                 initial,
                 submitLabel: 'Clone',
+                kind: 'flow',
                 siblings,
+                pathIssue: pathIssue(name => withFlow(contents, { id: '', folderId: flow.folderId, name })),
                 onSave: name => store.cloneFlow(flow.id, name),
             });
         },

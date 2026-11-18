@@ -66,8 +66,10 @@ export function deployState(deployments: FlowDeployments, draft: FlowFile | null
     return { kind: 'deployed', version, changed: draft !== null && !sameFlow(draft, version.definition) };
 }
 
-/** the number the next deploy gets */
-export const nextNumber = (deployments: FlowDeployments) => (deployments.versions[0]?.number ?? 0) + 1;
+export function nextNumber(deployments: FlowDeployments, draft: FlowFile | null): number {
+    const newest = deployments.versions[0];
+    return newest && draft && sameFlow(draft, newest.definition) ? newest.number : (newest?.number ?? 0) + 1;
+}
 
 /** making a version the deployed one: back to an older one is a rollback, to a newer one (after a rollback) a deploy */
 export const switchAction = (deployments: FlowDeployments, to: FlowVersion): 'deploy' | 'rollback' => {

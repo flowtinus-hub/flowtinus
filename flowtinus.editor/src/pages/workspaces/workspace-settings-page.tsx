@@ -12,6 +12,7 @@ import { useResource } from '@/data/use-resource';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { ROLE_LABEL, type Member, type Workspace, type WorkspaceRole } from '@/data/workspaces/workspace';
 import { addMember, archiveWorkspace, getWorkspace, listMembers, removeMember, restoreWorkspace, updateMember, updateWorkspace } from '@/data/workspaces/workspaces-api';
+import { GitSection } from './git-section';
 import { WorkspacePage } from './workspace-page';
 
 const ROLES: WorkspaceRole[] = ['viewer', 'editor', 'admin'];
@@ -42,6 +43,7 @@ export function WorkspaceSettingsPage() {
                             onSaved={workspace.reload}
                         />
                         <Members slug={slug} readOnly={value.role !== 'admin' || value.archivedAt !== null} />
+                        <GitSection slug={slug} readOnly={value.role !== 'admin' || value.archivedAt !== null} />
                         {value.role === 'admin' && <ArchiveSection workspace={value} onChanged={workspace.reload} />}
                     </div>
                 )}

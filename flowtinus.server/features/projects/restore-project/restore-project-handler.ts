@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mirrorGitChange } from '#features/git/git-mirror';
 import { eq } from 'drizzle-orm';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -41,20 +42,24 @@ export class RestoreProjectHandler implements UseCaseHandler<ProjectView> {
 
         const archivedAt = archived.deletedAt.getTime();
         const together = (item: { deletedAt: Date | null }) => item.deletedAt?.getTime() === archivedAt;
-        const restored = await ctx.db.transaction(async tx => {
-            const tree = await loadTree(tx, ctx.workspaceId, id);
-            const folderRepository = new FolderRepository(tx, ctx.workspaceId);
-            const flowRepository = new FlowRepository(tx, ctx.workspaceId);
-            for (const folder of tree.folders.filter(together)) {
-                await folderRepository.restore(folder.id);
-            }
+        const restored = await mirrorGitChange(
+            ctx,
+            () => `Restore project ${archived.name}`,
+            async tx => {
+                const tree = await loadTree(tx, ctx.workspaceId, id);
+                const folderRepository = new FolderRepository(tx, ctx.workspaceId);
+                const flowRepository = new FlowRepository(tx, ctx.workspaceId);
+                for (const folder of tree.folders.filter(together)) {
+                    await folderRepository.restore(folder.id);
+                }
 
-            for (const flow of tree.flows.filter(together)) {
-                await flowRepository.restore(flow.id);
-            }
+                for (const flow of tree.flows.filter(together)) {
+                    await flowRepository.restore(flow.id);
+                }
 
-            return new ProjectRepository(tx, ctx.workspaceId).restore(id);
-        });
+                return new ProjectRepository(tx, ctx.workspaceId).restore(id);
+            },
+        );
         return restored ? success(toProjectView(restored)) : fail('not-found', 'Archived project not found.');
     }
 }

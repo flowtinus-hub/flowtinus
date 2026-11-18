@@ -97,7 +97,12 @@ function ProjectForm({ target, onClose, existing, onSave }: Props & { target: Pr
                         maxLength={NAME_MAX}
                         value={form.name}
                         aria-invalid={errors.name ? true : undefined}
-                        onChange={event => setForm({ ...form, name: event.target.value })}
+                        onChange={event => {
+                            const next = { ...form, name: event.target.value };
+                            setForm(next);
+                            const nameError = validateNewProject(next, existing, editing?.id).errors.name;
+                            setErrors(({ name: _name, ...rest }) => (nameError ? { ...rest, name: nameError } : rest));
+                        }}
                     />
                 </div>
                 <FieldError message={errors.name} />

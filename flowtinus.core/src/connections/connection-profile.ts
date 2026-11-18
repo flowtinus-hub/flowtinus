@@ -1,4 +1,4 @@
-import { validateName } from '../folders/folder-tree';
+import { validateName } from '../names/file-name';
 import { CONNECTION_TYPES, visibleFields, type ConnectionTypeName } from './types/connection-types';
 
 export type ProfileFields = { name: string; type: ConnectionTypeName; config: Record<string, string> };
@@ -42,6 +42,7 @@ export function validateProfile(
     const name = validateName(
         fields.name,
         others.filter(o => o.id !== exceptId),
+        'connection',
     );
     if (name.error) {
         errors.name = name.error;

@@ -67,7 +67,10 @@ function PathForm({ target, onClose }: { target: PathDialogTarget; onClose: () =
                     className="font-mono"
                     value={path}
                     aria-invalid={error ? true : undefined}
-                    onChange={event => setPath(event.target.value)}
+                    onChange={event => {
+                        setPath(event.target.value);
+                        setError(target.issue(event.target.value) ?? '');
+                    }}
                 />
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 {target.warning && <p className="text-sm text-amber-600 dark:text-amber-400">{target.warning}</p>}

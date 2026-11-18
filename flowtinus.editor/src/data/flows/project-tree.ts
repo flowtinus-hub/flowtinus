@@ -6,7 +6,7 @@ import type { Flow, Folder, ProjectContents } from './flow';
  * the screens show an error as you type and the server answers the same. Here only what the screens add.
  */
 
-export { byName, canMoveFolder, childrenOf, folderPath, isFolderVisible, itemCount, siblingNames, subtreeIds } from '@flowtinus/core';
+export { byName, canMoveFolder, childrenOf, folderPath, isFolderVisible, itemCount, projectRepoPaths, repoPathIssue, siblingNames, subtreeIds, withFlow, withFolder, type TreeContents } from '@flowtinus/core';
 
 /**
  * The Archived list: what was archived on its own or at the top of an archived folder, last archived first. What went
