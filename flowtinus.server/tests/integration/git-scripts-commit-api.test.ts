@@ -118,6 +118,8 @@ describe('scripts reach the branch through a Commit', () => {
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
         const { webhook, token } = (await call('POST', `/flows/${orders}/webhooks`, { name: 'Shop' })).body;
         const deployedRun = async () => {
+            // the worker seen just now: a long run of the suite would leave the one inserted at the start lost
+            await db.query('UPDATE supervisors SET last_seen = now()');
             const response = await app.request(`/wh/${webhook.id}`, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
             const [run] = await db.query<{ scripts: Record<string, string> }>('SELECT scripts FROM runs WHERE id = $1', [
                 ((await response.json()) as { runId: string }).runId,

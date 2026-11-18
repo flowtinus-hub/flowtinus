@@ -122,7 +122,8 @@ describe('every change of the workspace follows into the repository', () => {
             'projects/Sales/project.yaml',
         ]);
         expect(lastCommit()).toBe('Ana|Restore folder Daily');
-    });
+        // a dozen commits, each pushed and reconciled: beside the other suites it outlasts 30 s
+    }, 60_000);
 
     test('an archived flow leaves the repository; restored, it comes back not deployed', async () => {
         const { call, newProject, newFlow, deploy, tree, show, lastCommit } = await newWorkspace();

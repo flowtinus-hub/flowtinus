@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { CircleCheck, CircleX, GitBranch, Power, TriangleAlert } from 'lucide-react';
+import { CircleCheck, CircleX, Copy, GitBranch, Power, RefreshCw, TriangleAlert } from 'lucide-react';
+import { relativeTime } from '@/lib/relative-time';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useResource } from '@/data/use-resource';
 import { listSecrets } from '@/data/secrets/secrets-api';
 import type { ApiResult } from '@/lib/api';
-import { CONFIG_BRANCH, createTopology, getGitConfig, getTopology, getTurnOnPlan, removeGitConfig, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type FileChange, type GitConfig, type Topology, type TreeIssue, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
+import { CONFIG_BRANCH, createTopology, getGitConfig, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
@@ -42,6 +43,15 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                             run={saved.run}
                         />
                     )}
+                    {saved.state.value.on && (
+                        <HookPanel
+                            slug={slug}
+                            hook={saved.state.value.hook}
+                            lastPoll={saved.state.value.lastPoll}
+                            readOnly={readOnly}
+                            onChanged={saved.reload}
+                        />
+                    )}
                     {saved.state.value.config && (
                         <TopologyPanel
                             key={`topology:${JSON.stringify(saved.state.value.config)}:${saved.state.value.on}`}
@@ -53,6 +63,105 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                 </>
             )}
         </section>
+    );
+}
+
+/** with git on: the webhook's URL for the git provider (copy, a new token) and the last fetch of the branch */
+function HookPanel({
+    slug,
+    hook,
+    lastPoll,
+    readOnly,
+    onChanged,
+}: {
+    slug: string;
+    hook?: string;
+    lastPoll?: LastPoll;
+    readOnly: boolean;
+    onChanged: () => Promise<void>;
+}) {
+    const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
+    const [copied, setCopied] = useState(false);
+    const url = hook ? `${window.location.origin}/api/${hook}` : '';
+    return (
+        <div className="grid gap-2 rounded-lg border p-4 text-sm">
+            {hook && (
+                <>
+                    <Label htmlFor="git-hook">Webhook</Label>
+                    <div className="flex gap-2">
+                        <Input id="git-hook" readOnly className="font-mono text-xs" value={url} onFocus={e => e.target.select()} />
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                                void navigator.clipboard?.writeText(url).then(() => {
+                                    setCopied(true);
+                                    setTimeout(() => setCopied(false), 1200);
+                                })
+                            }
+                        >
+                            <Copy /> {copied ? 'Copied' : 'Copy'}
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            disabled={readOnly}
+                            onClick={() =>
+                                setConfirm({
+                                    title: 'Make a new token?',
+                                    description:
+                                        'The webhook gets a new URL; the old one stops working, so give the new one to the git provider.',
+                                    confirmLabel: 'New token',
+                                    busyLabel: 'Making…',
+                                    onConfirm: async () => {
+                                        const result = await renewHookToken(slug);
+                                        if (result.ok) {
+                                            await onChanged();
+                                        }
+                                        return result;
+                                    },
+                                })
+                            }
+                        >
+                            <RefreshCw /> New token
+                        </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        A POST from the git provider on a push brings the fetch forward (its payload is ignored); without it, the server
+                        fetches on its interval.
+                    </p>
+                </>
+            )}
+            {!hook && (
+                <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">No webhook yet: the server fetches on its interval.</span>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto"
+                        disabled={readOnly}
+                        onClick={() =>
+                            void renewHookToken(slug).then(async result => {
+                                if (result.ok) {
+                                    await onChanged();
+                                }
+                            })
+                        }
+                    >
+                        Make the webhook&apos;s URL
+                    </Button>
+                </div>
+            )}
+            {lastPoll && (
+                <p className={lastPoll.error ? 'flex gap-1.5 text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}>
+                    {lastPoll.error && <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />}
+                    Last fetch {relativeTime(new Date(lastPoll.at))}
+                    {lastPoll.error ? `: ${lastPoll.error}` : '.'}
+                </p>
+            )}
+            <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
+        </div>
     );
 }
 
@@ -79,7 +188,12 @@ function GitForm({
         setTest(null);
         setMessage('');
     };
-    const trimmed = { repository: config.repository.trim(), tokenSecret: config.tokenSecret, environment: config.environment.trim() };
+    const trimmed: GitConfig = {
+        repository: config.repository.trim(),
+        tokenSecret: config.tokenSecret,
+        environment: config.environment.trim(),
+        ...(config.pollSeconds ? { pollSeconds: config.pollSeconds } : {}),
+    };
     const complete = !!(trimmed.repository && trimmed.tokenSecret && trimmed.environment);
     const changed = JSON.stringify(trimmed) !== JSON.stringify(saved ?? EMPTY);
     const secretNames = secrets.state.status === 'ready' ? secrets.state.value.map(s => s.name) : [];
@@ -162,6 +276,25 @@ function GitForm({
                         <p className="text-xs text-muted-foreground">Its environment in the topology, on {CONFIG_BRANCH}.</p>
                     )}
                 </div>
+            </div>
+            <div className="grid gap-2 sm:w-1/2">
+                <Label htmlFor="git-poll">Fetch every (seconds)</Label>
+                <Input
+                    id="git-poll"
+                    type="number"
+                    min={10}
+                    placeholder="60"
+                    value={config.pollSeconds ?? ''}
+                    disabled={readOnly}
+                    onChange={e => set({ pollSeconds: e.target.value ? Number(e.target.value) : undefined })}
+                />
+                {errors.pollSeconds ? (
+                    <p className="text-xs text-destructive">{errors.pollSeconds}</p>
+                ) : (
+                    <p className="text-xs text-muted-foreground">
+                        How often the server looks for a new commit on its branch; the webhook brings it forward.
+                    </p>
+                )}
             </div>
             {!readOnly && (
                 <div className="flex flex-wrap items-center gap-2">

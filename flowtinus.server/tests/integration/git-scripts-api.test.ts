@@ -97,6 +97,8 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
         const webhookOf = async (flowId: string) => {
             const { webhook, token } = (await call('POST', `/flows/${flowId}/webhooks`, { name: 'Shop' })).body;
             return async () => {
+                // the worker seen just now: a long run of the suite would leave the one inserted at the start lost
+                await db.query('UPDATE supervisors SET last_seen = now()');
                 const response = await app.request(`/wh/${webhook.id}`, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
                 expect(response.status).toBe(202);
                 return scriptsOf(((await response.json()) as { runId: string }).runId);

@@ -12,8 +12,12 @@ import { readTopology, type TopologyView } from './workspace-topology';
 import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
 import { forgetReconcile, lockReconcile, reconcile, type ReconcileResult } from './reconcile';
+import { ensureHookToken, forgetHookToken, hookPath, readHookToken, renewHookToken } from './git-hook';
+import { readLastPoll, type LastPoll } from './git-poller';
+import { workspaceSlug } from '#features/folders/project-tree';
 
-export type GitConfigView = { config: GitConfig | null; on: boolean };
+/** hook (admins): the webhook's path on the server; lastPoll: the last fetch of the environment's branch, and why it could not reconcile */
+export type GitConfigView = { config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll };
 
 export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<GitConfigView>> {
@@ -23,7 +27,14 @@ export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
         }
 
         const state = await readGitState(ctx.db, ctx.workspaceId);
-        return success({ config: state?.config ?? null, on: state?.on ?? false });
+        const token = ctx.role === 'admin' ? await readHookToken(ctx.db, ctx.workspaceId) : null;
+        const lastPoll = state?.on ? await readLastPoll(ctx.db, ctx.workspaceId) : null;
+        return success({
+            config: state?.config ?? null,
+            on: state?.on ?? false,
+            ...(token ? { hook: hookPath(await workspaceSlug(ctx), token) } : {}),
+            ...(lastPoll ? { lastPoll } : {}),
+        });
     }
 }
 
@@ -161,7 +172,7 @@ async function testAccess(remote: GitRemote, environment: string): Promise<Acces
     return result(await readTopology(remote, environment, branches).catch(() => null));
 }
 
-async function onWorkspaceRepository<T>(
+export async function onWorkspaceRepository<T>(
     ctx: UseCaseContext,
     options: GitOptions,
     work: (remote: GitRemote, config: GitConfig) => Promise<UseCaseResult<T>>,
@@ -282,7 +293,25 @@ export class TurnGitOnHandler implements UseCaseHandler<TurnOnResult> {
             return parsed;
         }
 
-        return onWorkspaceRepository(ctx, this.options, (remote, config) => turnGitOn(ctx, remote, config, parsed.value));
+        const turned = await onWorkspaceRepository(ctx, this.options, (remote, config) => turnGitOn(ctx, remote, config, parsed.value));
+        if (turned.ok) {
+            await ensureHookToken(ctx);
+        }
+        return turned;
+    }
+}
+
+export class RenewHookTokenHandler implements UseCaseHandler<{ hook: string }> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ hook: string }>> {
+        const denied = requireRole(ctx, 'admin');
+        if (denied) {
+            return denied;
+        }
+        if (!(await readGitState(ctx.db, ctx.workspaceId))?.on) {
+            return fail('conflict', 'Git is off in this workspace.');
+        }
+
+        return success({ hook: hookPath(await workspaceSlug(ctx), await renewHookToken(ctx)) });
     }
 }
 
@@ -299,6 +328,7 @@ export class RemoveGitConfigHandler implements UseCaseHandler<{ config: null }> 
             await lockReconcile(db, ctx.workspaceId);
             await removeGitConfig(tx);
             await forgetReconcile(tx);
+            await forgetHookToken(tx);
         });
         return success({ config: null });
     }

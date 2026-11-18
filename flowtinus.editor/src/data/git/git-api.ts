@@ -1,7 +1,11 @@
 import type { TreeIssue } from '@flowtinus/core';
 import { api } from '@/lib/api';
 
-export type GitConfig = { repository: string; tokenSecret: string; environment: string };
+/** pollSeconds: how often the server fetches the environment's branch (60 when absent) */
+export type GitConfig = { repository: string; tokenSecret: string; environment: string; pollSeconds?: number };
+
+/** the last fetch of the environment's branch, and why it could not reconcile */
+export type LastPoll = { at: string; error?: string };
 
 export type Mode = 'direct' | 'pull-request' | 'protected';
 
@@ -27,7 +31,12 @@ export type AccessTest = {
 
 export const CONFIG_BRANCH = 'flowtinus/config';
 
-export const getGitConfig = (ws: string) => api<{ config: GitConfig | null; on: boolean }>(`/w/${ws}/git`);
+/** hook (admins): the webhook's path on the server (git/hook/<workspace>/<token>) */
+export const getGitConfig = (ws: string) =>
+    api<{ config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll }>(`/w/${ws}/git`);
+
+/** a new token for the webhook: the old URL stops working */
+export const renewHookToken = (ws: string) => api<{ hook: string }>(`/w/${ws}/git/hook-token`, { method: 'POST' });
 
 export const saveGitConfig = (ws: string, config: GitConfig) =>
     api<{ config: GitConfig; on: boolean }>(`/w/${ws}/git`, { method: 'PUT', body: config });
