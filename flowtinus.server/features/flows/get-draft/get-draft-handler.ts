@@ -18,6 +18,8 @@ export class GetDraftHandler implements UseCaseHandler<FlowDraft> {
         }
 
         const [flow] = await new FlowRepository(ctx.db, ctx.workspaceId).findAll(eq(flows.id, parsed.value.id));
-        return flow ? success(readDraft(flow)) : fail('not-found', 'Flow not found.');
+        return flow
+            ? success({ ...readDraft(flow), ...(flow.draftConflict ? { conflict: flow.draftConflict } : {}) })
+            : fail('not-found', 'Flow not found.');
     }
 }

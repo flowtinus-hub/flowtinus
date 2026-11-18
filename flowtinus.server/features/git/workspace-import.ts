@@ -10,6 +10,7 @@ import { ProjectRepository } from '#features/projects/project-repository';
 import { exportsOf, saveBlob } from '#features/scripts/script-store';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
+import { draftFollowsGit } from './draft-merge';
 import type { GitRemote } from './git-remote';
 import { flowsInRepo, type RepoFiles } from './workspace-export';
 
@@ -378,6 +379,7 @@ async function importFlows(
     );
 
     // removed ones included: a flow git brings back comes back with its history
+    const before = new Map((await flowsInRepo(db, workspaceId, ids)).map(f => [f.flow_id, f.content_hash]));
     const existing = new Set(
         (await db.query<{ id: string }>('SELECT id FROM flows WHERE workspace_id = $1 AND id = ANY($2::uuid[])', [workspaceId, ids])).map(
             f => f.id,
@@ -404,10 +406,22 @@ async function importFlows(
             }
         } else {
             const draft: StoredDraft = { revision: 0, flow };
-            await repository.insert({ id, projectId, folderId, name: flow.name, draftDefinition: draft, updatedBy: userId });
+            await repository.insert({
+                id,
+                projectId,
+                folderId,
+                name: flow.name,
+                draftDefinition: draft,
+                draftBase: contentHash(flow),
+                updatedBy: userId,
+            });
         }
 
         await deployAsInTree(db, by, id, flow, deployed, commit);
+        const hash = contentHash(flow);
+        if (commit && existing.has(id) && before.get(id) !== hash) {
+            await draftFollowsGit(db, workspaceId, id, { definition: flow, hash }, before.get(id) ?? null, commit);
+        }
     }
 }
 

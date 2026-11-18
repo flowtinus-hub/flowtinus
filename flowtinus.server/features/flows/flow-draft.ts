@@ -10,7 +10,8 @@ import type { Flow } from './flow';
 
 export type StoredDraft = { revision: number; flow: FlowFile };
 
-export type FlowDraft = { flow: FlowFile; revision: number };
+/** conflict: with git on, the commit the draft could not be merged with (it cannot be committed until it is discarded) */
+export type FlowDraft = { flow: FlowFile; revision: number; conflict?: string };
 
 export function readDraft(row: Flow): FlowDraft {
     const stored = row.draftDefinition as Partial<StoredDraft> | null;

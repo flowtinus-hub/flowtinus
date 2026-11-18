@@ -14,6 +14,7 @@ type DeploymentsDto = {
     warnings?: string[];
     git?: { branch: string | null };
     commit?: string;
+    draftConflict?: string;
 };
 
 export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
@@ -23,6 +24,7 @@ export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
     ...(dto.warnings ? { warnings: dto.warnings } : {}),
     ...(dto.git ? { git: dto.git } : {}),
     ...(dto.commit ? { commit: dto.commit } : {}),
+    ...(dto.draftConflict ? { draftConflict: dto.draftConflict } : {}),
 });
 
 async function deployments(path: string, method = 'POST', body?: unknown): Promise<ApiResult<FlowDeployments>> {
@@ -45,6 +47,11 @@ export const deployVersion = (flowId: string, versionId: string) => deployments(
 
 /** nothing deployed anymore (its versions stay) */
 export const undeployFlow = (flowId: string) => deployments(`/flows/${flowId}/undeploy`);
+
+/** with git on, the draft takes git's content; `copyAs` first keeps it as a new flow (a draft only) under that name */
+export function discardDraft(flowId: string, copyAs?: string): Promise<ApiResult<{ revision: number; copy?: { id: string } }>> {
+    return api(`/flows/${flowId}/draft/discard`, { method: 'POST', body: copyAs === undefined ? {} : { copyAs } });
+}
 
 /** replaces the draft by a version's flow (the draft as it is now is lost) */
 export function restoreDraft(flowId: string, versionId: string): Promise<ApiResult<{ revision: number }>> {
