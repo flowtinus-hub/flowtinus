@@ -23,7 +23,11 @@ export class GetProjectHandler implements UseCaseHandler<ProjectView> {
         if (branch) {
             const found = branchProject(branch, id) ?? (await branchArchive(ctx, branch)).projects.find(p => p.id === id);
             return found
-                ? success({ ...toProjectView(found), ...(branch.editable ? {} : { readOnly: true as const }) })
+                ? success({
+                      ...toProjectView(found),
+                      ...(branch.editable ? {} : { readOnly: true as const }),
+                      ...(branch.removed ? { removedBranch: true as const } : {}),
+                  })
                 : fail('not-found', 'Project not found.');
         }
         const repository = new ProjectRepository(ctx.db, ctx.workspaceId);

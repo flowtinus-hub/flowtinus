@@ -20,6 +20,8 @@ export type Project = {
     summary?: ProjectSummary;
     /** read from a branch the user cannot edit */
     readOnly?: boolean;
+    /** read from a work branch removed on the remote: its changes go to a new branch or are discarded */
+    removedBranch?: boolean;
 };
 
 /** a project's active flows (and how many are deployed) and scripts (connections, secrets and variables are the workspace's) */

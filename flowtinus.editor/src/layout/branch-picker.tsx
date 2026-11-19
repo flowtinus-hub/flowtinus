@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { projectsPath } from '@/app/paths';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
-import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, REMOVED_BRANCH, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
+import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { cn } from '@/lib/utils';
 import { CreateBranchDialog } from './create-branch-dialog';
@@ -21,7 +21,13 @@ function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: 
     return (
         <DropdownMenuItem
             onSelect={() => onPick(branch.name)}
-            title={branch.removed ? `${branch.name}: ${REMOVED_BRANCH}` : branch.editable ? branch.name : `${branch.name} (read only here)`}
+            title={
+                branch.removed
+                    ? `${branch.name}: ${removedBranchText(branch.lostTip)}`
+                    : branch.editable
+                      ? branch.name
+                      : `${branch.name} (read only here)`
+            }
         >
             <span className={cn('min-w-0 flex-1 truncate font-mono text-xs', branch.removed && 'line-through')}>{branch.name}</span>
             {branch.removed && <span className="shrink-0 text-xs text-destructive">removed</span>}
@@ -108,7 +114,7 @@ export function BranchPicker({ slug }: { slug: string }) {
     const merged = list.filter(b => b.merged && b.name !== value.branch);
     const shown = list.filter(b => showMerged || !b.merged || b.name === value.branch);
     const label = value.removed
-        ? `On ${value.branch}. ${REMOVED_BRANCH}`
+        ? `On ${value.branch}. ${removedBranchText(value.lostTip)}`
         : value.editable
           ? `On ${value.branch}`
           : `On ${value.branch} (read only)`;
@@ -129,7 +135,7 @@ export function BranchPicker({ slug }: { slug: string }) {
                         <GitBranch />
                         <span className={cn('truncate font-mono text-xs', value.removed && 'line-through')}>{value.branch}</span>
                         {value.removed ? (
-                            <TriangleAlert className="size-3 shrink-0 text-destructive" aria-label={REMOVED_BRANCH} />
+                            <TriangleAlert className="size-3 shrink-0 text-destructive" aria-label={removedBranchText(value.lostTip)} />
                         ) : (
                             !value.editable && <Lock className="size-3 shrink-0" aria-label="Read only" />
                         )}
@@ -195,7 +201,9 @@ export function BranchPicker({ slug }: { slug: string }) {
                     )}
                 </DropdownMenuContent>
             </DropdownMenu>
-            {value.removed && <p className="px-2 text-xs text-destructive group-data-[collapsible=icon]:hidden">{REMOVED_BRANCH}</p>}
+            {value.removed && (
+                <p className="px-2 text-xs text-destructive group-data-[collapsible=icon]:hidden">{removedBranchText(value.lostTip)}</p>
+            )}
             {error && <p className="px-2 text-xs text-destructive group-data-[collapsible=icon]:hidden">{error}</p>}
             {proposing && proposable && environment && (
                 <PullRequestDialog
@@ -208,7 +216,13 @@ export function BranchPicker({ slug }: { slug: string }) {
             )}
             {updating && <UpdateDialog slug={slug} onClose={() => setUpdating(false)} />}
             {creating && handle && (
-                <CreateBranchDialog slug={slug} from={value.branch} handle={handle} onClose={() => setCreating(false)} />
+                <CreateBranchDialog
+                    slug={slug}
+                    from={value.branch}
+                    lostTip={value.lostTip}
+                    handle={handle}
+                    onClose={() => setCreating(false)}
+                />
             )}
         </SidebarMenuItem>
     );

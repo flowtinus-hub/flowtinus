@@ -15,9 +15,10 @@ import { readBranchWorkspace } from './workspace-import';
 /**
  * merged: contained in the environment's branch (never the environment's branch itself). removed: gone from the
  * remote while this server has uncommitted changes on it, kept at its last tip until they are taken to a new branch or
- * discarded.
+ * discarded. lostTip: a removed one whose last tip this server never knew (removed while git was off): read at, and
+ * cut from, the environment's branch.
  */
-export type Head = { name: string; sha: string; merged: boolean; removed?: true };
+export type Head = { name: string; sha: string; merged: boolean; removed?: true; lostTip?: true };
 
 /** the remote's heads as the last fetch found them; environments: the branches the topology gives an environment */
 export type Heads = { at: string; environment: string | null; environments: string[]; heads: Head[] };
@@ -28,6 +29,7 @@ export const readHeads = async (db: Database, workspaceId: string) =>
 /** every head fetched and kept with whether the environment's branch contains it */
 export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<Heads> {
     const since = new Date();
+    const cloned = await clonedTips(remote);
     const fetched = await remote.fetchHeads();
     const configTip = fetched.get(CONFIG_BRANCH);
     const text = configTip ? await remote.readFile(configTip, TOPOLOGY_FILE) : null;
@@ -50,7 +52,7 @@ export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config
                   : await remote.isAncestor(sha, envTip);
         heads.push({ name, sha, merged });
     }
-    heads.push(...(await followBranches(ctx, remote, fetched, known, environment)));
+    heads.push(...(await followBranches(ctx, remote, fetched, known, cloned, environment, envTip)));
     heads.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     // whoever was on a branch gone from the remote is back on the environment's (one picked during the fetch stays)
     await ctx.db.query('DELETE FROM user_branches WHERE workspace_id = $1 AND NOT (branch = ANY($2::text[])) AND updated_at < $3', [
@@ -64,7 +66,26 @@ export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config
     return value;
 }
 
-const keptRef = (branch: string) => `refs/flowtinus/kept/${branch}`;
+const KEPT = 'refs/flowtinus/kept/';
+const keptRef = (branch: string) => `${KEPT}${branch}`;
+
+/** each branch's tip in the clone before a fetch: the one kept for a removed branch, else the last one fetched */
+async function clonedTips(remote: GitRemote): Promise<Map<string, string>> {
+    const out = await remote.run(['for-each-ref', '--format=%(objectname) %(refname)', KEPT, 'refs/remotes/origin/']);
+    const tips = new Map<string, string>();
+    for (const line of out.split('\n').filter(Boolean)) {
+        const [sha, ref] = line.split(' ') as [string, string];
+        if (ref.startsWith(KEPT)) {
+            tips.set(ref.slice(KEPT.length), sha);
+        } else {
+            const name = ref.slice('refs/remotes/origin/'.length);
+            if (!tips.has(name)) {
+                tips.set(name, sha);
+            }
+        }
+    }
+    return tips;
+}
 
 /**
  * The work branches with a working copy on this server, after a fetch: one that moved has its files merged onto its
@@ -76,7 +97,9 @@ async function followBranches(
     remote: GitRemote,
     fetched: Map<string, string>,
     known: Map<string, Head>,
+    cloned: Map<string, string>,
     environment: string | null,
+    envTip: string | undefined,
 ): Promise<Head[]> {
     const branches = await ctx.db.query<{ branch: string }>(
         'SELECT DISTINCT branch FROM working_copy WHERE workspace_id = $1 AND branch <> $2 ORDER BY branch',
@@ -115,11 +138,17 @@ async function followBranches(
         }
 
         const changed = (await workingRows(ctx.db, ctx.workspaceId, branch)).some(isChange);
-        if (changed && was) {
-            if (!was.removed) {
-                await keepRef(remote, branch, was.sha);
+        // the recorded heads are gone after git off then on: the clone may still have the branch's last tip
+        const last = was && !was.lostTip ? was.sha : cloned.get(branch);
+        if (changed && last) {
+            if (!was?.removed || was.lostTip) {
+                await keepRef(remote, branch, last);
             }
-            removed.push({ name: branch, sha: was.sha, merged: false, removed: true });
+            removed.push({ name: branch, sha: last, merged: false, removed: true });
+            continue;
+        }
+        if (changed && envTip) {
+            removed.push({ name: branch, sha: envTip, merged: false, removed: true, lostTip: true });
             continue;
         }
         if (!changed) {

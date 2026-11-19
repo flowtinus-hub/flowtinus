@@ -35,6 +35,8 @@ export type WorkBranch = {
     editable: boolean;
     /** removed on the remote while this server has uncommitted changes on it: read at its last tip */
     removed: boolean;
+    /** removed while git was off: its last tip is not known here, `tip` is the environment's branch's */
+    lostTip: boolean;
     /** a shared branch or the user's own, removed or not: on a removed one, its changes may still be discarded or taken to a new branch */
     mayChange: boolean;
     slug: string;
@@ -171,7 +173,12 @@ async function readWorkBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
     ]);
     const mayChange = canEditBranch(branch, git.branch, editor);
     const removed = head.removed === true;
-    return { ...(await buildBranch(ctx, { branch, sha: head.sha, slug, tip, rows, editable: mayChange && !removed })), removed, mayChange };
+    return {
+        ...(await buildBranch(ctx, { branch, sha: head.sha, slug, tip, rows, editable: mayChange && !removed })),
+        removed,
+        lostTip: head.lostTip === true,
+        mayChange,
+    };
 }
 
 async function buildBranch(
@@ -184,7 +191,7 @@ async function buildBranch(
         rows,
         editable,
     }: { branch: string; sha: string; slug: string; tip: Tip; rows: WorkingRow[]; editable: boolean },
-): Promise<Omit<WorkBranch, 'removed' | 'mayChange'>> {
+): Promise<Omit<WorkBranch, 'removed' | 'lostTip' | 'mayChange'>> {
     const files = overlayRows(tip.files, rows);
     const byPath = new Map(rows.map(r => [r.path, r]));
     const entries = Object.entries(files)

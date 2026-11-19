@@ -119,6 +119,8 @@ export type FlowView = {
     archivedByCommit: string | null;
     /** read from a work branch the user cannot edit */
     readOnly?: true;
+    /** read from a work branch removed on the remote: its changes go to a new branch or are discarded */
+    removedBranch?: true;
     /** read from a work branch: what is the environment's (deploy, schedules, webhooks, worker tag) is not here */
     workBranch?: true;
     /** read from a pull-request server's environment branch: the first edit offers Create branch */

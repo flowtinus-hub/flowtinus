@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, CircleCheck, GitCommitHorizontal, Lock, Load
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
+import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, removedBranchText, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
 import type { ApiError } from '@/lib/api';
 import { ConflictDialog } from './conflict-dialog';
 import { FileDiffView } from './file-diff';
@@ -36,6 +36,7 @@ function requiredBy(changes: WorkingChange[], chosen: Set<string>): Map<string, 
 export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
     const [changes, setChanges] = useState<WorkingChange[] | null>(null);
     const [merge, setMerge] = useState<PendingMerge | null>(null);
+    const [removed, setRemoved] = useState<{ lostTip: boolean } | null>(null);
     const [chosen, setChosen] = useState<Set<string>>(new Set());
     const [message, setMessage] = useState('');
     const [busy, setBusy] = useState(false);
@@ -52,6 +53,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
             const pending = result.value.merge ?? null;
             setChanges(result.value.changes);
             setMerge(pending);
+            setRemoved(result.value.removed ? { lostTip: !!result.value.lostTip } : null);
             setChosen(new Set(result.value.changes.filter(c => (pending ? true : c.mine && !c.conflict)).map(c => c.path)));
             if (pending) {
                 setMessage(current => current || `Merge ${pending.from}`);
@@ -128,6 +130,11 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                     <p className="text-sm text-muted-foreground">Nothing to commit: the branch has every change.</p>
                 ) : (
                     <>
+                        {removed && (
+                            <p className="rounded-md border border-destructive/40 px-3 py-2 text-xs text-destructive">
+                                {removedBranchText(removed.lostTip)}
+                            </p>
+                        )}
                         {merge && (
                             <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
                                 A merge of <span className="font-mono">{merge.from}</span> ({merge.theirs.slice(0, 7)}) is pending. Commit
@@ -249,7 +256,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                 {merge ? 'Abort the merge' : 'Discard all mine'}
                             </Button>
                             <Button
-                                disabled={busy || (all.length === 0 && !merge) || !message.trim() || conflicted.length > 0}
+                                disabled={busy || !!removed || (all.length === 0 && !merge) || !message.trim() || conflicted.length > 0}
                                 onClick={() => void commit()}
                             >
                                 {busy ? <LoaderCircle className="animate-spin" /> : <GitCommitHorizontal />}

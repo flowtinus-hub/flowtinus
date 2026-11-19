@@ -34,6 +34,8 @@ export type Flow = {
     archivedAt: Date | null;
     /** read from a branch the user cannot edit: it opens read only (it still runs) */
     readOnly?: boolean;
+    /** read from a work branch removed on the remote: its changes go to a new branch or are discarded */
+    removedBranch?: boolean;
     /** read from a work branch: deploy, schedules, webhooks and the worker tag are the environment's, not here */
     workBranch?: boolean;
     /** read from a pull-request server's environment branch: the first edit offers Create branch, which takes it along */

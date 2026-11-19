@@ -26,6 +26,8 @@ export type BranchView = {
     changes: number;
     /** removed on the remote while this server has uncommitted changes on it: they can be taken to a new branch or discarded */
     removed?: true;
+    /** removed while git was off: its last tip is not known here, a branch made from it is cut from the environment's */
+    lostTip?: true;
 };
 
 export type BranchesView = {
@@ -115,6 +117,7 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 merged: head.merged && changes === 0,
                 changes,
                 ...(head.removed ? { removed: true as const } : {}),
+                ...(head.lostTip ? { lostTip: true as const } : {}),
             });
         }
         branches.sort(
