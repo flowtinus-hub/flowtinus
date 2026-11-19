@@ -131,12 +131,16 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
 
 /** with git on, when the working copy has changes: their count, a click opens the Commit */
 function ChangesItem({ slug, pathname }: { slug: string; pathname: string }) {
-    const [count, setCount] = useState<{ slug: string; value: number } | null>(null);
+    const [count, setCount] = useState<{ slug: string; value: number; merging: boolean } | null>(null);
     const [open, setOpen] = useState(false);
     useEffect(() => {
         let gone = false;
         const read = () =>
-            void getChanges(slug).then(result => !gone && setCount({ slug, value: result.ok ? result.value.changes.length : 0 }));
+            void getChanges(slug).then(
+                result =>
+                    !gone &&
+                    setCount({ slug, value: result.ok ? result.value.changes.length : 0, merging: result.ok && !!result.value.merge }),
+            );
         read();
         const timer = setInterval(read, GIT_STATUS_MS);
         window.addEventListener(CHANGES_CHANGED, read);
@@ -150,14 +154,16 @@ function ChangesItem({ slug, pathname }: { slug: string; pathname: string }) {
     }, [slug, pathname]);
 
     const value = count?.slug === slug ? count.value : 0;
-    if (value === 0 && !open) {
+    const merging = count?.slug === slug && count.merging;
+    if (value === 0 && !merging && !open) {
         return null;
     }
+    const label = `Changes (${value})${merging ? ', merging' : ''}`;
     return (
         <SidebarMenuItem>
-            <SidebarMenuButton tooltip={`Changes (${value})`} onClick={() => setOpen(true)}>
+            <SidebarMenuButton tooltip={label} onClick={() => setOpen(true)}>
                 <GitCommitHorizontal />
-                <span>Changes ({value})</span>
+                <span>{label}</span>
             </SidebarMenuButton>
             {open && <ChangesDialog slug={slug} onClose={() => setOpen(false)} />}
         </SidebarMenuItem>

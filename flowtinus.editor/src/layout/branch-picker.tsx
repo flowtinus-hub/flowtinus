@@ -8,6 +8,7 @@ import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { cn } from '@/lib/utils';
 import { CreateBranchDialog } from './create-branch-dialog';
 import { PullRequestDialog } from './pull-request-dialog';
+import { UpdateDialog } from './update-dialog';
 
 const GROUPS: { kind: BranchKind; label: string }[] = [
     { kind: 'environment', label: 'Environments' },
@@ -56,6 +57,7 @@ export function BranchPicker({ slug }: { slug: string }) {
     const [error, setError] = useState('');
     const [creating, setCreating] = useState(false);
     const [proposing, setProposing] = useState(false);
+    const [updating, setUpdating] = useState(false);
     const { state } = useMe();
     const { canEdit } = useWorkspace();
     const handle = state.status === 'ready' ? state.me.handle : null;
@@ -112,7 +114,8 @@ export function BranchPicker({ slug }: { slug: string }) {
           : `On ${value.branch} (read only)`;
     const environment = branches?.slug === slug ? branches.environment : null;
     const work = list.find(b => b.name === value.branch && b.kind !== 'environment');
-    const proposable = canEdit && environment && work?.editable && branches?.mode !== 'protected' ? work : null;
+    const updatable = canEdit && environment && work?.editable ? work : null;
+    const proposable = updatable && branches?.mode !== 'protected' ? work : null;
 
     return (
         <SidebarMenuItem>
@@ -160,6 +163,12 @@ export function BranchPicker({ slug }: { slug: string }) {
                             </DropdownMenuItem>
                         </>
                     )}
+                    {updatable && (
+                        <DropdownMenuItem onSelect={() => setUpdating(true)}>
+                            <GitMerge />
+                            Update from {environment}...
+                        </DropdownMenuItem>
+                    )}
                     {proposable &&
                         (proposable.merged ? (
                             <DropdownMenuItem disabled>
@@ -197,6 +206,7 @@ export function BranchPicker({ slug }: { slug: string }) {
                     onClose={() => setProposing(false)}
                 />
             )}
+            {updating && <UpdateDialog slug={slug} onClose={() => setUpdating(false)} />}
             {creating && handle && (
                 <CreateBranchDialog slug={slug} from={value.branch} handle={handle} onClose={() => setCreating(false)} />
             )}

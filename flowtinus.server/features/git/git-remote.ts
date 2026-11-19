@@ -24,6 +24,8 @@ function gitEnv(access: GitAccess | null, extra: Record<string, string> = {}): R
     const config: [string, string][] = [
         ['credential.helper', ''],
         ['core.autocrlf', 'false'],
+        // a flow added to a folder the other side renamed follows the folder instead of conflicting
+        ['merge.directoryRenames', 'true'],
     ];
     if (access && /^https?:/i.test(access.repository)) {
         // GitLab takes any username but a blank one with a token; GitHub ignores it
@@ -48,7 +50,7 @@ function gitEnv(access: GitAccess | null, extra: Record<string, string> = {}): R
     };
 }
 
-type RunOptions = { access?: GitAccess | null; input?: string; env?: Record<string, string> };
+type RunOptions = { access?: GitAccess | null; input?: string; env?: Record<string, string>; exitCodes?: number[] };
 
 async function runGitBytes(cwd: string, args: string[], options: RunOptions = {}): Promise<Uint8Array> {
     const child = Bun.spawn(['git', ...args], {
@@ -60,7 +62,7 @@ async function runGitBytes(cwd: string, args: string[], options: RunOptions = {}
         timeout: TIMEOUT_MS,
     });
     const [out, err, code] = await Promise.all([new Response(child.stdout).bytes(), new Response(child.stderr).text(), child.exited]);
-    if (code !== 0) {
+    if (!(options.exitCodes ?? [0]).includes(code)) {
         throw new GitError(args, child.signalCode ? `git ${args[0]} took longer than ${TIMEOUT_MS / 1000} s.` : err);
     }
 
@@ -94,7 +96,7 @@ export class GitRemote {
         return new GitRemote(dir, access);
     }
 
-    run(args: string[], options: { input?: string; env?: Record<string, string> } = {}): Promise<string> {
+    run(args: string[], options: { input?: string; env?: Record<string, string>; exitCodes?: number[] } = {}): Promise<string> {
         return runGit(this.dir, args, { ...options, access: this.access });
     }
 
@@ -144,6 +146,32 @@ export class GitRemote {
             }
             throw e;
         }
+    }
+
+    /** their best common ancestor, null for unrelated histories */
+    async mergeBase(a: string, b: string): Promise<string | null> {
+        const out = (await this.run(['merge-base', a, b], { exitCodes: [0, 1] })).trim();
+        return out || null;
+    }
+
+    /** how many commits `to` has that `from` has not */
+    async countBetween(from: string, to: string): Promise<number> {
+        return Number((await this.run(['rev-list', '--count', `${from}..${to}`])).trim());
+    }
+
+    /** the paths under these that differ between two commits or trees (a rename is its two paths) */
+    async changedPaths(from: string, to: string, paths: string[]): Promise<string[]> {
+        const out = await this.run(['diff-tree', '-r', '--no-renames', '--name-only', '-z', from, to, '--', ...paths]);
+        return out.split('\0').filter(Boolean);
+    }
+
+    /** `theirs` merged into `ours` without a work tree: the merged tree (conflicted files with their markers) and the conflicted paths */
+    async mergeTree(ours: string, theirs: string): Promise<{ tree: string; conflicts: string[] }> {
+        const out = await this.run(['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', ours, theirs], {
+            exitCodes: [0, 1],
+        });
+        const [tree, ...conflicts] = out.split('\0').filter(Boolean);
+        return { tree: tree!, conflicts: [...new Set(conflicts)] };
     }
 
     async hasCommit(commit: string): Promise<boolean> {
@@ -203,11 +231,14 @@ export class GitRemote {
         changes: Record<string, string | null>;
         message: string;
         author?: GitAuthor;
+        /** a merge commit: the changes go over the merged tree, `theirs` is the second parent */
+        merge?: { tree: string; theirs: string };
     }): Promise<string> {
         const temp = await mkdtemp(join(this.dir, 'index-'));
         const index = { GIT_INDEX_FILE: join(temp, 'index') };
         try {
-            await this.run(options.parent ? ['read-tree', options.parent] : ['read-tree', '--empty'], { env: index });
+            const start = options.merge?.tree ?? options.parent;
+            await this.run(start ? ['read-tree', start] : ['read-tree', '--empty'], { env: index });
             const entries: string[] = [];
             for (const [path, content] of Object.entries(options.changes)) {
                 // mode 0 takes the path out of the index: update-index --force-remove wants a work tree, which a bare clone has not
@@ -220,7 +251,7 @@ export class GitRemote {
             }
 
             const tree = (await this.run(['write-tree'], { env: index })).trim();
-            if (options.parent && tree === (await this.run(['rev-parse', `${options.parent}^{tree}`])).trim()) {
+            if (!options.merge && options.parent && tree === (await this.run(['rev-parse', `${options.parent}^{tree}`])).trim()) {
                 return options.parent;
             }
 
@@ -231,7 +262,7 @@ export class GitRemote {
                 GIT_COMMITTER_NAME: FLOWTINUS.name,
                 GIT_COMMITTER_EMAIL: FLOWTINUS.email,
             };
-            const parent = options.parent ? ['-p', options.parent] : [];
+            const parent = [...(options.parent ? ['-p', options.parent] : []), ...(options.merge ? ['-p', options.merge.theirs] : [])];
             return (await this.run(['commit-tree', tree, ...parent, '-F', '-'], { input: options.message, env: who })).trim();
         } finally {
             await rm(temp, { recursive: true, force: true });
