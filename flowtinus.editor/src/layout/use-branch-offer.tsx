@@ -8,7 +8,6 @@ import { CreateBranchDialog, type OfferedEdit } from './create-branch-dialog';
 export type BranchOffer = {
     offers: boolean;
     offer: (edit: OfferedEdit, onCancel?: () => void) => void;
-    /** where Create branch is offered instead, answered as done so the dialog that asked closes */
     orOffer: <T>(
         name: string,
         here: () => Promise<ApiResult<T>>,

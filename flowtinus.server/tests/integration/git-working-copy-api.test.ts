@@ -176,7 +176,6 @@ describe("the working copy of the environment's branch", () => {
         ]);
         expect((await changes()).map(c => c.path)).toEqual(['projects/Sales/flows/Orders.flow.yaml']);
 
-        // a teammate's file, checked on purpose
         expect(
             (await call('POST', '/git/commit', { paths: [at('projects/Sales/flows/Orders.flow.yaml')], message: "Bia's end" })).status,
         ).toBe(200);
@@ -208,7 +207,6 @@ describe("the working copy of the environment's branch", () => {
     });
     test('drafts and scripts being edited from before the working copy (migration 12) show as changes and outlive a discard of other files', async () => {
         const { id, call, projectId, orders, at, changes } = await workspace();
-        // as migration 12 leaves them: a draft-only flow with no file and no working copy row, its draft and Orders' kept aside
         const priceCheck = crypto.randomUUID();
         await db.query('INSERT INTO flows (id, workspace_id, project_id, name) VALUES ($1, $2, $3, $4)', [
             priceCheck,

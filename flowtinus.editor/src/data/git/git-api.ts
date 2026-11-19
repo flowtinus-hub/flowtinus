@@ -54,12 +54,6 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
-/**
- * the user's current branch in the workspace (the environment's branch until another is picked; null with git off), and
- * whether they may edit there; removed: gone from the remote while this server has uncommitted changes on it (lostTip:
- * removed while git was off, its last commit unknown here); offersBranch: the environment's branch of a pull-request
- * server, where the first edit offers Create branch
- */
 export type CurrentBranch = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: boolean };
 
 export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git/current-branch`);
@@ -67,36 +61,28 @@ export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git
 export const setCurrentBranch = (ws: string, branch: string) =>
     api<CurrentBranch>(`/w/${ws}/git/current-branch`, { method: 'PUT', body: { branch } });
 
-/** an environment's (in the topology), a user's (users/<handle>/...: only its owner writes), or shared (anyone) */
 export type BranchKind = 'environment' | 'user' | 'shared';
 
 export type BranchInfo = {
     name: string;
     kind: BranchKind;
-    /** a user's branch: the owner's handle, and name when known */
     owner?: string;
     ownerName?: string;
     mine: boolean;
     editable: boolean;
-    /** contained in the environment's branch with no uncommitted change: behind "show merged" */
     merged: boolean;
-    /** uncommitted changes on this server */
     changes: number;
-    /** removed on the remote while this server has uncommitted changes on it: create a branch with them, or discard them */
     removed?: true;
-    /** removed while git was off: its last commit is not known here, a branch made from it starts from the environment's */
     lostTip?: true;
 };
 
 export const REMOVED_BRANCH = 'Removed on the remote: create a branch with its changes, or discard them.';
 
-/** REMOVED_BRANCH, saying where a branch made from it starts when its last commit is not known here */
 export const removedBranchText = (lostTip?: boolean) =>
     lostTip
         ? `${REMOVED_BRANCH} It was removed while git was off: its last commit is not known here, so a new branch starts from the environment's branch.`
         : REMOVED_BRANCH;
 
-/** the remote's branches as the last fetch found them (the app's own left out), by kind */
 export const listBranches = (ws: string) =>
     api<{ current: string | null; environment: string | null; mode: Mode; branches: BranchInfo[]; fetchedAt: string | null }>(
         `/w/${ws}/git/branches`,
@@ -105,31 +91,21 @@ export const listBranches = (ws: string) =>
 export type PullRequest = {
     branch: string;
     target: string;
-    /** the branch was not on the remote, or the remote was behind: this pushed it */
     pushed: boolean;
-    /** commits of the branch its target does not have */
     commits: number;
-    /** commits from another work branch not yet merged, which leave the diff once that one is */
     borrowed: { branch: string; commits: number }[];
     provider: 'gitlab' | 'github' | null;
-    /** the provider's page for a new pull request; null for a provider the app does not know */
     url: string | null;
 };
 
-/** the current work branch checked on the remote, with the link to the provider's page for its pull request into the environment's branch */
 export const openPullRequest = (ws: string) => api<PullRequest>(`/w/${ws}/git/pull-request`, { method: 'POST' });
 
-/**
- * A branch cut from the current branch's tip and pushed at once; it becomes the current branch. It takes the
- * uncommitted changes along (from the environment's or a shared branch, one's own; from one's own branch, all of them).
- */
 export const createBranch = (ws: string, name: string, draft?: { flowId: string; flow: FlowFile }) =>
     api<{ branch: string; taken: string[]; cutFrom?: string; draft?: { revision: number } | { error: string } }>(`/w/${ws}/git/branches`, {
         method: 'POST',
         body: draft ? { name, draft } : { name },
     });
 
-/** a flow's name as the rest of a branch name: what git refuses in one (spaces, ~^:?*[\ and such) as one '-' */
 export const branchNamePart = (name: string) =>
     name
         .trim()
@@ -161,7 +137,6 @@ export const saveGitConfig = (ws: string, config: GitConfig) =>
 
 export const removeGitConfig = (ws: string) => api<{ config: null }>(`/w/${ws}/git`, { method: 'DELETE' });
 
-/** a file of the working copy of the environment's branch: a rename is one change (from: its old path) */
 export type WorkingChange = {
     path: string;
     from?: string;
@@ -172,45 +147,33 @@ export type WorkingChange = {
     editedByName?: string;
     mine: boolean;
     conflict?: string;
-    /** what it needs to be committed with, and why */
     requires: { path: string; reason: string }[];
 };
 
-/** said on window when the working copy changed here (a Commit, a discard): the Changes item reads it again */
 export const CHANGES_CHANGED = 'flowtinus:changes-changed';
 
-/**
- * An Update that could not be pushed at once: from: the environment's branch merged in; theirs: its tip (the second
- * parent); ours: the branch's tip it was made on; conflicts: the files marked. A Commit takes it whole, Discard all aborts it.
- */
 export type PendingMerge = { from: string; theirs: string; ours: string; conflicts: string[] };
 
-/** removed: the current branch was removed on the remote (no Commit: its changes go to a new branch or are discarded) */
 export const getChanges = (ws: string) =>
     api<{ changes: WorkingChange[]; merge?: PendingMerge; removed?: true; lostTip?: true }>(`/w/${ws}/git/changes`);
 
-/** a line of a file's diff: its number in the committed text (old) and in the working copy's (new) */
 export type DiffLine = { kind: ' ' | '-' | '+'; text: string; old?: number; new?: number };
 
 export type DiffHunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: DiffLine[] };
 
-/** a change's diff: the committed text (a rename's old file; nothing for an added file) against the working copy's */
 export type FileDiff = { path: string; from?: string; change: WorkingChange['change']; kind: string; hunks: DiffHunk[] };
 
 export const getFileDiff = (ws: string, path: string) => api<FileDiff>(`/w/${ws}/git/diff?path=${encodeURIComponent(path)}`);
 
-/** how far the current work branch is behind the environment's branch, and its pending merge */
 export type UpdateStatus = { branch: string; environment: string; behind: number; pending?: PendingMerge };
 
 export const getUpdateStatus = (ws: string) => api<UpdateStatus>(`/w/${ws}/git/update`);
 
-/** errors: the merged tree's validation errors per file (a merge with no conflict that would not be valid) */
 export type UpdateOutcome =
     | { outcome: 'up-to-date' }
     | { outcome: 'merged'; commit: string }
     | { outcome: 'pending'; conflicts: string[]; errors?: Record<string, string> };
 
-/** Update: the environment's branch merged into the current work branch, pushed at once when clean */
 export const updateBranch = (ws: string) => api<UpdateOutcome>(`/w/${ws}/git/update`, { method: 'POST' });
 
 export const commitChanges = (ws: string, paths: string[], message: string) =>
@@ -221,7 +184,6 @@ export const discardChanges = (ws: string, which: { paths: string[] } | { mine: 
 
 export type ConflictHunk = { mine: string[]; base: string[]; theirs: string[] };
 
-/** a run of lines both sides agree on (merged already), or a conflicting hunk */
 export type ConflictSegment = { lines: string[] } | { hunk: ConflictHunk };
 
 export type ConflictCase =
@@ -229,7 +191,6 @@ export type ConflictCase =
     | { type: 'deleted'; deletedBy: 'mine' | 'theirs'; text: string }
     | { type: 'added'; name: string; mine: string; theirs: string };
 
-/** a working copy file marked with the commit it conflicts with, as the conflict screen shows it */
 export type ConflictView = {
     path: string;
     from?: string;
@@ -238,7 +199,6 @@ export type ConflictView = {
     commit: string;
     revision: number;
     conflict: ConflictCase;
-    /** a flow's draft on the environment's branch: it may also be duplicated as a new flow */
     duplicable: boolean;
 };
 
@@ -248,7 +208,6 @@ export type ConflictResolution = { hunks?: HunkChoice[]; name?: 'mine' | 'theirs
 
 export const getConflict = (ws: string, path: string) => api<ConflictView>(`/w/${ws}/git/conflict?path=${encodeURIComponent(path)}`);
 
-/** the file written as chosen and its mark cleared; refused with the errors per file when the result does not validate */
 export const resolveConflict = (ws: string, path: string, revision: number, resolution: ConflictResolution) =>
     api<{ path: string }>(`/w/${ws}/git/conflict`, { method: 'POST', body: { path, revision, ...resolution } });
 

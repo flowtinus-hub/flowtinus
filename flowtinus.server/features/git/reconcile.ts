@@ -53,8 +53,7 @@ const markApplied = (ctx: UseCaseContext, { branch, commit, mode }: BranchCommit
     );
 
 export async function forgetReconcile(ctx: UseCaseContext) {
-    // git off: the scripts as committed become scripts being edited, in the working copy that holds them from then on.
-    // The work branches' rows and the users' current branches stay, unread until git is on again (nothing is deleted).
+    // the work branches' rows and the users' current branches stay, unread until git is on again
     const tree = await exportTree(ctx.db, ctx.workspaceId);
     for (const [path, content] of Object.entries(tree.files)) {
         const fileId = tree.ids[path];

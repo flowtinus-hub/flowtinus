@@ -18,9 +18,7 @@ export type Project = {
     archivedAt: Date | null;
     /** what it holds (the projects' list has it) */
     summary?: ProjectSummary;
-    /** read from a branch the user cannot edit */
     readOnly?: boolean;
-    /** read from a work branch removed on the remote: its changes go to a new branch or are discarded */
     removedBranch?: boolean;
 };
 

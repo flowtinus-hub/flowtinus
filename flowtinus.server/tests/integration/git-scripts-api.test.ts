@@ -41,7 +41,6 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
             expect((await call('POST', '/git/on', { createBranch: true })).status).toBe(200);
         }
 
-        // a script made, and with git on committed at once (a new script waits in the working copy until a Commit)
         const script = async (path: string, content: string) => {
             expect((await call('POST', `/projects/${projectId}/scripts`, { kind: 'script', path, content })).status).toBe(201);
             if (options.git !== false) {

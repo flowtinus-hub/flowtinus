@@ -4,7 +4,6 @@ import { getFileDiff, type FileDiff } from '@/data/git/git-api';
 import type { ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-/** a changed file's text diff, unified: the committed text against the working copy's, line-numbered */
 export function FileDiffView({ slug, path, className }: { slug: string; path: string; className?: string }) {
     const [diff, setDiff] = useState<FileDiff | null>(null);
     const [error, setError] = useState<ApiError | null>(null);

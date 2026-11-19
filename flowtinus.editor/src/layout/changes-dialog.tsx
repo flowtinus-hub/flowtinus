@@ -12,10 +12,8 @@ import { FileDiffView } from './file-diff';
 
 const CHANGE_LABEL: Record<WorkingChange['change'], string> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
 
-/** the path inside the workspace (the repository's path starts with its slug) */
 const shortPath = (slug: string, path: string) => (path.startsWith(`${slug}/`) ? path.slice(slug.length + 1) : path);
 
-/** what the chosen changes need, whatever that needs in turn: path → the reason */
 function requiredBy(changes: WorkingChange[], chosen: Set<string>): Map<string, string> {
     const byPath = new Map(changes.map(c => [c.path, c]));
     const locked = new Map<string, string>();
@@ -31,10 +29,6 @@ function requiredBy(changes: WorkingChange[], chosen: Set<string>): Map<string, 
     return locked;
 }
 
-/**
- * The working copy's changes and the Commit: one's own checked, a teammate's unchecked with its editor (check it on
- * purpose); what the checked ones need checked and locked, with the reason. Discard per file, or all one's own.
- */
 export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
     const [changes, setChanges] = useState<WorkingChange[] | null>(null);
     const [merge, setMerge] = useState<PendingMerge | null>(null);

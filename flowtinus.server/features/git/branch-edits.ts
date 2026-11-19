@@ -15,12 +15,6 @@ import { gitBranch } from './git-config';
 import type { RepoFiles } from './workspace-export';
 import { scriptFileId } from './working-copy';
 
-/*
- * The handlers' work on a work branch, on its files (branch-write.ts): every change of the tree the environment's
- * branch takes through changeTree, made to the branch's files instead. An archive deletes files (branchArchive reads
- * them back from the working copy, a restore puts them back); a connection's configuration stays in the environment.
- */
-
 const notFound = () => fail('not-found', 'Flow not found.');
 
 const changedElsewhere = (what: string) => fail('conflict', `This ${what} was changed elsewhere. Reload it to see the latest version.`);
@@ -662,7 +656,6 @@ export async function restoreProjectOnBranch(ctx: UseCaseContext, branch: WorkBr
     return success(toProjectView({ ...project, deletedAt: null, deletedBy: null }));
 }
 
-/** the connections declared on the branch, each with its configuration where the environment keeps one (by id) */
 export async function branchConnections(ctx: UseCaseContext, branch: WorkBranch): Promise<ConnectionView[]> {
     const rows = await new ConnectionRepository(ctx.db, ctx.workspaceId).findAll();
     return branch.connections.map(({ id, name, type }) => {
@@ -683,11 +676,7 @@ const declaration = (branch: WorkBranch, name: string, id: string, type: string)
 const connectionRow = (db: Database, workspaceId: string, id: string) =>
     new ConnectionRepository(db, workspaceId).findAll(eq(connections.id, id));
 
-/**
- * A connection new on the branch: its declaration in the branch's working copy; its configuration (and the secrets
- * typed in) in the environment at once, kept archived there so the environment does not declare it: the reconcile of
- * the commit that brings it to the environment's branch takes it from the archive, configured.
- */
+// its configuration is kept archived in the environment, so the environment does not declare it until a commit brings it
 export async function createConnectionOnBranch(
     ctx: UseCaseContext,
     branch: WorkBranch,
@@ -717,11 +706,7 @@ export async function createConnectionOnBranch(
     return success({ id });
 }
 
-/**
- * A connection changed on the branch: a new name or type in its declaration; its configuration in the environment at
- * once. A connection the environment has keeps its name and type there until a commit brings the branch's: a type of
- * its own on the branch would leave the environment's runs a configuration of another type.
- */
+// the environment's connection keeps its name and type until a commit brings the branch's: its runs would otherwise get a configuration of another type
 export async function updateConnectionOnBranch(
     ctx: UseCaseContext,
     branch: WorkBranch,

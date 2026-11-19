@@ -78,7 +78,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         const tip = (branch = 'dev') => git(repo, 'rev-parse', branch);
         const changes = async (user: string) =>
             ((await as(user)('GET', '/git/changes')).body.changes as { path: string }[]).map(c => c.path);
-        /** the flow's draft as this user reads it, its Start relabelled */
         const relabelled = async (user: string, flowId: string, label: string) => {
             const draft = (await as(user)('GET', `/flows/${flowId}/draft`)).body;
             const nodes = draft.flow.nodes.map((n: { type: string }) => (n.type === 'start' ? { ...n, label } : n));
@@ -86,14 +85,12 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         };
         const startLabel = async (user: string, flowId: string) =>
             (await as(user)('GET', `/flows/${flowId}/draft`)).body.flow.nodes.find((n: { type: string }) => n.type === 'start').label;
-        /** the environment's mode, changed in the topology and reconciled */
         const setMode = async (mode: Mode) => {
             const topology = git(repo, 'show', 'flowtinus/config:topology.yaml');
             commitFiles(repo, 'flowtinus/config', { 'topology.yaml': `${topology.replace(/mode: [a-z-]+/, `mode: ${mode}`)}\n` }, mode);
             expect((await call('POST', '/git/reconcile')).status).toBe(200);
             expect((await call('GET', '/git/status')).body.mode).toBe(mode);
         };
-        /** an MCP client with a token of this user */
         const mcp = async (user: string) => {
             const { token } = newApiToken();
             await insertApiToken(db, { userId: user, name: `test-${crypto.randomUUID()}`, token, scopes: API_SCOPES });
@@ -134,7 +131,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
     test("pull-request: the environment's branch takes no change and no Commit; drafts made before stay; a test run works", async () => {
         const { as, call, projectId, orders, at, tip, changes, relabelled, startLabel, setMode } = await workspace();
         const ordersPath = at('projects/Sales/flows/Orders.flow.yaml');
-        // a draft made while dev was direct
         expect((await call('PUT', `/flows/${orders}/draft`, await relabelled(ANA, orders, 'Before'))).status).toBe(200);
         await setMode('pull-request');
         const before = tip();
@@ -163,7 +159,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         }
         expect(tip()).toBe(before);
 
-        // the draft from before stays on dev, listed, for anyone to read and run
         expect(await changes(ANA)).toEqual([ordersPath]);
         expect(await startLabel(BIA, orders)).toBe('Before');
         expect((await as(BIA)('POST', `/flows/${orders}/runs`, { mode: 'validation' })).status).toBe(202);
@@ -222,7 +217,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         await setMode('pull-request');
         const before = tip();
 
-        // Bia edits the flow as she sees it (Ana's draft): the edit goes with her new branch; Ana's draft stays on dev
         const bia = await handle(BIA);
         const branch = `users/${bia}/Orders`;
         const { flow } = await relabelled(BIA, orders, 'Bia on her branch');
@@ -236,7 +230,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         expect(await changes(ANA)).toEqual([ordersPath]);
         expect(await startLabel(ANA, orders)).toBe('Ana before');
 
-        // on her branch, edits and a Commit work; dev does not move
         const again = await relabelled(BIA, orders, 'Bia again');
         expect((await as(BIA)('PUT', `/flows/${orders}/draft`, again)).status).toBe(200);
         const committed = await as(BIA)('POST', '/git/commit', { paths: [ordersPath], message: 'Bia relabels' });
@@ -244,7 +237,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         expect(git(repo, 'show', `${branch}:${ordersPath}`)).toContain('Bia again');
         expect(tip()).toBe(before);
 
-        // Ana takes her draft from before to a branch of hers: dev has no change left
         const ana = await handle(ANA);
         const hers = await call('POST', '/git/branches', { name: `users/${ana}/before` });
         expect(hers.body).toEqual({ branch: `users/${ana}/before`, taken: [ordersPath] });
@@ -252,7 +244,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         expect((await call('PUT', '/git/current-branch', { branch: 'dev' })).status).toBe(200);
         expect(await changes(ANA)).toEqual([]);
 
-        // a draft that is not a flow file refuses before any branch is made
         const invalid = await as(BIA)('POST', '/git/branches', {
             name: `users/${bia}/broken`,
             draft: { flowId: orders, flow: { nodes: 1 } },
@@ -270,7 +261,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         await app.gitPoller.poll(id);
         const before = tip();
 
-        // the environment's branch: drafts as step 2 allowed, the tree's changes and the Commit refused
         expect((await call('GET', '/git/current-branch')).body).toEqual({ branch: 'dev', editable: true });
         expect((await call('PUT', `/flows/${orders}/draft`, await relabelled(ANA, orders, 'Draft'))).status).toBe(200);
         const folder = await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' });
@@ -313,7 +303,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         expect(created.body.error).toBeUndefined();
         const numbers = created.body.flowId as string;
         expect(created.body.revision).toBe(1);
-        // a flow only on the branch: no row, found by its id in the user's current branch
         expect((await db.query('SELECT id FROM flows WHERE id = $1', [numbers])).length).toBe(0);
         const read = await tool('get_flow', { flowId: numbers });
         expect(read.isError).toBeFalsy();
@@ -324,7 +313,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         const contents = await tool('get_project_contents', { projectId });
         expect(JSON.stringify(contents.body)).toContain(numbers);
 
-        // a Flow Invoker to the branch-only flow is no issue there
         const calling = NUMBERS.replace(
             '  - { id: end, type: end',
             `  - { id: call, type: flow, position: { x: 150, y: 100 }, config: { flowId: '${numbers}' } }\n  - { id: end, type: end`,
@@ -373,7 +361,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
             });
         }
 
-        // a pull-request environment's branch: refused until the user is on a branch of their own
         await setMode('pull-request');
         expect((await as(BIA)('PUT', '/git/current-branch', { branch: 'dev' })).status).toBe(200);
         const onDev = await bia.tool('get_flow', { flowId: orders });

@@ -14,12 +14,6 @@ import { GitError, withWorkspaceClone, type GitRemote } from './git-remote';
 import type { RepoFiles } from './workspace-export';
 import { overlayRows, workingRows, type WorkingRow } from './working-copy';
 
-/*
- * A work branch read: the git tree at its tip (read once per commit, its flows parsed once, kept in memory) with the
- * branch's working copy over it. Nothing of it is in the tables: a flow only there has no `flows` row, and its folders
- * get ids made from their paths. Only the environment's branch is read from the tables (workBranch answers null).
- */
-
 export type BranchFlow = Flow & { archivedAt: null; file: FlowFile; deployed: boolean; path: string; revision: number; conflict?: string };
 
 export type BranchFolder = Folder & { archivedAt: null };
@@ -31,18 +25,12 @@ export type BranchConnection = { id: string; name: string; type: ConnectionTypeN
 export type WorkBranch = {
     branch: string;
     tip: string;
-    /** whether this user may change it: a shared branch, or their own, while it is on the remote */
     editable: boolean;
-    /** removed on the remote while this server has uncommitted changes on it: read at its last tip */
     removed: boolean;
-    /** removed while git was off: its last tip is not known here, `tip` is the environment's branch's */
     lostTip: boolean;
-    /** a shared branch or the user's own, removed or not: on a removed one, its changes may still be discarded or taken to a new branch */
     mayChange: boolean;
     slug: string;
-    /** when the tip was committed */
     at: Date;
-    /** the files at the tip, without the working copy */
     tipFiles: RepoFiles;
     connections: BranchConnection[];
     projects: Project[];
@@ -78,7 +66,6 @@ async function slugOf(ctx: UseCaseContext): Promise<string> {
     return row!.slug;
 }
 
-/** work on the workspace's clone; git out of reach is `unavailable`, saying `what` could not be done */
 export async function onClone<T>(ctx: UseCaseContext, what: string, work: (remote: GitRemote) => Promise<T>): Promise<T> {
     const config = await readGitConfig(ctx.db, ctx.workspaceId);
     if (!config || !ctx.git) {
@@ -112,7 +99,6 @@ function readTip(ctx: UseCaseContext, branch: string, sha: string, slug: string)
     );
 }
 
-/** the workspace's files at a commit (fetched with `branch` when this server's clone lacks it), kept as a tip is */
 export async function filesAt(ctx: UseCaseContext, branch: string, sha: string): Promise<RepoFiles> {
     return (await readTip(ctx, branch, sha, await slugOf(ctx))).files;
 }
@@ -131,7 +117,6 @@ function readFlow(tip: Tip, path: string, text: string, name: string): RepoFlow 
     return value;
 }
 
-/** an id for a folder of a branch, made from its project and path: the same on each read */
 export function branchFolderId(projectId: string, names: string[]): string {
     const h = new Bun.CryptoHasher('sha256').update(`${projectId}/${names.join('/').toLowerCase()}`).digest('hex');
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
@@ -142,7 +127,6 @@ const byName = (a: { name: string; id: string }, b: { name: string; id: string }
 
 const reads = new WeakMap<UseCaseContext, Promise<WorkBranch | null>>();
 
-/** the user's current branch when it is a work branch, read (once per request); null on the environment's branch (or with git off) */
 export function workBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
     let read = reads.get(ctx);
     if (!read) {
@@ -152,7 +136,6 @@ export function workBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
     return read;
 }
 
-/** after a change of the branch's working copy: the next read in this request (an MCP tool's next step) sees it */
 export const forgetWorkBranch = (ctx: UseCaseContext) => reads.delete(ctx);
 
 async function readWorkBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
@@ -309,7 +292,6 @@ async function buildBranch(
         }
     }
 
-    // what the environment knows of the same flows and projects: their worker tag and when they were made
     const [known, knownProjects] = await Promise.all([
         ctx.db.query<{ id: string; worker_tag: string; created_at: Date }>(
             'SELECT id, worker_tag, created_at FROM flows WHERE workspace_id = $1 AND id = ANY($2::uuid[])',
@@ -359,7 +341,6 @@ export const branchProject = (branch: WorkBranch, id: string) => branch.projects
 
 export const branchScripts = (branch: WorkBranch, projectId: string) => branch.scripts.get(projectId) ?? [];
 
-/** a flow of the user's current branch that is not archived (on a work branch, by its file's id) */
 export async function currentFlow(ctx: UseCaseContext, id: string): Promise<Flow | null> {
     const branch = await workBranch(ctx);
     return branch ? (branchFlow(branch, id) ?? null) : activeFlow(ctx, id);
@@ -377,14 +358,8 @@ export type ArchivedFolder = Folder & { deletedAt: Date; names: string[] };
 
 export type ArchivedFlow = Flow & { deletedAt: Date; path: string; content: string };
 
-/** what a work branch's working copy deleted (an archive there), with the text each file had: a restore puts it back */
 export type BranchArchive = { projects: ArchivedProject[]; folders: ArchivedFolder[]; flows: ArchivedFlow[]; rows: WorkingRow[] };
 
-/**
- * The branch's archive, from its deleted rows: a project, folder or flow whose file is deleted and whose id is nowhere
- * on the branch any more (a rename or a move leaves its old path deleted, but its id lives on). A deletion's time is
- * its row's: what one change archived has one time.
- */
 export async function branchArchive(ctx: UseCaseContext, branch: WorkBranch): Promise<BranchArchive> {
     // a file is archived as its last deletion left it: an older path of it (before a rename) is not
     const newest = new Set<string>();

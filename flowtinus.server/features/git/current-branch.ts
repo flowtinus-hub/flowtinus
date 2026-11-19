@@ -10,7 +10,6 @@ import { gitBranch } from './git-config';
 import { readHeads } from './git-heads';
 import { CONFIG_BRANCH, type Mode } from './topology';
 
-/** git's own rule (git check-ref-format --branch): any branch of the remote, those pushed from a laptop included */
 export function gitBranchNameError(branch: string): string | null {
     if (
         branch.length === 0 ||
@@ -25,7 +24,6 @@ export function gitBranchNameError(branch: string): string | null {
     return branch === CONFIG_BRANCH ? `${CONFIG_BRANCH} holds the topology` : null;
 }
 
-/** with git on, the user's current branch in the workspace (the environment's branch until another is picked); null with git off */
 export async function currentBranch(db: Database, workspaceId: string, userId: string): Promise<string | null> {
     const git = await gitBranch(db, workspaceId);
     if (!git) {
@@ -39,10 +37,6 @@ export async function currentBranch(db: Database, workspaceId: string, userId: s
     return row?.branch ?? git.branch;
 }
 
-/**
- * A branch's kind, told by its name and the topology with nothing stored: an environment's (in the topology), the
- * app's own (never offered as a work branch), a user's (`users/<handle>/…`, its owner by the handle), or shared.
- */
 export type BranchKind = 'environment' | 'app' | 'user' | 'shared';
 
 export function branchKind(name: string, environments: string[]): { kind: BranchKind; owner?: string } {
@@ -56,15 +50,8 @@ export function branchKind(name: string, environments: string[]): { kind: Branch
     return user ? { kind: 'user', owner: user[1]! } : { kind: 'shared' };
 }
 
-/** who is asking: their handle, the branches the topology gives an environment, and this environment's mode */
 export type Editor = { handle: string | null; environments: string[]; mode: Mode };
 
-/**
- * where this user may change the working copy: the environment's branch (not on a `pull-request` server, where the
- * first edit offers Create branch), a shared work branch, and their own `users/<handle>/…` branch; nobody else's, admins
- * included, and neither another environment's branch nor the app's own. A `protected` server is as step 2 left it:
- * drafts on its environment's branch (its tree's changes refused), every other branch read only.
- */
 export function canEditBranch(branch: string | null, environment: string | null, editor: Editor): boolean {
     if (branch === null) {
         return true;
@@ -88,18 +75,11 @@ export async function editorOf(db: Database, workspaceId: string, userId: string
     return { handle: me?.handle ?? null, environments: heads?.environments ?? [], mode: git?.mode ?? 'direct' };
 }
 
-/**
- * editable: whether the editor may change things on it (else it is read only). removed: gone from the remote while
- * this server has uncommitted changes on it (read only: they can be taken to a new branch or discarded); lostTip: its
- * last tip unknown here (removed while git was off), a branch made from it is cut from the environment's. offersBranch:
- * the environment's branch of a `pull-request` server, where the first edit offers Create branch and takes the edit along
- */
 export type CurrentBranchView = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: true };
 
 export const offersBranch = (branch: string | null, environment: string | null, editor: Editor) =>
     branch !== null && branch === environment && editor.mode === 'pull-request';
 
-/** the user's current branch, whether the branch rules let them change it, and whether it was removed on the remote */
 export async function branchAccess(
     db: Database,
     workspaceId: string,
@@ -135,7 +115,6 @@ export async function currentBranchView(db: Database, workspaceId: string, userI
     };
 }
 
-/** why the branch is read only to this user and what to do, in the editor or (`mcp`) told to an agent */
 export function readOnlyBranch(branch: string, editor: Editor, environment: string | null, to: 'editor' | 'mcp' = 'editor'): string {
     const { kind, owner } = branchKind(branch, environment ? [...editor.environments, environment] : editor.environments);
     if (to === 'mcp') {
@@ -160,7 +139,6 @@ export function readOnlyBranch(branch: string, editor: Editor, environment: stri
         : `You are on the branch ${branch}, which is read only here: pick the environment's branch to make changes.`;
 }
 
-/** why the user cannot change the working copy of their current branch, told to an agent; null where they can */
 export async function mcpCannotEdit(db: Database, workspaceId: string, userId: string): Promise<string | null> {
     const [git, branch, editor] = await Promise.all([
         gitBranch(db, workspaceId),

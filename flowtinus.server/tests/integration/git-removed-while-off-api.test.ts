@@ -98,7 +98,6 @@ describe('a work branch removed on the remote while git was off', () => {
         expect(await paths()).toEqual([at('projects/Sales/flows/Orders.flow.yaml')]);
         expect(await label()).toBe('Ana on the branch');
         expect((await relabel('Saved on a removed branch')).status).toBe(409);
-        // kept over the next poll
         await app.gitPoller.poll(id);
         expect((await call('GET', '/git/current-branch')).body).toMatchObject({ branch, removed: true });
 

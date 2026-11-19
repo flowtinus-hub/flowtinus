@@ -24,7 +24,6 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
     const on = saved.state.status === 'ready' ? saved.state.value.on : null;
     const wasOn = useRef(on);
     useEffect(() => {
-        // git turned on or off here: the sidebar's branch picker shows (or hides) the branch without a page reload
         if (on !== null && wasOn.current !== null && on !== wasOn.current) {
             window.dispatchEvent(new Event(GIT_STATUS_CHANGED));
         }

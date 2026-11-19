@@ -17,11 +17,6 @@ type OnGit = { workspaceId: string; config: GitConfig };
 
 type Cloned = OnGit & { remote: GitRemote };
 
-/**
- * A change of the tree (a rename, a folder, a project, a connection, an archive...): made to the tables in one
- * transaction and recorded in each workspace's working copy, committed by nobody until a Commit. With git on, a
- * `pull-request` or `protected` environment refuses it.
- */
 export async function changeTree<T>(ctx: UseCaseContext, change: (db: Database) => Promise<T>, also: string[] = []): Promise<T> {
     const workspaceIds = [...new Set([ctx.workspaceId, ...also])].sort();
     await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);

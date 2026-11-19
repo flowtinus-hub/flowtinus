@@ -8,11 +8,6 @@ const PROVIDERS = { gitlab: 'GitLab', github: 'GitHub' };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/**
- * Open a pull request with no provider adapter: the server pushes the branch when the remote lacks its tip (removed
- * there, or behind) and checks it has commits its target lacks, and the provider's page for a new pull request opens
- * from the link (a provider the app does not know gets no link).
- */
 export function PullRequestDialog({
     slug,
     branch,

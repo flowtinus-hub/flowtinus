@@ -34,7 +34,6 @@ export function useProjectContents(projectId: string) {
         };
     }, [projectId]);
 
-    // a change made elsewhere on the page (the Changes dialog's discard, a Commit): read again, without a spinner
     useEffect(() => {
         const refresh = () =>
             void flowsApi.getProjectContents(projectId).then(result => {

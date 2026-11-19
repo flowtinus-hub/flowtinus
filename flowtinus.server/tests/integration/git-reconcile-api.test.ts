@@ -234,7 +234,6 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         });
 
         expect((await reconcile()).body.outcome).toBe('applied');
-        // the other connection, made here and not committed, stays a change of the working copy
         expect((await call('GET', '/connections')).body.items).toEqual([
             expect.objectContaining({ id: other.body.id, name: 'Events' }),
             expect.objectContaining({ id: created.body.id, name: 'Stream', type: 'kafka', config: expect.objectContaining(fields.config) }),

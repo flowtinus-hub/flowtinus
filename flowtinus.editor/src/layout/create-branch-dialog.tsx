@@ -9,21 +9,12 @@ import type { FlowFile } from '@flowtinus/core';
 import { branchNamePart, createBranch } from '@/data/git/git-api';
 import type { ApiError, ApiResult } from '@/lib/api';
 
-/**
- * the edit that offered the branch (on a pull-request server's environment branch), taken along to it: the flow's
- * canvas (`draft`) goes with the branch; any other change is made again on the new branch (`replay`) once it is current
- */
 export type OfferedEdit = {
     name: string;
     draft?: () => { flowId: string; flow: FlowFile } | null;
     replay?: () => Promise<ApiResult<unknown>>;
 };
 
-/**
- * Create branch: cut from the current branch's tip, named users/<handle>/… (the prefix fixed, the user types the rest), pushed at once. The user's
- * uncommitted changes go along to it, and the editor opens on it. Offered by a first edit (`edit`), the name is filled in
- * with what was edited and the edit goes along too; the page then opens again, on the new branch.
- */
 export function CreateBranchDialog({
     slug,
     from,
@@ -34,14 +25,12 @@ export function CreateBranchDialog({
 }: {
     slug: string;
     from: string;
-    /** `from` was removed while git was off: the server cuts the branch from the environment's */
     lostTip?: boolean;
     handle: string;
     edit?: OfferedEdit;
     onClose: () => void;
 }) {
     const prefix = `users/${handle}/`;
-    // the prefix is fixed: the field holds the rest of the name
     const [rest, setRest] = useState(() => (edit ? branchNamePart(edit.name) : ''));
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);

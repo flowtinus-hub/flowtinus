@@ -64,7 +64,6 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
             current.flow.nodes = current.flow.nodes.map((n: { type: string }) => (labels[n.type] ? { ...n, label: labels[n.type] } : n));
             return call('PUT', `/flows/${orders}/draft`, { revision: current.revision, flow: current.flow });
         };
-        /** a commit on the branch from a laptop: the tree as it is, changed by `change` */
         const push = (branch: string, change: (files: Record<string, string>) => Record<string, string>, message = 'from a laptop') => {
             const files: Record<string, string> = {};
             for (const path of git(repo, 'ls-tree', '-r', '--name-only', branch).split('\n').filter(Boolean)) {
@@ -120,13 +119,11 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
         expect(hunks(read.body.conflict.segments)).toHaveLength(2);
         expect(first!.mine.join('\n')).toContain('Ana');
         expect(first!.theirs.join('\n')).toContain('Laptop');
-        // what did not conflict is there already
         expect(read.body.conflict.segments.some((s: Segment) => 'lines' in s && s.lines.some(l => l.includes('type: start')))).toBe(true);
 
         const startHunk = first!.mine.join('\n').includes('Ana start') ? 0 : 1;
         const pick = (start: unknown, end: unknown) => (startHunk === 0 ? [start, end] : [end, start]);
 
-        // both labels: the key twice, the file does not parse; nothing is written, the mark stays
         const both = await call('POST', '/git/conflict', { path: ordersPath, revision: read.body.revision, hunks: pick('both', 'theirs') });
         expect(both.status).toBe(400);
         expect(Object.keys(both.body.error.fields)).toEqual([ordersPath]);
@@ -163,7 +160,6 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
         const branch = `users/${handle}/gone`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
 
-        // edited here, deleted there: kept with the edit
         expect((await relabel({ start: 'Kept start' })).status).toBe(200);
         const deleted = push(branch, ({ [ordersPath]: _orders, ...rest }) => rest);
         await poll();
@@ -175,7 +171,6 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
         expect((await commitAll(call, 'Keep Orders')).status).toBe(200);
         expect(labelOf(inGit(branch)!, 'start')).toBe('Kept start');
 
-        // deleted here, edited there: deleted
         expect((await call('POST', `/flows/${orders}/archive`)).status).toBe(200);
         const edited = pushLabels(branch, { end: 'Laptop end' });
         await poll();

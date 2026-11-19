@@ -4,11 +4,6 @@ import { pgJson } from '#shared/database/jsonb';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 
-/*
- * Pinned outputs are the user's (table pins): per user, flow and node, never in the draft nor in git, the same on every
- * branch. A test run replays its user's pins; a run for real never has any.
- */
-
 export type Pinned = Record<string, EnvelopeData[]>;
 export type Pins = Record<string, Pinned>;
 
@@ -20,7 +15,6 @@ export async function pinsOf(db: Database, workspaceId: string, userId: string, 
     return Object.fromEntries(rows.map(r => [r.node_id, r.pinned]));
 }
 
-/** the file with these pins on its nodes (a pin of a node the file no longer has is left out) */
 export const withPins = (file: FlowFile, pins: Pins): FlowFile => ({
     ...file,
     nodes: file.nodes.map(({ pinned: _pinned, ...n }) => (pins[n.id] ? { ...n, pinned: pins[n.id] } : n)),
@@ -30,7 +24,6 @@ export const withoutPinned = (file: FlowFile): FlowFile => withPins(file, {});
 
 const bytesOf = (pinned: Pinned) => JSON.stringify(pinned).length;
 
-/** pins (or replaces) the node's output for the user, refused past MAX_PINNED_BYTES for the user's pins on the flow */
 export async function setPin(
     ctx: UseCaseContext,
     flowId: string,
@@ -57,7 +50,6 @@ export async function setPin(
     });
 }
 
-/** takes the user's pins off these nodes: the ones that had one */
 export async function removePins(ctx: UseCaseContext, flowId: string, nodeIds: string[]): Promise<string[]> {
     const rows = await ctx.db.query<{ node_id: string }>(
         'DELETE FROM pins WHERE workspace_id = $1 AND user_id = $2 AND flow_id = $3 AND node_id = ANY($4::text[]) RETURNING node_id',

@@ -152,7 +152,6 @@ export function FlowCanvas(props: {
     onCalls?: (calls: FlowCall[]) => void;
     /** an archived flow: shown to read (pan, zoom), nothing changes and nothing is saved */
     readOnly?: boolean;
-    /** a branch that takes no edit (a pull-request server's environment branch): a change calls this instead of saving */
     onHeldEdit?: () => void;
     /** the first of the tools on the right (the flow's worker tag) */
     tools?: ReactNode;

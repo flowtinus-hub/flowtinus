@@ -79,7 +79,6 @@ describe("an environment's mode decides whether its server changes the tree", ()
 
     const REFUSED = 'DEV only takes pull requests: edit in git.';
 
-    // a pull-request environment's branch refuses drafts too, and offers Create branch: git-pull-request-api.test.ts
     for (const mode of ['protected'] as const) {
         test(`${mode}: the Commit and the tree's actions are refused; drafts, test runs and the reconcile work`, async () => {
             const { call, repo, projectId, orders, show, tip } = await newWorkspace(mode);

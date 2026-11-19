@@ -41,7 +41,6 @@ export function DeployBadge({ state }: { state: DeployState }) {
 
 type Props = {
     flowId: string;
-    /** the workspace's slug: its conflict screen */
     workspace: string;
     /** the server's environment (DEV, QA…): a deploy is to this one */
     environment: string;

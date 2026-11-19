@@ -44,11 +44,6 @@ function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: 
     );
 }
 
-/**
- * With git on, the branch the user is on in this workspace; a click lists the remote's branches by kind (merged ones
- * behind "Show merged") and picks one: the projects and flows then answer for it. One the user cannot edit opens read only.
- * Create branch cuts one from the current branch, taking the user's changes along.
- */
 export function BranchPicker({ slug }: { slug: string }) {
     const { isMobile } = useSidebar();
     const [current, setCurrent] = useState<{ slug: string; value: CurrentBranch } | null>(null);

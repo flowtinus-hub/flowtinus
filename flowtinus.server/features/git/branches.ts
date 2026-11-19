@@ -20,13 +20,9 @@ export type BranchView = {
     ownerName?: string;
     mine: boolean;
     editable: boolean;
-    /** contained in the environment's branch with no uncommitted change: hidden behind "show merged" */
     merged: boolean;
-    /** uncommitted changes on this server */
     changes: number;
-    /** removed on the remote while this server has uncommitted changes on it: they can be taken to a new branch or discarded */
     removed?: true;
-    /** removed while git was off: its last tip is not known here, a branch made from it is cut from the environment's */
     lostTip?: true;
 };
 

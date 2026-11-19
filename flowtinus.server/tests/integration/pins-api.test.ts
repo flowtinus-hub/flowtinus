@@ -14,7 +14,6 @@ import { inProcessExecutor } from '../../supervisor/workers/executor';
 
 setDefaultTimeout(30_000);
 
-/** Pins are the user's: a table (user, flow, node) → the pinned output, out of the draft. */
 describe('pins api', () => {
     let db: Database;
     let app: ReturnType<typeof createApp>;
@@ -42,7 +41,6 @@ describe('pins api', () => {
         }
     };
 
-    /** an MCP client over HTTP (the app's fetch), with a token of the user */
     const mcpAs = async (userId: string) => {
         const { token } = newApiToken();
         await insertApiToken(db, { userId, name: 'test', token, scopes: API_SCOPES });
@@ -59,7 +57,6 @@ describe('pins api', () => {
         };
     };
 
-    /** Start → a Data Grid (grid) with the rows 1, 2, 3 → End */
     const newFlow = async (name: string) => {
         const projectId = (await call('POST', '/projects', { name })).body.id as string;
         const flowId = (await call('POST', `/projects/${projectId}/flows`, { name, folderId: null })).body.id as string;
@@ -112,7 +109,6 @@ describe('pins api', () => {
         expect((await call('GET', `/flows/${flowId}/pins`)).body).toEqual({ pins: { grid: pinned } });
         expect((await call('GET', `/flows/${flowId}/pins`, undefined, BIA)).body).toEqual({ pins: {} });
 
-        // a draft saved with a pin on a node keeps none
         const draft = (await call('GET', `/flows/${flowId}/draft`)).body;
         const withPin = { ...draft.flow, nodes: draft.flow.nodes.map((n: { id: string }) => (n.id === 'grid' ? { ...n, pinned } : n)) };
         expect((await call('PUT', `/flows/${flowId}/draft`, { revision: draft.revision, flow: withPin })).status).toBe(200);
@@ -154,7 +150,6 @@ describe('pins api', () => {
         const over = await call('PUT', `/flows/${flowId}/pins/end`, { pinned: half });
         expect(over.status).toBe(400);
         expect(over.body.error.message).toContain('unpin a component');
-        // replacing a pin counts it once
         expect((await call('PUT', `/flows/${flowId}/pins/grid`, { pinned: half })).status).toBe(200);
     });
 
@@ -168,24 +163,20 @@ describe('pins api', () => {
 
         const pinned = await ana('pin_from_run', { flowId, nodeId: 'grid', runId: ran.body.runId, port: 'out-0' });
         expect(pinned.body).toMatchObject({ nodeId: 'grid', pinned: { 'out-0': 3 } });
-        // the draft did not change; the editor shows the pin to its user only
         expect((await ana('get_flow', { flowId })).body).toMatchObject({ revision: before, pinnedNodes: ['grid'] });
         expect((await call('GET', `/flows/${flowId}/pins`)).body.pins.grid['out-0']).toHaveLength(3);
         expect((await bia('get_flow', { flowId })).body.pinnedNodes).toBeUndefined();
         expect((await ana('get_flow', { flowId, includePinned: true })).body.yaml).toContain('pinned');
 
-        // a save without the pins keeps them: they are not the draft's
         const flow = (await ana('get_flow', { flowId })).body;
         expect((await ana('save_draft', { flowId, yaml: flow.yaml, expectedRevision: flow.revision })).isError).toBeFalsy();
         expect((await ana('get_flow', { flowId })).body.pinnedNodes).toEqual(['grid']);
 
-        // test_run replays the token's user's pins only
         await call('PUT', `/flows/${flowId}/pins/grid`, { pinned: { 'out-0': [{ n: 7 }] } });
         const replayed = await ana('test_run', { flowId });
         expect(replayed.body.output).toEqual([{ n: 7 }]);
         expect((await bia('test_run', { flowId })).body.outputCount).toBe(3);
 
-        // a pin made in the editor, taken off by the MCP
         const unpinned = await ana('unpin', { flowId, nodeId: ['grid', 'end', 'nope'] });
         expect(unpinned.body).toMatchObject({ unpinned: ['grid'], notPinned: ['end'], notFound: ['nope'] });
         expect((await call('GET', `/flows/${flowId}/pins`)).body).toEqual({ pins: {} });

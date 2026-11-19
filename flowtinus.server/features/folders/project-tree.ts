@@ -117,13 +117,9 @@ export type FlowView = {
     updatedBy: string | null;
     archivedAt: Date | null;
     archivedByCommit: string | null;
-    /** read from a work branch the user cannot edit */
     readOnly?: true;
-    /** read from a work branch removed on the remote: its changes go to a new branch or are discarded */
     removedBranch?: true;
-    /** read from a work branch: what is the environment's (deploy, schedules, webhooks, worker tag) is not here */
     workBranch?: true;
-    /** read from a pull-request server's environment branch: the first edit offers Create branch */
     offersBranch?: true;
 };
 
@@ -192,7 +188,6 @@ export async function nameInTree(
     tree: TreeContents,
     item: TreeItem,
     after?: TreeContents,
-    /** on a work branch: the project's name and scripts there (the tables are the environment's branch) */
     onBranch?: { project: string; scripts: ProjectScripts },
 ): Promise<UseCaseResult<string>> {
     const { kind, id, parentId } = item;

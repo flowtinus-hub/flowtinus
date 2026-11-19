@@ -170,11 +170,6 @@ export type { RenamedDraft };
 // deletes the connections and refuses the clash instead, as its preview said
 export type ImportOptions = { commit?: string; by?: string | null };
 
-/**
- * The tree applied to the server. With a commit (the reconcile), what is deployed follows `files` (the branch's tip),
- * while the names, folders, projects and connections follow the tip with the working copy over it: an uncommitted
- * rename or archive outlives the commit.
- */
 export async function importWorkspace(
     ctx: UseCaseContext,
     slug: string,
@@ -198,10 +193,6 @@ export async function importWorkspace(
     return { renamedDrafts };
 }
 
-/**
- * Git replacing the server (turning git on): of the working copy, only the flows' drafts stay, each at its flow's path
- * now; the rest is what the server had, which git replaces (the scripts are rewritten by the import).
- */
 async function keepOnlyDrafts(ctx: UseCaseContext): Promise<void> {
     const { db, workspaceId } = ctx;
     const live = new Map((await new FlowRepository(db, workspaceId).findMany()).map(f => [f.id, f]));
@@ -226,12 +217,6 @@ async function keepOnlyDrafts(ctx: UseCaseContext): Promise<void> {
     }
 }
 
-/**
- * The names and places of things as `working` has them: connections declared, projects, folders, flows, script folders.
- * `keep`: what is not there is archived (a connection keeps its configuration), as a reconcile does; else, as turning
- * git on, a connection not there is deleted and a flow never deployed stays. `tip`: what git has, to tell a flow git
- * removed from one only archived here.
- */
 export async function importStructure(
     ctx: UseCaseContext,
     slug: string,
@@ -459,7 +444,6 @@ async function importFlowPlaces(
     }
 }
 
-/** what is deployed as the tip has it: the flows' versions, and with a commit the deployed script set */
 async function importDeployed(ctx: UseCaseContext, slug: string, files: RepoFiles, options: ImportOptions): Promise<void> {
     const { db, workspaceId, userId } = ctx;
     const commit = options.commit ?? null;
@@ -522,10 +506,6 @@ async function deployAsInTree(
     }
 }
 
-/**
- * With a commit, the deployed script set becomes the tip's (the working copy over it is the scripts being edited);
- * without one (turning git on, git replacing the server), the scripts being edited become the tree's.
- */
 async function importScripts(
     ctx: UseCaseContext,
     scripts: Entry<'script'>[],

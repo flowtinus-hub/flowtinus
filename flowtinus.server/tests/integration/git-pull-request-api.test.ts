@@ -19,7 +19,6 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
     const globalBefore = process.env.GIT_CONFIG_GLOBAL;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    /** a workspace whose remote has the URL `repository`, which git takes to a local bare repository */
     async function workspace(repository: string | null) {
         const id = crypto.randomUUID();
         await insertWorkspace(db, id);
@@ -53,7 +52,6 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
         await app.gitPoller.poll(id);
 
         const handle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
-        /** a new flow on the user's current branch, committed */
         const commitFlow = async (user: string, name: string) => {
             expect((await as(user)('POST', `/projects/${projectId}/flows`, { name })).status).toBe(201);
             expect((await commitAll(as(user), `add ${name}`)).status).toBe(200);
@@ -111,7 +109,6 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
             url: `https://github.com/acme/flows/compare/dev...${branch}?expand=1`,
         });
 
-        // Bia reads Ana's branch but does not open its pull request
         expect((await as(BIA)('PUT', '/git/current-branch', { branch })).status).toBe(200);
         const notHers = await as(BIA)('POST', '/git/pull-request');
         expect(notHers.status).toBe(409);
@@ -125,7 +122,6 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
         expect(refused.body.error.message).toContain('protected');
         await setMode('direct');
 
-        // merged on the provider: dev contains the branch, which the picker then shows as merged
         git(repo, 'update-ref', 'refs/heads/dev', git(repo, 'rev-parse', branch));
         expect((await call('POST', '/git/reconcile')).status).toBe(200);
         const listed = (await call('GET', '/git/branches')).body;

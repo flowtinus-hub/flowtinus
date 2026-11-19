@@ -126,7 +126,6 @@ describe("a changed file's diff, and a discard of what was never committed", () 
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         await relabel(flows.Orders!, 'start', 'Ana start');
         expect((await commitAll(call, 'Ana start')).status).toBe(200);
-        // dev changes Orders' start too (a conflict) and Invoices' end (merged clean)
         const files: Record<string, string> = {};
         for (const path of git(repo, 'ls-tree', '-r', '--name-only', 'dev').split('\n').filter(Boolean)) {
             files[path] = raw(repo, 'dev', path);
@@ -163,7 +162,6 @@ describe("a changed file's diff, and a discard of what was never committed", () 
         const ids = (table: string, list: string[]) =>
             db.query(`SELECT id FROM ${table} WHERE workspace_id = $1 AND id = ANY($2::uuid[])`, [id, list]);
 
-        // one new flow, discarded alone; another renamed first (it leaves a tombstone at its first path)
         const fresh = (await call('POST', `/projects/${projectId}/flows`, { name: 'Fresh' })).body.id as string;
         expect((await call('POST', '/git/discard', { paths: [pathOf('Fresh')] })).status).toBe(200);
         expect(await ids('flows', [fresh])).toEqual([]);
@@ -174,7 +172,6 @@ describe("a changed file's diff, and a discard of what was never committed", () 
         expect(await ids('flows', [renamed])).toEqual([]);
         expect(await tombstones('')).toEqual([]);
 
-        // a folder with a flow in it, a project with a flow, a connection; a committed rename and archive alongside
         const later = (await call('POST', `/projects/${projectId}/folders`, { name: 'Later' })).body.id as string;
         const inLater = (await call('POST', `/projects/${projectId}/flows`, { name: 'Inside', folderId: later })).body.id as string;
         const ops = (await call('POST', '/projects', { name: 'Ops' })).body.id as string;
@@ -202,7 +199,6 @@ describe("a changed file's diff, and a discard of what was never committed", () 
         expect(
             await db.query('SELECT path FROM working_copy WHERE workspace_id = $1 AND path LIKE $2', [id, at('projects/Ops/%')]),
         ).toEqual([]);
-        // the committed ones are back as committed
         expect((await call('GET', `/flows/${flows.Invoices}`)).body).toMatchObject({ name: 'Invoices', archivedAt: null });
         expect((await call('GET', `/flows/${flows.Orders}`)).body.archivedAt).toBeNull();
         expect((await call('GET', `/projects/${projectId}/contents`)).status).toBe(200);

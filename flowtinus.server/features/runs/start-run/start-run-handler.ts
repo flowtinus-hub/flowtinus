@@ -95,7 +95,6 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('validation', 'Run from here is a test run only: a run for real runs the whole flow.');
         }
 
-        // on a work branch: its flow, the flows it calls and its scripts, from its tip and working copy
         const branch = await workBranch(ctx);
         const row = branch ? branchFlow(branch, flowId) : await new FlowRepository(ctx.db, ctx.workspaceId).findById(flowId);
         const tree = row ? (branch ? branchTree(branch, row.projectId) : await loadTree(ctx.db, ctx.workspaceId, row.projectId)) : null;

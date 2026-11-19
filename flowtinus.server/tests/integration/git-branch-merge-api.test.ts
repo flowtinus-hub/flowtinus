@@ -55,13 +55,11 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
         const handle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
         const changes = async (user = ANA) => (await as(user)('GET', '/git/changes')).body.changes as Change[];
         const draft = async (user = ANA) => (await as(user)('GET', `/flows/${orders}/draft`)).body;
-        /** the flow's draft with one node's label changed, saved as this user */
         const relabel = async (user: string, type: string, label: string) => {
             const current = await draft(user);
             current.flow.nodes = current.flow.nodes.map((n: { type: string }) => (n.type === type ? { ...n, label } : n));
             return as(user)('PUT', `/flows/${orders}/draft`, { revision: current.revision, flow: current.flow });
         };
-        /** a commit on the branch from a laptop: Orders with one node's label changed, the rest of the tree as it is */
         const pushLabel = (branch: string, type: string, label: string) => {
             const files: Record<string, string> = {};
             for (const path of git(repo, 'ls-tree', '-r', '--name-only', branch).split('\n').filter(Boolean)) {
@@ -107,7 +105,6 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
         expect(labelOf(merged.flow, 'start')).toBe('Ana start');
         expect(labelOf(merged.flow, 'end')).toBe('Laptop end');
         expect(merged.conflict).toBeUndefined();
-        // an editor that read it before the merge is told it changed
         expect(merged.revision).toBeGreaterThan(read.revision);
         expect((await changes()).map(c => [c.path, c.change, c.conflict])).toEqual([[ordersPath, 'modified', undefined]]);
 
@@ -116,7 +113,6 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
         expect(labelOf(inGit(branch)!, 'start')).toBe('Ana start');
         expect(labelOf(inGit(branch)!, 'end')).toBe('Laptop end');
 
-        // committed, the file is as its base: another push is followed, never reverted by the row left behind
         pushLabel(branch, 'start', 'Laptop start');
         await app.gitPoller.poll(id);
         expect(labelOf((await draft()).flow, 'start')).toBe('Laptop start');
@@ -184,7 +180,6 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
         expect((await call('POST', '/git/branches', { name: gone })).status).toBe(201);
         expect((await relabel(ANA, 'start', 'Kept start')).status).toBe(200);
         const lastTip = git(repo, 'rev-parse', gone);
-        // Bia was on a shared branch with nothing uncommitted: it simply goes, and she is back on dev
         expect((await as(BIA)('POST', '/git/branches', { name: 'fix/empty' })).status).toBe(201);
 
         git(repo, 'update-ref', '-d', `refs/heads/${gone}`);
@@ -208,7 +203,6 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
         expect(refused.status).toBe(409);
         expect(refused.body.error.message).toContain('was removed on the remote');
         expect((await commitAll(call, 'Too late')).status).toBe(409);
-        // another poll keeps it as it is
         await app.gitPoller.poll(id);
         expect((await changes()).map(c => c.path)).toEqual([ordersPath]);
 
@@ -220,7 +214,6 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
         expect(labelOf((await draft()).flow, 'start')).toBe('Kept start');
         expect((await relabel(ANA, 'start', 'Saved start')).status).toBe(200);
 
-        // with nothing left on it, the removed branch goes at the next poll
         await app.gitPoller.poll(id);
         const after = (await call('GET', '/git/branches')).body.branches as { name: string }[];
         expect(after.some(b => b.name === gone)).toBe(false);

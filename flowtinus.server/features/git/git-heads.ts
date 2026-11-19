@@ -12,21 +12,13 @@ import { CONFIG_BRANCH, parseTopology, TOPOLOGY_FILE } from './topology';
 import { ENVIRONMENT_BRANCH, followGit, isChange, workingRows } from './working-copy';
 import { readBranchWorkspace } from './workspace-import';
 
-/**
- * merged: contained in the environment's branch (never the environment's branch itself). removed: gone from the
- * remote while this server has uncommitted changes on it, kept at its last tip until they are taken to a new branch or
- * discarded. lostTip: a removed one whose last tip this server never knew (removed while git was off): read at, and
- * cut from, the environment's branch.
- */
 export type Head = { name: string; sha: string; merged: boolean; removed?: true; lostTip?: true };
 
-/** the remote's heads as the last fetch found them; environments: the branches the topology gives an environment */
 export type Heads = { at: string; environment: string | null; environments: string[]; heads: Head[] };
 
 export const readHeads = async (db: Database, workspaceId: string) =>
     (await readWorkspaceSetting(db, workspaceId, HEADS_SETTING)) as Heads | null;
 
-/** every head fetched and kept with whether the environment's branch contains it */
 export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<Heads> {
     const since = new Date();
     const cloned = await clonedTips(remote);
@@ -43,7 +35,6 @@ export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config
     const heads: Head[] = [];
     for (const [name, sha] of fetched) {
         const was = known.get(name);
-        // asked of git again only when the head or the environment's branch moved
         const merged =
             !envTip || name === environment
                 ? false
@@ -69,7 +60,6 @@ export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config
 const KEPT = 'refs/flowtinus/kept/';
 const keptRef = (branch: string) => `${KEPT}${branch}`;
 
-/** each branch's tip in the clone before a fetch: the one kept for a removed branch, else the last one fetched */
 async function clonedTips(remote: GitRemote): Promise<Map<string, string>> {
     const out = await remote.run(['for-each-ref', '--format=%(objectname) %(refname)', KEPT, 'refs/remotes/origin/']);
     const tips = new Map<string, string>();
@@ -87,11 +77,6 @@ async function clonedTips(remote: GitRemote): Promise<Map<string, string>> {
     return tips;
 }
 
-/**
- * The work branches with a working copy on this server, after a fetch: one that moved has its files merged onto its
- * new tip (#35 for any branch); one removed on the remote keeps its uncommitted changes, answered as a removed head
- * (its tip kept from git's gc by a ref of the clone), and is forgotten here once it has none.
- */
 async function followBranches(
     ctx: UseCaseContext,
     remote: GitRemote,
@@ -186,7 +171,6 @@ async function dropKeptRef(remote: GitRemote, branch: string): Promise<void> {
     }
 }
 
-/** a poll's work (and Reconcile now's): only the environment's branch is reconciled, every head is fetched */
 export async function fetchAndReconcile(
     ctx: UseCaseContext,
     remote: GitRemote,

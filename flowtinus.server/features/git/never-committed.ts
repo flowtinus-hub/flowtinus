@@ -11,17 +11,10 @@ export const liveFolderIds = async (ctx: UseCaseContext) =>
         ).map(f => f.id),
     );
 
-// a flow git ever had has a version (or was deployed): it stays in the archive
 const COMMITTED_FLOW = `(EXISTS (SELECT 1 FROM flow_versions v WHERE v.flow_id = f.id)
     OR EXISTS (SELECT 1 FROM deployments d WHERE d.flow_id = f.id)
     OR EXISTS (SELECT 1 FROM deployment_history h WHERE h.flow_id = f.id))`;
 
-/**
- * On the environment's branch, after the tables followed a discard: what it removed that git never had (a new flow,
- * project, connection declaration, or a folder no committed path is in) is deleted, not left in the archive.
- * `removed`: the discarded rows whose file the branch does not have; `files`: the working tree before the discard;
- * `foldersBefore`: the folders live before it.
- */
 export async function dropNeverCommitted(
     ctx: UseCaseContext,
     removed: WorkingRow[],
@@ -71,7 +64,6 @@ export async function dropNeverCommitted(
         connections,
     ]);
 
-    // the tombstones they left (a new flow renamed or archived before): nothing stands for a file git never had
     await db.query(
         `DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND deleted AND base IS NULL
            AND (file_id = ANY($3::text[]) OR split_part(file_id, '/', 1) = ANY($4::text[]))`,
@@ -79,7 +71,6 @@ export async function dropNeverCommitted(
     );
 }
 
-/** the folders the discard archived that no committed path is in */
 async function uncommittedFolders(ctx: UseCaseContext, files: RepoFiles, foldersBefore: Set<string>): Promise<string[]> {
     const { db, workspaceId } = ctx;
     const [folders, projects, rows] = await Promise.all([
@@ -111,7 +102,6 @@ async function uncommittedFolders(ctx: UseCaseContext, files: RepoFiles, folders
         .map(f => f.id);
 }
 
-/** these folders, and every folder of these projects, deleted once no flow or folder is in them */
 async function dropFolders(ctx: UseCaseContext, folders: string[], projects: string[]): Promise<void> {
     for (let dropped = true; dropped;) {
         dropped =

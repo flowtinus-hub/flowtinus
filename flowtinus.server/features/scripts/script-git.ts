@@ -18,7 +18,6 @@ import { workingScripts, writeScript } from './script-store';
 
 export type ScriptState = { changed: boolean; conflict?: string };
 
-/** a project's scripts' rows in the working copy of a branch (the environment's by default), by script path */
 async function scriptRows(
     db: Database,
     workspaceId: string,
@@ -34,7 +33,6 @@ async function scriptRows(
     return new Map([...bestRows(rows)].map(([fileId, row]) => [fileId.slice(prefix.length), row]));
 }
 
-/** with git on, each script against the script as committed: changed (or never committed), in conflict */
 export async function scriptStates(
     db: Database,
     workspaceId: string,
@@ -48,7 +46,6 @@ export async function scriptStates(
     return new Map([...rows].map(([path, row]) => [path, { changed: isChange(row), ...(row.conflict ? { conflict: row.conflict } : {}) }]));
 }
 
-/** the changed scripts a flow imports, directly or through another script */
 export async function changedImports(db: Database, workspaceId: string, projectId: string, flow: FlowFile): Promise<string[]> {
     const states = await scriptStates(db, workspaceId, projectId);
     if (!states) {
@@ -67,7 +64,6 @@ export async function changedImports(db: Database, workspaceId: string, projectI
     return [...seen].filter(path => states.get(path)?.changed).sort();
 }
 
-/** a script (or a folder) moved: the scripts that import it and the flows' drafts are rewritten. After moveScriptPath. */
 export async function rewriteMovedScript(ctx: UseCaseContext, projectId: string, from: string, to: string): Promise<void> {
     const { db, workspaceId } = ctx;
     for (const script of await workingScripts(db, workspaceId, projectId)) {

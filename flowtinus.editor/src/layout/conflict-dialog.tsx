@@ -9,12 +9,10 @@ import { CHANGES_CHANGED, discardChanges, getConflict, resolveConflict, type Con
 import type { ApiError, ApiResult } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-/** the path inside the workspace (the repository's path starts with its slug) */
 const shortPath = (slug: string, path: string) => (path.startsWith(`${slug}/`) ? path.slice(slug.length + 1) : path);
 
 const hunkCount = (segments: ConflictSegment[]) => segments.filter(s => 'hunk' in s).length;
 
-/** the resolution once every choice is made; null while one is missing */
 function resolutionOf(view: ConflictView, pick: ConflictResolution): ConflictResolution | null {
     const conflict = view.conflict;
     switch (conflict.type) {
@@ -37,12 +35,6 @@ const Radio = ({ checked, onChange, label, disabled }: { checked: boolean; onCha
     </label>
 );
 
-/**
- * The conflict screen of one working copy file: what merged cleanly shown, each conflicting hunk taken as mine,
- * theirs, both, or an edit; a conflict not about content is a choice between outcomes. The result must validate:
- * the server answers its errors, shown here. Discard (take theirs) and, for a draft on the environment's branch,
- * duplicate as a new flow stay.
- */
 export function ConflictDialog({
     slug,
     path,
@@ -52,7 +44,6 @@ export function ConflictDialog({
     slug: string;
     path: string;
     onClose: () => void;
-    /** resolved, discarded or duplicated: what was read before is stale */
     onResolved: () => void;
 }) {
     const [view, setView] = useState<ConflictView | null>(null);

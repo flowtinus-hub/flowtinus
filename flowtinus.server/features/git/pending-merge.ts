@@ -1,17 +1,9 @@
 import type { Database } from '#shared/database/database';
 
-/**
- * A pending merge: an Update whose merge could not be pushed at once (conflicts, or a merged tree that does not
- * validate). The files it brought are in the branch's working copy (`paths`); those that conflicted carry the mark of
- * `theirs`, as a moved branch's do. Commit takes it whole as a merge commit (`ours`, `theirs`); Discard all aborts it.
- */
 export type PendingMerge = {
     branch: string;
-    /** the branch's tip it was made on: the first parent */
     ours: string;
-    /** the environment's branch tip merged in: the second parent */
     theirs: string;
-    /** the environment's branch, by name */
     source: string;
     paths: string[];
     conflicts: string[];
@@ -19,7 +11,6 @@ export type PendingMerge = {
     createdAt: Date;
 };
 
-/** what the editor is told of a pending merge */
 export type PendingMergeView = { from: string; theirs: string; ours: string; conflicts: string[] };
 
 export const pendingMergeView = (merge: PendingMerge): PendingMergeView => ({

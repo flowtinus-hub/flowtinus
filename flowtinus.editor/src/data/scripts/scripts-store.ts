@@ -96,8 +96,6 @@ export function useProjectScripts(projectId: string): ProjectScripts {
             void reloadScripts(projectId);
         }
     }, [projectId]);
-    // a write anywhere (a save, a Commit) can change what the list says changed; a discard or a Commit from the Changes
-    // dialog can change the code too
     useEffect(() => {
         if (!projectId) {
             return;
@@ -251,7 +249,6 @@ export function saveScript(projectId: string, path: string, code: string) {
     );
 }
 
-/** a script's code saved over whatever revision the current branch has of it (an edit taken to a new branch) */
 export async function replaceScript(projectId: string, path: string, code: string): Promise<ApiResult<{ revision: number }>> {
     const read = await api<{ revision: number }>(`/projects/${projectId}/scripts/content?path=${encodeURIComponent(path)}`);
     if (!read.ok) {

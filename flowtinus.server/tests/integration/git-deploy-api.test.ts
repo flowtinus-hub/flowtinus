@@ -249,7 +249,6 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect(refused.status).toBe(409);
         expect(refused.body.error.message).toBe(`${path} changed in git meanwhile: nothing was changed, try again.`);
         expect(git(repo, 'rev-parse', 'dev')).toBe(moved);
-        // the rename stays in the working copy, for the next Commit
         expect((await call('GET', '/git/changes')).body.changes.map((c: { from?: string }) => c.from)).toEqual([path]);
     });
 
@@ -258,7 +257,6 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         const orders = await newFlow('Orders');
         await rename(repo, `${repo}.away`);
 
-        // a change of the tree needs no git: it waits in the working copy; its Commit does
         expect((await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' })).status).toBe(201);
         const unreachable = await commitAll(call, 'Create folder Imports');
         expect(unreachable.status).toBe(502);

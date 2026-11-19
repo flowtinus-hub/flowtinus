@@ -5,18 +5,11 @@ import type { Database } from '#shared/database/database';
 import { ENVIRONMENT_BRANCH, scriptFileId, writeFile } from './working-copy';
 import { committedFlowText, flowsInRepo } from './workspace-export';
 
-/** any constant: identifies "the drafts are being carried over" among Postgres advisory locks */
 const CARRYOVER_LOCK = 4_771_191;
 
 type Carried = { workspace_id: string; flow_id: string; draft: { revision?: number; flow?: FlowFile } | null; updated_by: string | null };
 
-/**
- * Once, after migration 12: the drafts (flows.draft_definition) and the scripts being edited (the scripts table), kept
- * by the migration in draft_carryover and scripts_carryover, go into the working copy of the environment's branch in
- * the repo format (which SQL cannot write): a draft-only flow as a new file, a draft or a script that differs from what
- * is committed (or deployed) as a change of it, an archived flow's draft kept on a deleted row. Then the two tables go:
- * their absence is the marker.
- */
+// runs once: the two carryover tables are dropped at the end, and their absence is the marker
 export async function carryOverDrafts(db: Database): Promise<void> {
     await db.transaction(async tx => {
         await tx.query('SELECT pg_advisory_xact_lock($1)', [CARRYOVER_LOCK]);
@@ -61,7 +54,6 @@ async function carryDraft(db: Database, carried: Carried): Promise<void> {
     }
     const revision = typeof carried.draft?.revision === 'number' ? carried.draft.revision : 0;
     if (row.deletedAt && !taken) {
-        // archived: no file, its draft kept for a restore
         await db.query(
             `INSERT INTO working_copy (workspace_id, branch, path, content, deleted, file_id, edited_by, revision)
            VALUES ($1, $2, $3, $4, true, $5, $6, $7)`,

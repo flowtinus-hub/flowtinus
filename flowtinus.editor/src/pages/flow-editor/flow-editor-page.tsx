@@ -73,11 +73,8 @@ export function FlowEditorPage() {
     const flowName = current ? (current.flow?.name ?? 'Flow not found') : '';
     // an archived flow opens read-only (nothing saved, nothing run), with Restore
     const archived = Boolean(current?.flow?.archivedAt);
-    // read from a branch the user cannot edit: nothing is saved, it still runs (what the branch has)
     const onBranch = Boolean(current?.flow?.readOnly) && !archived;
-    // on a work branch, editable or not: deploy, schedules and webhooks are the environment's
     const onWorkBranch = Boolean(current?.flow?.workBranch);
-    // a pull-request server's environment branch takes no edit: the first one offers Create branch, which takes it along
     const { state: me } = useMe();
     const { canEdit } = useWorkspace();
     const handle = me.status === 'ready' ? me.me.handle : null;
@@ -551,7 +548,6 @@ export function FlowEditorPage() {
                         },
                     }}
                     onClose={() => {
-                        // not taken to a branch: the edit goes, the canvas is the environment's draft again
                         setOffering(false);
                         save?.reload();
                     }}

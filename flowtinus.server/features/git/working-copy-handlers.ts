@@ -17,10 +17,6 @@ import { commitWorkingCopy, createBranch, discardWorkingCopy, workingChanges, ty
 
 const gitOff = () => fail('conflict', 'Git is off in this workspace.');
 
-/**
- * merge: a pending merge on the branch, which a Commit takes whole and Discard all aborts. removed: the branch was
- * removed on the remote, its changes go to a new branch or are discarded (no Commit); lostTip as the current branch's
- */
 export type ChangesView = { changes: WorkingChange[]; merge?: PendingMergeView; removed?: true; lostTip?: true };
 
 export class GetChangesHandler implements UseCaseHandler<ChangesView> {
@@ -40,7 +36,6 @@ export class GetChangesHandler implements UseCaseHandler<ChangesView> {
         const branch = await workBranch(ctx);
         const merge = branch && (await pendingMerge(ctx.db, ctx.workspaceId, branch.branch));
         const changes = await workingChanges(ctx);
-        // the files still marked: one resolved on the conflict screen or discarded no longer is
         const marked = new Set(changes.filter(c => c.conflict).map(c => c.path));
         return success({
             changes,
@@ -100,11 +95,9 @@ export class CommitChangesHandler implements UseCaseHandler<{ commit: string }> 
 
 export const CreateBranchCommand = z.object({
     name: z.string().trim().min(1, 'Required'),
-    /** the edit that offered the branch (a flow's draft on a pull-request server's environment branch), saved on it */
     draft: z.object({ flowId: z.uuid('Invalid'), flow: z.unknown() }).optional(),
 });
 
-/** draft: the edit taken along, saved on the new branch (its revision), or why it could not be */
 export type CreatedBranchView = CreatedBranch & { draft?: { revision: number } | { error: string } };
 
 export class CreateBranchHandler implements UseCaseHandler<CreatedBranchView> {

@@ -54,7 +54,6 @@ describe('every head of the remote, read as a branch', () => {
 
         const slug = slugOf(id);
         const handle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
-        /** a branch cut from dev's tip, with these files changed (null: removed) */
         const push = (branch: string, changes: Record<string, string | null> = {}) => {
             git(repo, 'update-ref', `refs/heads/${branch}`, git(repo, 'rev-parse', 'dev'));
             const files: Record<string, string> = {};
@@ -158,7 +157,6 @@ describe('every head of the remote, read as a branch', () => {
                 changes: 0,
             },
         ]);
-        // Bia sees her own first among the users'
         const forBia = ((await as(BIA)('GET', '/git/branches')).body.branches as Branch[]).map(b => b.name);
         expect(forBia).toEqual(['dev', `users/${bia}/done`, `users/${ana}/try`, 'fix/shared']);
     });
@@ -212,21 +210,18 @@ describe('every head of the remote, read as a branch', () => {
             content: 'export const two = 2;\n',
         });
 
-        // nothing written to dev's working copy from here
         const saved = await call('PUT', `/flows/${orders}/draft`, { revision: draft.revision, flow: draft.flow });
         expect(saved.status).toBe(409);
         expect(saved.body.error.message).toContain(branch);
         expect((await call('POST', `/projects/${projectId}/flows`, { name: 'New' })).status).toBe(409);
         expect((await call('PUT', `/projects/${projectId}/scripts/content`, { path: 'util', content: 'x', revision: 0 })).status).toBe(409);
 
-        // Bia is still on dev: what dev has
         const bia = as(BIA);
         expect((await bia('GET', `/projects/${projectId}/contents`)).body.flows.map((f: { name: string }) => f.name)).toEqual(['Orders']);
         expect((await bia('GET', `/flows/${onlyId}`)).status).toBe(404);
         const dev = (await bia('GET', `/flows/${orders}/draft`)).body;
         expect(dev.flow.nodes.find((n: { id: string }) => n.id === 'start').label).not.toBe('Begin');
 
-        // back on dev
         expect((await call('PUT', '/git/current-branch', { branch: 'dev' })).status).toBe(200);
         expect((await call('GET', `/flows/${onlyId}`)).status).toBe(404);
         expect((await call('GET', '/git/current-branch')).body).toEqual({ branch: 'dev', editable: true });

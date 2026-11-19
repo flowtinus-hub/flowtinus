@@ -92,10 +92,8 @@ export function saveDraft(id: string, revision: number, flow: FlowFile, keepaliv
     return api<{ revision: number }>(`/flows/${id}/draft`, { method: 'PUT', body: { revision, flow }, keepalive });
 }
 
-/** a component's pinned output: envelopes per output port */
 export type Pinned = Record<string, Record<string, unknown>[]>;
 
-/** the user's own pins on the flow, by node: never in the draft, nobody else sees them */
 export function getPins(flowId: string): Promise<ApiResult<{ pins: Record<string, Pinned> }>> {
     return api<{ pins: Record<string, Pinned> }>(`/flows/${flowId}/pins`);
 }

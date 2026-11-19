@@ -195,10 +195,6 @@ async function turnOnInTransaction(
     return success({ outcome, branch, warnings });
 }
 
-/**
- * The work branches' working copies, kept in Postgres while git was off, show again: every head is fetched and the
- * environment's branch reconciled, as a poll does, so a user whose current branch is a work branch reads it at once.
- */
 async function showWorkBranches(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<void> {
     try {
         await fetchAndReconcile(ctx, remote, config);

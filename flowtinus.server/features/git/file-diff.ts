@@ -10,7 +10,6 @@ import { isGitOn } from './git-config';
 import { ENVIRONMENT_BRANCH, workingRows } from './working-copy';
 import { itemsOf, type ChangeKind } from './working-copy-changes';
 
-/** a line of a unified diff: its number in the committed text (old) and in the working copy's (new) */
 export type DiffLine = { kind: ' ' | '-' | '+'; text: string; old?: number; new?: number };
 
 export type DiffHunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: DiffLine[] };
@@ -29,7 +28,6 @@ const linesOf = (text: string) => {
     return lines.at(-1) === '' ? lines.slice(0, -1) : lines;
 };
 
-/** Myers' shortest edit script, or null when it needs more than MAX_EDITS edits */
 function shortestEdits(a: string[], b: string[]): DiffLine['kind'][] | null {
     const n = a.length;
     const m = b.length;
@@ -79,7 +77,6 @@ function backtrack(trace: Int32Array[], offset: number, n: number, m: number): D
     return kinds.reverse();
 }
 
-/** every line of both texts, numbered, as a unified diff orders them */
 export function diffLines(before: string, after: string): DiffLine[] {
     const a = linesOf(before);
     const b = linesOf(after);
@@ -113,7 +110,6 @@ export function diffLines(before: string, after: string): DiffLine[] {
     });
 }
 
-/** the changed lines with CONTEXT lines around them, in hunks */
 export function diffHunks(before: string, after: string, context = CONTEXT): DiffHunk[] {
     const lines = diffLines(before, after);
     const ranges: [number, number][] = [];
@@ -139,10 +135,6 @@ export function diffHunks(before: string, after: string, context = CONTEXT): Dif
     });
 }
 
-/**
- * One change's diff on the user's current branch: the committed text (the row's base; a rename's old file) against the
- * working copy's. An added file diffs against nothing, a deleted one to nothing.
- */
 export async function fileDiff(ctx: UseCaseContext, path: string): Promise<UseCaseResult<FileDiff>> {
     const branch = await workBranch(ctx);
     const rows = await workingRows(ctx.db, ctx.workspaceId, branch?.branch ?? ENVIRONMENT_BRANCH);
@@ -175,7 +167,6 @@ export class GetFileDiffHandler implements UseCaseHandler<FileDiff> {
         if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
             return fail('conflict', 'Git is off in this workspace.');
         }
-        // the changes the Changes list shows to this user, no others
         const [{ mayChange }, view] = await Promise.all([
             branchAccess(ctx.db, ctx.workspaceId, ctx.userId),
             currentBranchView(ctx.db, ctx.workspaceId, ctx.userId),

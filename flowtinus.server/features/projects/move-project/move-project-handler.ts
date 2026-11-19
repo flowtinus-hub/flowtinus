@@ -225,7 +225,6 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                     ]);
                 }
 
-                // the drafts and the scripts being edited go with it, as new files of the destination's working copy
                 const scripts = await workingScripts(tx, ctx.workspaceId, id);
                 await tx.query(
                     `DELETE FROM working_copy WHERE workspace_id = $1 AND (file_id = ANY($2::text[]) OR starts_with(file_id, $3))`,

@@ -29,7 +29,6 @@ describe('every change of the tree on a work branch goes into its working copy',
     let dir: string;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    /** a workspace on git (dev), project Sales with Orders deployed and connection Warehouse committed; Ana on a branch of her own */
     async function workspace() {
         const id = crypto.randomUUID();
         await insertWorkspace(db, id);
@@ -131,7 +130,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(await projects('active', BIA)).toEqual(['Sales']);
         expect(await changes()).toEqual([]);
 
-        // archived on the branch: a deleted folder of files, in the branch's archive; restored, nothing is left to commit
         expect((await call('POST', `/projects/${projectId}/archive`)).status).toBe(200);
         expect(await changes()).toEqual(['projects/Sales 2/flows/Orders.flow.yaml', 'projects/Sales 2/project.yaml']);
         expect(await projects()).toEqual(['Ops']);
@@ -144,13 +142,11 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(await changes()).toEqual([]);
         expect((await contents()).flows).toEqual(['Orders']);
 
-        // archived, then discarded: back
         expect((await call('POST', `/projects/${ops.body.id}/archive`)).status).toBe(200);
         expect(await changes()).toEqual(['projects/Ops/project.yaml']);
         expect((await call('POST', '/git/discard', { mine: true })).status).toBe(200);
         expect(await projects()).toEqual(['Ops', 'Sales 2']);
 
-        // archived and committed: gone from git, still in the branch's archive; restored and committed: back in git
         expect((await call('POST', `/projects/${ops.body.id}/archive`)).status).toBe(200);
         expect((await commitAll(call, 'Archive Ops')).status).toBe(200);
         expect(tree(branch).filter(path => path.startsWith('projects/Ops/'))).toEqual([]);
@@ -160,7 +156,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect((await commitAll(call, 'Restore Ops')).status).toBe(200);
         expect(show(branch, 'projects/Ops/project.yaml')).toContain(`id: ${ops.body.id}`);
 
-        // dev was never touched
         expect(devTip()).toBe(dev);
         expect(await changes(BIA)).toEqual([]);
         expect((await onDev('GET', `/projects/${projectId}`)).body.name).toBe('Sales');
@@ -194,7 +189,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(tree(branch).filter(path => path.includes('/Later/') || path.endsWith('Parent/.gitkeep'))).toEqual([]);
         expect(await changes()).toEqual([]);
 
-        // archived: the folder and what is in it, nothing kept by a .gitkeep; Discard brings it back
         expect((await call('POST', `/folders/${parent}/archive`)).status).toBe(200);
         expect(await changes()).toEqual(['projects/Sales/flows/Parent/Soon/Restock.flow.yaml']);
         let now = await contents();
@@ -204,7 +198,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect((await call('POST', '/git/discard', { mine: true })).status).toBe(200);
         expect((await contents()).folders).toEqual(['Parent', 'Soon']);
 
-        // archived and restored: back as it was, nothing to commit
         expect((await call('POST', `/folders/${parent}/archive`)).status).toBe(200);
         const back = await call('POST', `/folders/${parent}/restore`);
         expect(back.status).toBe(200);
@@ -212,7 +205,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(await changes()).toEqual([]);
         expect((await contents()).flows).toEqual(['Orders', 'Restock']);
 
-        // archived and committed: gone from git; restored and committed: back
         expect((await call('POST', `/folders/${parent}/archive`)).status).toBe(200);
         expect((await commitAll(call, 'Archive Parent')).status).toBe(200);
         expect(tree(branch).filter(path => path.includes('/Parent/'))).toEqual([]);
@@ -221,7 +213,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect((await commitAll(call, 'Restore Parent')).status).toBe(200);
         expect(show(branch, 'projects/Sales/flows/Parent/Soon/Restock.flow.yaml')).toContain('id: ');
 
-        // deleted once archived: gone from the archive, still a deletion to commit or discard
         expect((await call('POST', `/folders/${parent}/archive`)).status).toBe(200);
         const deleted = await call('DELETE', `/folders/${parent}`);
         expect(deleted.status).toBe(200);
@@ -251,7 +242,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(show(branch, 'projects/Sales/flows/Orders copy.flow.yaml')).toContain(`id: ${copy}`);
         expect(show(branch, 'projects/Sales/flows/Orders copy.flow.yaml')).not.toContain('deployed: true');
 
-        // archived and restored: back, nothing to commit
         expect((await call('POST', `/flows/${copy}/archive`)).status).toBe(200);
         expect((await contents()).archivedFlows).toEqual(['Orders copy']);
         expect((await call('POST', `/flows/${orders}/restore`)).status).toBe(404);
@@ -260,7 +250,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(restored.body).toMatchObject({ id: copy, name: 'Orders copy', archivedAt: null });
         expect(await changes()).toEqual([]);
 
-        // archived and committed, restored and committed
         expect((await call('POST', `/flows/${copy}/archive`)).status).toBe(200);
         expect((await commitAll(call, 'Archive the copy')).status).toBe(200);
         expect(tree(branch)).not.toContain('projects/Sales/flows/Orders copy.flow.yaml');
@@ -269,12 +258,10 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect((await commitAll(call, 'Restore the copy')).status).toBe(200);
         expect(show(branch, 'projects/Sales/flows/Orders copy.flow.yaml')).toContain(`id: ${copy}`);
 
-        // a clone discarded is gone
         const third = (await call('POST', `/flows/${orders}/clone`, { name: 'Orders third' })).body.id as string;
         expect((await call('POST', '/git/discard', { mine: true })).status).toBe(200);
         expect((await call('GET', `/flows/${third}`)).status).toBe(404);
 
-        // deleted once archived: gone from the archive; the deletion is still a change
         expect((await call('DELETE', `/flows/${copy}`)).status).toBe(409);
         expect((await call('POST', `/flows/${copy}/archive`)).status).toBe(200);
         expect((await call('DELETE', `/flows/${copy}`)).status).toBe(200);
@@ -338,7 +325,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(kept!.deleted_at).not.toBeNull();
         expect((await call('POST', '/connections', { ...shopConnection, name: 'shop', newSecrets: [] })).status).toBe(409);
 
-        // a connection only on the branch: renamed and reconfigured there
         const renamed = await call('PUT', `/connections/${shop.body.id}`, {
             ...shopConnection,
             name: 'Shop 2',
@@ -349,7 +335,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(renamed.body).toMatchObject({ name: 'Shop 2', config: { bootstrapServers: 'c:9092' } });
         expect(await changes()).toEqual(['connections/Shop 2.yaml']);
 
-        // the environment's connection: its configuration changes at once, its name on the branch only; not its type
         const moved = await call('PUT', `/connections/${warehouse}`, {
             ...shopConnection,
             name: 'Depot',
@@ -377,7 +362,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect(tree(branch).filter(path => path.startsWith('connections/'))).toEqual(['connections/Depot.yaml', 'connections/Shop 2.yaml']);
         expect(devTip()).toBe(dev);
 
-        // deleted on the branch: its declaration only; Discard brings it back
         expect((await call('DELETE', `/connections/${warehouse}`)).status).toBe(200);
         expect(await changes()).toEqual(['connections/Depot.yaml']);
         expect(await names()).toEqual(['Shop 2']);
@@ -385,7 +369,6 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect((await call('POST', '/git/discard', { mine: true })).status).toBe(200);
         expect(await names()).toEqual(['Depot', 'Shop 2']);
 
-        // a new one discarded: gone from the branch, its configuration kept archived
         const temp = (await call('POST', '/connections', { ...shopConnection, name: 'Temp', newSecrets: [] })).body.id as string;
         expect((await call('POST', '/git/discard', { mine: true })).status).toBe(200);
         expect(await names()).toEqual(['Depot', 'Shop 2']);

@@ -8,14 +8,12 @@ import { validate } from '#shared/use-cases/validate';
 import { pinsOf, removePins, setPin, type Pinned, type Pins } from './pins';
 
 const nodeId = z.string().min(1).max(200);
-/** envelopes per output port */
 const pinned = z.record(z.string().min(1), z.array(z.record(z.string(), z.unknown())));
 
 export const GetPinsQuery = z.object({ id: z.uuid('Invalid') });
 export const SetPinCommand = z.object({ id: z.uuid('Invalid'), nodeId, pinned });
 export const UnpinCommand = z.object({ id: z.uuid('Invalid'), nodeId });
 
-/** the asking user's pins on the flow, by node */
 export class GetPinsHandler implements UseCaseHandler<{ pins: Pins }> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ pins: Pins }>> {
         const parsed = validate(GetPinsQuery, input);

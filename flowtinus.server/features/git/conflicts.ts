@@ -18,23 +18,13 @@ import { chosenBy, workingItems, type Item } from './working-copy-changes';
 import type { RepoFiles } from './workspace-export';
 import { importStructure, issueFields, validateImport } from './workspace-import';
 
-/*
- * The conflict screen. A working copy file marked with a commit (a moved branch, a Commit's merge, an Update) is read
- * as three texts: its base (the blob the row keeps), mine (the row), theirs (the file at the marked commit, found by
- * its id for a flow). Nothing else is assumed about where the mark came from.
- */
-
 export type Hunk = { mine: string[]; base: string[]; theirs: string[] };
 
-/** a run of lines both sides agree on (merged already), or a conflicting hunk */
 export type Segment = { lines: string[] } | { hunk: Hunk };
 
 export type ConflictCase =
-    /** both changed the text: per hunk; names when both also renamed the flow, each to another name */
     | { type: 'content'; segments: Segment[]; names?: { mine: string; theirs: string } }
-    /** one side deleted the file, the other edited it: `text` is the edited one */
     | { type: 'deleted'; deletedBy: 'mine' | 'theirs'; text: string }
-    /** both added a file at this path, with different ids: one is renamed */
     | { type: 'added'; name: string; mine: string; theirs: string };
 
 export type ConflictView = {
@@ -43,10 +33,8 @@ export type ConflictView = {
     kind: RepoEntry['kind'];
     fileId: string | null;
     commit: string;
-    /** what the resolution answers to: a change of the file since refuses it */
     revision: number;
     conflict: ConflictCase;
-    /** step 2's other way out, a flow on the environment's branch: its draft duplicated as a new flow */
     duplicable: boolean;
 };
 
@@ -56,17 +44,13 @@ export type Resolution = {
     path: string;
     revision: number;
     hunks?: HunkChoice[];
-    /** both renamed: the name kept */
     name?: 'mine' | 'theirs';
-    /** one deleted, the other edited: keep it with the edit, or delete it */
     keep?: boolean;
-    /** both added the same path: the new name of mine */
     rename?: string;
 };
 
 const MARKER = 32;
 
-/** git merge-file's three-way merge, as runs of merged lines and conflicting hunks */
 export async function mergeSegments(mine: string, base: string, theirs: string): Promise<{ segments: Segment[]; newline: boolean }> {
     const dir = await mkdtemp(join(tmpdir(), 'flowtinus-conflict-'));
     try {
@@ -121,7 +105,6 @@ export async function mergeSegments(mine: string, base: string, theirs: string):
 
 const hunksOf = (segments: Segment[]) => segments.flatMap(s => ('hunk' in s ? [s.hunk] : []));
 
-/** the merged text with each hunk as chosen; null when a hunk has no choice */
 export function joinSegments(segments: Segment[], choices: HunkChoice[], newline: boolean): string | null {
     const lines: string[] = [];
     let i = 0;
@@ -149,9 +132,7 @@ export function joinSegments(segments: Segment[], choices: HunkChoice[], newline
 
 type Situation = {
     item: Item;
-    /** the item's row: in a rename, the one at the new path */
     row: WorkingRow;
-    /** a rename: the row deleted at the old path */
     was: WorkingRow | undefined;
     commit: string;
     theirsPath: string | null;
@@ -162,7 +143,6 @@ type Situation = {
     newline: boolean;
 };
 
-/** where the file is at the marked commit: a flow by its id (git may have renamed it), else at its path */
 function theirsAt(files: RepoFiles, row: WorkingRow, was: WorkingRow | undefined): string | null {
     const path = was?.path ?? row.path;
     if (repoEntry(row.path).kind === 'flow' && row.file_id && (was ?? row).base !== null) {
@@ -230,7 +210,6 @@ async function find(ctx: UseCaseContext, branch: WorkBranch | null, path: string
     return { situation, files };
 }
 
-/** the conflict of a file of the user's current branch, as the screen shows it */
 export async function readConflict(ctx: UseCaseContext, path: string): Promise<UseCaseResult<ConflictView>> {
     const branch = await workBranch(ctx);
     const { situation } = await find(ctx, branch, path);
@@ -269,7 +248,6 @@ const renamedPath = (path: string, name: string) => {
 
 type Outcome = { writes: Write[]; drops: string[]; moves: [string, string][]; tree: Record<string, string | null> };
 
-/** what a resolution writes, or why it cannot */
 function outcomeOf(s: Situation, request: Resolution, files: RepoFiles): Outcome | string {
     const { row, was, theirs, theirsPath, conflict } = s;
     const out: Outcome = { writes: [], drops: [], moves: [], tree: {} };
@@ -338,7 +316,6 @@ function outcomeOf(s: Situation, request: Resolution, files: RepoFiles): Outcome
         if (Object.keys(files).some(p => p.toLowerCase().startsWith(into.toLowerCase()))) {
             return `A project named ${name} is already there.`;
         }
-        // the project's own files move with it: those this side added under it
         out.moves.push([from, into]);
     } else {
         if (Object.keys(files).some(p => p.toLowerCase() === to.toLowerCase())) {
@@ -349,7 +326,6 @@ function outcomeOf(s: Situation, request: Resolution, files: RepoFiles): Outcome
     return out;
 }
 
-/** each row these moves take and where it goes (a prefix ending with / moves the files this side added under it) */
 const movedRows = (moves: [string, string][], rows: WorkingRow[]): [WorkingRow, string][] =>
     moves.flatMap(([from, to]) =>
         rows
@@ -357,7 +333,6 @@ const movedRows = (moves: [string, string][], rows: WorkingRow[]): [WorkingRow, 
             .map(r => [r, to + r.path.slice(from.length)] as [WorkingRow, string]),
     );
 
-/** the tree's files once the rows move: theirs where they were */
 function movedTree(moved: [WorkingRow, string][], theirs: RepoFiles): Record<string, string | null> {
     const tree: Record<string, string | null> = {};
     for (const [row, to] of moved) {
@@ -375,10 +350,6 @@ async function nextRevision(db: Database, workspaceId: string, branch: string, f
     return (row?.revision ?? 0) + 1;
 }
 
-/**
- * A conflict resolved: the file written as chosen, the mark cleared. The resolved tree must validate (the file's
- * errors are answered by path, nothing is written). On the environment's branch the tables follow.
- */
 export async function resolveConflict(ctx: UseCaseContext, request: Resolution): Promise<UseCaseResult<{ path: string }>> {
     const branch = await workBranch(ctx);
     if (branch) {

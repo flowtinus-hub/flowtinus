@@ -10,12 +10,6 @@ import type { Heads } from './git-heads';
 import type { RepoFiles } from './workspace-export';
 import { idOfFile, overlayRows, recordChanges, scriptFileId, workingRows, writeFile } from './working-copy';
 
-/*
- * Edits on a work branch: nothing of it is in the tables, so a change is made to its files (the tip with its working
- * copy over it) and every file that differs is recorded in the branch's working copy, as changeTree does for the
- * environment's branch.
- */
-
 /** `discarding`: a removed branch's changes may still be discarded by whoever may change it */
 export async function refuseReadOnly(ctx: UseCaseContext, branch: WorkBranch, discarding = false): Promise<void> {
     if (branch.removed && branch.mayChange && !discarding) {
@@ -33,7 +27,6 @@ export async function refuseReadOnly(ctx: UseCaseContext, branch: WorkBranch, di
 export const lockBranch = (db: Database, workspaceId: string, branch: string) =>
     db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`working-copy:${workspaceId}:${branch}`]);
 
-/** by path, the id of what each file holds (a flow's, a project's, a connection's; a script's scriptFileId) */
 export function branchIds(files: RepoFiles, slug: string): Record<string, string> {
     const projects = new Map<string, string>();
     for (const [path, text] of Object.entries(files)) {
@@ -65,10 +58,6 @@ const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/') + 1);
 
 const isKeep = (path: string) => path.endsWith('/.gitkeep');
 
-/**
- * Folders as the export makes them: a folder of flows emptied by the change keeps a .gitkeep, and a .gitkeep goes
- * once something else is in its folder.
- */
 function tidyKeeps(before: RepoFiles, after: RepoFiles, gone: string[]): RepoFiles {
     const files = { ...after };
     const flowDirs = new Set<string>();
@@ -97,13 +86,6 @@ function tidyKeeps(before: RepoFiles, after: RepoFiles, gone: string[]): RepoFil
     return files;
 }
 
-/**
- * A change of a work branch's files (`change` answers them changed), recorded in its working copy. `gone`: folders
- * (paths ending in /) that left with the change (archived, renamed, moved), so no .gitkeep keeps them; `also`: more
- * work in the same transaction (a connection's configuration, kept in the environment); `archives`: the change archives
- * folders, whose deleted .gitkeeps keep their text for the branch's archive to find (any other change forgets it: a
- * folder renamed, moved or filled is not archived).
- */
 export async function changeBranch(
     ctx: UseCaseContext,
     branch: WorkBranch,
@@ -135,10 +117,6 @@ export async function changeBranch(
     forgetWorkBranch(ctx);
 }
 
-/**
- * A file's new text on a work branch (a draft's, a script's), if it is still at `expected`: answers its new revision,
- * or null when another save came in between.
- */
 export async function saveBranchFile(
     ctx: UseCaseContext,
     branch: WorkBranch,
@@ -176,7 +154,6 @@ export async function saveBranchFile(
     });
 }
 
-/** a head this server pushed, known at once (the next poll would find it too) */
 export async function noteHead(db: Database, workspaceId: string, userId: string, name: string, sha: string): Promise<void> {
     const heads = (await readWorkspaceSetting(db, workspaceId, HEADS_SETTING)) as Heads | null;
     if (!heads) {

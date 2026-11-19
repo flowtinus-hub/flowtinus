@@ -80,8 +80,7 @@ export async function openDatabase(url?: string): Promise<Database> {
     const db = url === 'memory://' ? inMemory() : postgres(url);
     try {
         await migrate(db);
-        // once, after migration 12 (the drafts into the working copy, in the repo format): imported here, the features
-        // it needs import this module
+        // imported here: the features it needs import this module
         const { carryOverDrafts } = await import('#features/git/draft-carryover');
         await carryOverDrafts(db);
     } catch (e) {

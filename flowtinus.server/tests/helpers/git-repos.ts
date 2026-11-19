@@ -53,7 +53,6 @@ export function commitFiles(repo: string, branch: string, files: Record<string, 
 
 type Call = (method: string, path: string, body?: unknown) => Promise<{ status: number; body: any }>;
 
-/** a Commit of every change of the working copy (POST /git/commit): its answer */
 export async function commitAll(call: Call, message: string): Promise<{ status: number; body: any }> {
     const changes = (await call('GET', '/git/changes')).body.changes as { path: string; from?: string }[];
     return call('POST', '/git/commit', { paths: changes.flatMap(c => [c.path, ...(c.from ? [c.from] : [])]), message });

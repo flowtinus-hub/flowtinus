@@ -7,13 +7,8 @@ import type { ApiError } from '@/lib/api';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** the path inside the workspace (the repository's path starts with its slug) */
 const shortPath = (slug: string, path: string) => (path.startsWith(`${slug}/`) ? path.slice(slug.length + 1) : path);
 
-/**
- * Update: how far the work branch is behind the environment's, and the merge. Clean, it is pushed at once; with
- * conflicts it waits as a pending merge, which the Changes dialog commits whole or aborts (Discard all).
- */
 export function UpdateDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
     const [status, setStatus] = useState<{ value?: UpdateStatus; error?: string } | null>(null);
     const [busy, setBusy] = useState(false);

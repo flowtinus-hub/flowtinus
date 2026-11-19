@@ -30,7 +30,6 @@ export async function checkProfile(
     fields: { name: string; type: string; config: Record<string, string> },
     newSecrets: { name: string; value: string }[],
     exceptId?: string,
-    /** on a work branch: the connections declared there (the table holds the environment's) */
     declared?: { id: string; name: string }[],
 ): Promise<{ value: ProfileFields } | { failure: UseCaseResult<never> }> {
     const existing = (await workspaceSecrets(ctx.db, ctx.workspaceId)).map(s => s.name);

@@ -12,14 +12,10 @@ export type Provider = 'gitlab' | 'github';
 export type PullRequestView = {
     branch: string;
     target: string;
-    /** the branch's tip here was not on the remote (removed there, or the remote behind): pushed by this call */
     pushed: boolean;
-    /** commits of the branch the environment's branch does not have */
     commits: number;
-    /** commits that come from another work branch not yet merged (a branch cut from another one) */
     borrowed: { branch: string; commits: number }[];
     provider: Provider | null;
-    /** the provider's page for a new pull request; null for a provider the app does not know */
     url: string | null;
 };
 

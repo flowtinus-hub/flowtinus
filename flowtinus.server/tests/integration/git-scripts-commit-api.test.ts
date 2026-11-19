@@ -43,7 +43,6 @@ describe('scripts reach the branch through a Commit', () => {
         expect((await call('POST', '/git/on', { createBranch: true })).status).toBe(200);
 
         const scripts = `/projects/${projectId}/scripts`;
-        // a script made and committed (a new script waits in the working copy until a Commit)
         const create = async (path: string, content: string) => {
             expect((await call('POST', scripts, { kind: 'script', path, content })).status).toBe(201);
             expect((await commitAll(call, `Create script ${path}`)).status).toBe(200);

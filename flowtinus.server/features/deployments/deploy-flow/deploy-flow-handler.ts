@@ -68,7 +68,6 @@ export class DeployFlowHandler implements UseCaseHandler<CommittedDeployments> {
     }
 }
 
-/** the flow's Commit: its file, deployed, with the scripts named and what they all need */
 async function commitFlow(
     ctx: UseCaseContext,
     row: Flow,

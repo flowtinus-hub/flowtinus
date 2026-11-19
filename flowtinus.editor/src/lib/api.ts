@@ -37,10 +37,6 @@ const UNAVAILABLE: ApiError = { code: 'unavailable', message: 'Server unavailabl
 export const apiHeaders = (): Record<string, string> => ({ 'x-user-id': mockUser.id });
 
 /** a request to the api: the value, or the error the server answered ({ error: { code, message, fields } }) */
-/**
- * said on window after any write the server took (a rename, a folder, a save, a Commit...): what shows the working copy
- * (the sidebar's Changes) reads it again
- */
 export const API_WRITE_DONE = 'flowtinus:api-write-done';
 
 export async function api<T>(path: string, init: { method?: string; body?: unknown; keepalive?: boolean } = {}): Promise<ApiResult<T>> {

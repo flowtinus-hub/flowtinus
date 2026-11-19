@@ -54,10 +54,6 @@ export async function flowRepoPath(db: Database, workspaceId: string, row: Flow)
     );
 }
 
-/**
- * The draft saved into the working copy, if it is still at `expected` (when given); answers its new revision, or null
- * when another save came in between. Keeps the file's `deployed`.
- */
 export async function writeDraft(
     db: Database,
     workspaceId: string,

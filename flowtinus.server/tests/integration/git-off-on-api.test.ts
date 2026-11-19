@@ -54,7 +54,6 @@ describe("turning git off and on: the work branches' working copies are kept, hi
             ((await as(user)('GET', `/flows/${flowId}/draft`)).body.flow.nodes as { type: string; label?: string }[]).find(
                 n => n.type === type,
             )?.label;
-        /** the flow's draft with its Start relabelled, saved as this user */
         const relabel = async (user: string, flowId: string, text: string) => {
             const draft = (await as(user)('GET', `/flows/${flowId}/draft`)).body;
             draft.flow.nodes = draft.flow.nodes.map((n: { type: string }) => (n.type === 'start' ? { ...n, label: text } : n));
@@ -74,7 +73,6 @@ describe("turning git off and on: the work branches' working copies are kept, hi
             expect(turned.status).toBe(200);
             return turned.body;
         };
-        /** a push to the branch from a laptop: the files changed by `edit` in a clone */
         const push = async (ref: string, edit: Record<string, (text: string) => string>, added: Record<string, string> = {}) => {
             const clone = join(dir, `laptop-${crypto.randomUUID()}`);
             git(dir, 'clone', '--quiet', '-c', 'core.autocrlf=false', '--branch', ref, repo, clone);
@@ -114,27 +112,23 @@ describe("turning git off and on: the work branches' working copies are kept, hi
         expect(await changes(ANA)).toEqual(onBranch);
 
         await off();
-        // no branch any more: everyone edits the drafts, which are dev's working copy
         expect((await call('GET', '/git/current-branch')).body).toEqual({ branch: null, editable: true });
         expect(await label(ANA, orders, 'start')).toBe('Bia on dev');
         expect((await call('GET', `/flows/${restock}`)).status).toBe(404);
         expect((await call('GET', '/git/branches')).status).toBe(409);
         expect(await rowsOf(branch)).toEqual(onBranch);
-        // the Deploy button is a deploy again: a version, no commit
         const deployed = await call('POST', `/flows/${orders}/deploy`);
         expect(deployed.status).toBe(200);
         expect(deployed.body.versions[0]).toMatchObject({ number: 2, commit: null });
 
         expect(await on('server')).toMatchObject({ outcome: 'server-replaced-git' });
         expect(show('dev', 'projects/Sales/flows/Orders.flow.yaml')).toContain('label: Bia on dev');
-        // Ana is back on her branch at once, no poll in between, with its changes as she left them
         expect((await call('GET', '/git/current-branch')).body).toEqual({ branch, editable: true });
         expect(await label(ANA, orders, 'start')).toBe('Ana on the branch');
         expect((await call('GET', `/flows/${restock}`)).body).toMatchObject({ name: 'Restock' });
         expect(await changes(ANA)).toEqual(onBranch);
         const listed = (await call('GET', '/git/branches')).body.branches as { name: string; changes: number }[];
         expect(listed.find(b => b.name === branch)?.changes).toBe(2);
-        // Bia, on dev, does not see them
         expect(await label(BIA, orders, 'start')).toBe('Bia on dev');
         expect((await as(BIA)('GET', `/flows/${restock}`)).status).toBe(404);
 
@@ -159,8 +153,6 @@ describe("turning git off and on: the work branches' working copies are kept, hi
         expect(await changes(ANA)).toEqual([at('projects/Sales/flows/Orders.flow.yaml')]);
     });
 
-    // needs #57 (the three-way merge when any branch moves): today the row is shown over the new tip as it was, and a
-    // Commit refuses the file as "changed on the branch meanwhile"
     test.todo('a push to the same flow while git is off: once on, the change is merged three ways with the branch', async () => {
         const { call, orders, branch, at, show, changes, label, relabel, off, on, push } = await workspace();
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);

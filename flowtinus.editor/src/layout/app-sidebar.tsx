@@ -129,7 +129,6 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     );
 }
 
-/** with git on, when the working copy has changes: their count, a click opens the Commit */
 function ChangesItem({ slug, pathname }: { slug: string; pathname: string }) {
     const [count, setCount] = useState<{ slug: string; value: number; merging: boolean } | null>(null);
     const [open, setOpen] = useState(false);

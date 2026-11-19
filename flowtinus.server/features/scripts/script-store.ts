@@ -10,10 +10,6 @@ import { refuseOffEditableBranch } from '#features/git/current-branch';
 
 export type ScriptEntry = { path: string; revision: number; exports: ScriptExport[]; updatedBy: string | null; updatedAt: Date };
 
-/**
- * A project's scripts as they are being edited: the deployed set (git on) with the working copy of the environment's
- * branch over it; with git off, the working copy alone.
- */
 export async function workingScripts(
     db: Database,
     workspaceId: string,
@@ -89,10 +85,6 @@ async function scriptRepoPath(db: Database, workspaceId: string, projectId: stri
     return repoPath.script(names!.slug, names!.project, path);
 }
 
-/**
- * A script's new text (null: removed) in the working copy, if it is still at `expected` (when given): answers its
- * revision, or null when another save came in between.
- */
 export async function writeScript(
     db: Database,
     workspaceId: string,
@@ -156,7 +148,6 @@ export const saveBlob = async (db: Database, workspaceId: string, content: strin
 
 export type ScriptUser = { label: string; code: string };
 
-/** being edited on the environment's branch, deployed, or a work branch's (its tip with its working copy) */
 export type ScriptSource = 'editing' | 'deployed' | { branch: { path: string; content: string }[] };
 
 export async function scriptContents(
@@ -245,7 +236,6 @@ export async function newPathIssue(
     return pathIssueIn(await listScripts(db, workspaceId, projectId), text, from);
 }
 
-/** what is wrong with a new path among these scripts and folders (`from`: the path it moves from) */
 export function pathIssueIn(
     { scripts, folders }: { scripts: { path: string }[]; folders: string[] },
     text: string,
@@ -295,7 +285,6 @@ export async function scriptUsage(
     };
 }
 
-/** a script (or a folder of them) moved in the working copy: removed from where it was, added where it goes */
 export async function moveScriptPath(db: Database, workspaceId: string, projectId: string, from: string, to: string, userId: string) {
     const { folders } = await listScripts(db, workspaceId, projectId);
     for (const script of (await workingScripts(db, workspaceId, projectId)).filter(s => insideScriptFolder(s.path, from))) {

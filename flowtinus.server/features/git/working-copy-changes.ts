@@ -20,12 +20,10 @@ import { importStructure, issueFields, readBranchWorkspace, validateImport } fro
 
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed';
 
-/** what a change needs for the tree to stay valid when it is committed alone: another change, and why */
 export type Requirement = { path: string; reason: string };
 
 export type WorkingChange = {
     path: string;
-    /** a rename: the path it had (the two files, paired by the file's id, are one change) */
     from?: string;
     change: ChangeKind;
     kind: RepoEntry['kind'];
@@ -37,7 +35,6 @@ export type WorkingChange = {
     requires: Requirement[];
 };
 
-/** a change with its rows: in a rename, the added row first, then the deleted one */
 export type Item = WorkingChange & { rows: WorkingRow[] };
 
 const pathsOf = (item: Pick<WorkingChange, 'path' | 'from'>) => (item.from ? [item.path, item.from] : [item.path]);
@@ -78,10 +75,8 @@ export function itemsOf(rows: WorkingRow[], userId: string): Item[] {
     return items.filter(item => !(item.change === 'deleted' && items.some(other => other.from === item.path)));
 }
 
-/** how many changes these rows make, as the Changes list shows them (a rename is one) */
 export const changeCount = (rows: WorkingRow[]) => itemsOf(rows, '').length;
 
-/** the working tree's scripts of a project, by path */
 function projectScripts(files: RepoFiles, workspace: string, project: string): Map<string, string> {
     const scripts = new Map<string, string>();
     for (const [path, text] of Object.entries(files)) {
@@ -168,7 +163,6 @@ function addRequirements(items: Item[], files: RepoFiles): void {
     }
 }
 
-/** the items chosen and what they need, whatever they need in turn */
 function withRequirements(items: Item[], chosen: Item[]): Item[] {
     const byPath = new Map(items.map(item => [item.path, item]));
     const all = new Set(chosen);
@@ -185,7 +179,6 @@ function withRequirements(items: Item[], chosen: Item[]): Item[] {
     return [...all];
 }
 
-/** the items chosen and those that need them */
 function withDependents(items: Item[], chosen: Item[]): Item[] {
     const all = new Set(chosen);
     for (let grew = true; grew;) {
@@ -224,7 +217,6 @@ export async function workingItems(
     return { items, files, ids };
 }
 
-/** the uncommitted changes of the user's current branch */
 export async function workingChanges(ctx: UseCaseContext): Promise<WorkingChange[]> {
     return (await workingItems(ctx, await workBranch(ctx))).items.map(({ rows: _rows, ...change }) => change);
 }
@@ -234,14 +226,9 @@ export const chosenBy = (items: Item[], paths: string[]) => items.filter(item =>
 export type CommitRequest = {
     paths: string[];
     message: string;
-    /** a flow committed deployed (the flow's Commit button), changed or not */
     deploy?: { flowId: string };
 };
 
-/**
- * A Commit of the working copy's files chosen and what they need: the one write to git. A conflicted file refuses it.
- * The files committed stay in the working copy as committed (their revision goes on).
- */
 export async function commitWorkingCopy(ctx: UseCaseContext, request: CommitRequest): Promise<UseCaseResult<string>> {
     const branch = await workBranch(ctx);
     if (branch) {
@@ -274,7 +261,6 @@ export async function commitWorkingCopy(ctx: UseCaseContext, request: CommitRequ
     return committed.value ? success(committed.value) : fail('validation', 'Nothing to commit.');
 }
 
-/** the files chosen and what they need, as changes to commit; refused when one is conflicted */
 function chosenChanges(items: Item[], paths: string[]): { changes: GitChanges } | UseCaseError {
     const chosen = withRequirements(items, chosenBy(items, paths));
     const conflicted = chosen.find(item => item.conflict);
@@ -291,10 +277,6 @@ function chosenChanges(items: Item[], paths: string[]): { changes: GitChanges } 
     return { changes };
 }
 
-/**
- * A Commit on a work branch: pushed on its tip as git has it now, after the whole tree is validated (an invalid one is
- * refused with its errors). Only the environment's branch is reconciled into the tables: here nothing else changes.
- */
 async function commitOnBranch(ctx: UseCaseContext, branch: WorkBranch, request: CommitRequest): Promise<UseCaseResult<string>> {
     await refuseReadOnly(ctx, branch);
     if (request.deploy) {
@@ -364,11 +346,6 @@ async function markCommitted(ctx: UseCaseContext, changes: GitChanges, branch = 
     }
 }
 
-/**
- * Discard of these files (and of what needs them), or of all one's own: each goes back as committed; a new file goes
- * (on the environment's branch, what it made in the tables too: nothing of it in the archive), a deleted one comes
- * back, a rename goes back to its old path.
- */
 export async function discardWorkingCopy(
     ctx: UseCaseContext,
     which: { paths: string[] } | 'mine',
@@ -402,7 +379,6 @@ export async function discardWorkingCopy(
     });
 }
 
-/** these changes back as committed: the tables follow on the environment's branch (a work branch has none) */
 async function putBack(ctx: UseCaseContext, branch: WorkBranch | null, chosen: Item[], files: RepoFiles): Promise<void> {
     const rows = chosen.flatMap(item => item.rows);
     const bases = await scriptBlobs(
@@ -468,7 +444,6 @@ async function putBack(ctx: UseCaseContext, branch: WorkBranch | null, chosen: I
     );
 }
 
-/** a file's text as the branch has it now (a flow's version in the repo, a script in the deployed set), else its base */
 async function committedText(ctx: UseCaseContext, row: WorkingRow): Promise<string | null> {
     const entry = repoEntry(row.path);
     if (entry.kind === 'flow' && row.file_id) {
@@ -491,21 +466,14 @@ async function committedText(ctx: UseCaseContext, row: WorkingRow): Promise<stri
     return row.base ? ((await scriptBlobs(ctx.db, ctx.workspaceId, [row.base])).get(row.base) ?? null) : null;
 }
 
-/** the flow's file as the flow's Commit makes it: deployed */
 export function deployedText(path: string, text: string): string {
     const entry = repoEntry(path);
     const read = entry.kind === 'flow' ? repoFlowFromYaml(text, entry.name) : null;
     return read?.ok ? repoFlowToYaml(read.value.flow) : text;
 }
 
-/** cutFrom: the environment's branch, when the branch it was made from was removed while git was off (its last tip unknown here) */
 export type CreatedBranch = { branch: string; taken: string[]; cutFrom?: string };
 
-/**
- * A new branch, cut from the tip of the user's current branch and pushed at once; it becomes their current branch. It
- * takes the working copy along, as `git switch -c` does: from one's own branch all of it, from the environment's or a
- * shared branch only one's own changes (and what needs them); they leave the branch they were on.
- */
 export async function createBranch(ctx: UseCaseContext, name: string): Promise<UseCaseResult<CreatedBranch>> {
     const git = await gitBranch(ctx.db, ctx.workspaceId);
     if (!git?.branch) {

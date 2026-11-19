@@ -50,7 +50,6 @@ describe('work branches: create one taking the changes along, edit and Commit on
         const show = (ref: string, path: string) => git(repo, 'show', `${ref}:${at(path)}`);
         const changes = async (user: string) =>
             ((await as(user)('GET', '/git/changes')).body.changes as Change[]).map(c => (c.from ? `${c.from} -> ${c.path}` : c.path));
-        /** the flow's draft with its Start relabelled, saved as this user */
         const relabel = async (user: string, flowId: string, label: string) => {
             const draft = (await as(user)('GET', `/flows/${flowId}/draft`)).body;
             draft.flow.nodes = draft.flow.nodes.map((n: { type: string }) => (n.type === 'start' ? { ...n, label } : n));
@@ -83,7 +82,6 @@ describe('work branches: create one taking the changes along, edit and Commit on
         expect(created.body).toEqual({ branch, taken: [at('projects/Sales/flows/Orders.flow.yaml')] });
         expect(git(repo, 'rev-parse', branch)).toBe(git(repo, 'rev-parse', 'dev'));
 
-        // Ana is on it, with her change; the picker knows it without a poll
         expect((await call('GET', '/git/current-branch')).body).toEqual({ branch, editable: true });
         expect(await changes(ANA)).toEqual([at('projects/Sales/flows/Orders.flow.yaml')]);
         const draft = (await call('GET', `/flows/${orders}/draft`)).body;
@@ -91,25 +89,21 @@ describe('work branches: create one taking the changes along, edit and Commit on
         const listed = (await call('GET', '/git/branches')).body.branches as { name: string; changes: number; editable: boolean }[];
         expect(listed.find(b => b.name === branch)).toMatchObject({ changes: 1, editable: true });
 
-        // dev keeps Bia's change only, and Orders as committed
         expect(await changes(BIA)).toEqual([at('projects/Sales/flows/Refunds.flow.yaml')]);
         const onDev = (await as(BIA)('GET', `/flows/${orders}/draft`)).body;
         expect(onDev.flow.nodes.find((n: { type: string }) => n.type === 'start').label).not.toBe('Ana was here');
 
-        // switching never takes changes and is never refused: each branch keeps its own
         expect((await call('PUT', '/git/current-branch', { branch: 'dev' })).status).toBe(200);
         expect(await changes(ANA)).toEqual([at('projects/Sales/flows/Refunds.flow.yaml')]);
         expect((await call('PUT', '/git/current-branch', { branch })).status).toBe(200);
         expect(await changes(ANA)).toEqual([at('projects/Sales/flows/Orders.flow.yaml')]);
 
-        // a rename is one change, in the picker's count as in the Changes list
         expect((await call('PATCH', `/flows/${orders}`, { name: 'Orders 2' })).status).toBe(200);
         expect(await changes(ANA)).toEqual([
             `${at('projects/Sales/flows/Orders.flow.yaml')} -> ${at('projects/Sales/flows/Orders 2.flow.yaml')}`,
         ]);
         const counted = (await call('GET', '/git/branches')).body.branches as { name: string; changes: number }[];
         expect(counted.find(b => b.name === branch)?.changes).toBe(1);
-        // deployed counts what is deployed in this environment, as on dev
         expect((await call('GET', '/projects')).body.items[0].summary).toEqual({ flows: 1, deployed: 1, scripts: 0 });
         expect((await call('POST', `/projects/${projectId}/flows`, { name: 'Not deployed' })).status).toBe(201);
         expect((await call('GET', '/projects')).body.items[0].summary).toEqual({ flows: 2, deployed: 1, scripts: 0 });
@@ -168,10 +162,8 @@ describe('work branches: create one taking the changes along, edit and Commit on
         expect(git(repo, 'ls-tree', '-r', '--name-only', branch)).not.toContain('Later/.gitkeep');
         expect(await changes(ANA)).toEqual([]);
 
-        // read from the new tip: the same flows, nothing uncommitted
         expect((await call('GET', `/flows/${restock}`)).body).toMatchObject({ name: 'Restock all', folderId: later });
 
-        // archiving on the branch is a deleted file (its emptied folder kept); Discard brings it back
         expect((await call('POST', `/flows/${restock}/archive`)).status).toBe(200);
         expect(await changes(ANA)).toEqual([
             at('projects/Sales/flows/Later/.gitkeep'),
@@ -203,7 +195,6 @@ describe('work branches: create one taking the changes along, edit and Commit on
             409,
         );
         expect((await asBia('POST', `/flows/${orders}/archive`)).status).toBe(409);
-        // Bia cannot name a branch in Ana's space either
         expect((await asBia('POST', '/git/branches', { name: `users/${ana}/sneaky` })).status).toBe(400);
 
         const hers = `users/${bia}/from-ana`;
@@ -213,7 +204,6 @@ describe('work branches: create one taking the changes along, edit and Commit on
         expect(git(repo, 'rev-parse', hers)).toBe(anaTip);
         expect((await relabel(BIA, orders, 'Bia on hers')).status).toBe(200);
         expect(await changes(BIA)).toEqual([at('projects/Sales/flows/Orders.flow.yaml')]);
-        // an admin is no exception: Ana on Bia's branch is refused
         expect((await call('PUT', '/git/current-branch', { branch: hers })).body.editable).toBe(false);
     });
 
@@ -241,7 +231,6 @@ describe('work branches: create one taking the changes along, edit and Commit on
         const { id, call, orders, repo, at, handle, relabel } = await workspace();
         const branch = `users/${await handle(ANA)}/broken`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
-        // pushed from a laptop: a flow calling a flow nobody has
         const caller = newFlowFile('Caller', crypto.randomUUID());
         caller.nodes.push({ id: 'call', type: 'flow', position: { x: 160, y: 0 }, config: { flowId: crypto.randomUUID() } });
         const files: Record<string, string> = {};

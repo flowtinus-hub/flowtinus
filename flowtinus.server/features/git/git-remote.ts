@@ -121,7 +121,6 @@ export class GitRemote {
         return sha;
     }
 
-    /** every head of the remote fetched (a head removed there goes here too): each one's tip, by name */
     async fetchHeads(): Promise<Map<string, string>> {
         await this.run(['fetch', '--quiet', '--prune', '--no-tags', 'origin', '+refs/heads/*:refs/remotes/origin/*']);
         const out = await this.run(['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin/']);
@@ -148,24 +147,20 @@ export class GitRemote {
         }
     }
 
-    /** their best common ancestor, null for unrelated histories */
     async mergeBase(a: string, b: string): Promise<string | null> {
         const out = (await this.run(['merge-base', a, b], { exitCodes: [0, 1] })).trim();
         return out || null;
     }
 
-    /** how many commits `to` has that `from` has not */
     async countBetween(from: string, to: string): Promise<number> {
         return Number((await this.run(['rev-list', '--count', `${from}..${to}`])).trim());
     }
 
-    /** the paths under these that differ between two commits or trees (a rename is its two paths) */
     async changedPaths(from: string, to: string, paths: string[]): Promise<string[]> {
         const out = await this.run(['diff-tree', '-r', '--no-renames', '--name-only', '-z', from, to, '--', ...paths]);
         return out.split('\0').filter(Boolean);
     }
 
-    /** `theirs` merged into `ours` without a work tree: the merged tree (conflicted files with their markers) and the conflicted paths */
     async mergeTree(ours: string, theirs: string): Promise<{ tree: string; conflicts: string[] }> {
         const out = await this.run(['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', ours, theirs], {
             exitCodes: [0, 1],
@@ -231,7 +226,6 @@ export class GitRemote {
         changes: Record<string, string | null>;
         message: string;
         author?: GitAuthor;
-        /** a merge commit: the changes go over the merged tree, `theirs` is the second parent */
         merge?: { tree: string; theirs: string };
     }): Promise<string> {
         const temp = await mkdtemp(join(this.dir, 'index-'));

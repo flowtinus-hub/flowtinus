@@ -46,7 +46,7 @@ export function revealFolder(expanded: Set<string>, folders: Folder[], folderId:
     return next;
 }
 
-/** a folder by its names from the project root, as the current branch has it (null: the root): a work branch's folder ids are its own */
+// a work branch's folder ids are its own: a folder is found by its names
 async function folderOnBranch(projectId: string, names: string[]): Promise<ApiResult<string | null>> {
     if (names.length === 0) {
         return { ok: true, value: null };

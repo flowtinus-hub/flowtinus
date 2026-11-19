@@ -60,7 +60,6 @@ export async function workspaceOfCall(
     return { ok: true, value: { ctx: { ...ctx, workspaceId: row.id, role: row.role }, slug: row.slug } };
 }
 
-/** a flow or project that has no row, only a file on the work branch the user is on in one of their workspaces */
 async function onWorkBranch(ctx: UseCaseContext, key: 'flowId' | 'projectId', id: string): Promise<CallWorkspace | null> {
     const workspaces = await ctx.db.query<{ id: string; slug: string; role: WorkspaceRole }>(
         `SELECT w.id, w.slug, m.role

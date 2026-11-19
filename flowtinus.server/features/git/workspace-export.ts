@@ -34,14 +34,8 @@ function withDeployed(text: string, name: string, deployed: boolean): string {
 export const committedFlowText = (flowId: string, inRepo: Pick<FlowInRepo, 'definition' | 'deployed'>) =>
     repoFlowToYaml({ ...inRepo.definition, id: flowId }, { deployed: inRepo.deployed });
 
-/** the tree's files and, by path, the id of what each holds (a flow's, a project's, a connection's; a script's scriptFileId) */
 export type Tree = { files: RepoFiles; ids: Record<string, string> };
 
-/**
- * The environment's branch as this server has it. `working`: with its working copy (the drafts, the scripts being
- * edited, and every change of the tree not committed yet); `committed`: the flows as they are in git (a flow with no
- * version is no file), what git off turns on with.
- */
 export async function exportTree(db: Database, workspaceId: string, mode: 'working' | 'committed' = 'working'): Promise<Tree> {
     const [[workspace], connections, projects, flowVersions, deployedScripts, scriptFolders, rows] = await Promise.all([
         db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]),

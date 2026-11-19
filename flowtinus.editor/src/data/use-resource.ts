@@ -33,7 +33,6 @@ export function useResource<T>(key: string, load: () => Promise<ApiResult<T>>, o
         };
     }, [key]);
 
-    // read again, without a spinner, when this window event is said (a write made elsewhere on the page)
     useEffect(() => {
         if (!options.refreshOn) {
             return;

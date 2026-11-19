@@ -12,18 +12,11 @@ import { followGit, isChange, overlayRows, workingRows } from './working-copy';
 import type { GitChanges, RepoFiles } from './workspace-export';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 
-/*
- * Update: the environment's branch merged into a work branch. Clean, a merge commit pushed at once; with conflicts (or a
- * merged tree that does not validate), a pending merge: the files it brings go into the branch's working copy, the
- * conflicted ones marked with the environment's tip, and a Commit takes it whole or Discard all aborts it.
- */
-
 export type UpdateStatus = { branch: string; environment: string; behind: number; pending?: PendingMergeView };
 
 export type UpdateOutcome =
     | { outcome: 'up-to-date' }
     | { outcome: 'merged'; commit: string }
-    /** errors: the merged tree's validation errors per file, when it did not conflict but would not be valid */
     | { outcome: 'pending'; conflicts: string[]; errors?: Record<string, string> };
 
 const scopeOf = (slug: string) => [slug, '.gitattributes'];
@@ -39,12 +32,10 @@ async function updatable(ctx: UseCaseContext): Promise<{ branch: WorkBranch; env
     if (!branch) {
         throw new UseCaseFailure('conflict', `Update merges ${git.branch} into a work branch: pick or create one first.`);
     }
-    // an environment's branch and another user's are read only: refused here
     await refuseReadOnly(ctx, branch);
     return { branch, environment: git.branch };
 }
 
-/** how far the current work branch is behind the environment's, and its pending merge */
 export async function updateStatus(ctx: UseCaseContext): Promise<UseCaseResult<UpdateStatus>> {
     const { branch, environment } = await updatable(ctx);
     const merge = await pendingMerge(ctx.db, ctx.workspaceId, branch.branch);
@@ -64,10 +55,6 @@ export async function updateStatus(ctx: UseCaseContext): Promise<UseCaseResult<U
     });
 }
 
-/**
- * Update: refused while a merge is pending, or while a file the merge brings (or moves) has an uncommitted change here.
- * The branch's working copy is first merged onto its tip, as a Commit does.
- */
 export async function updateBranch(ctx: UseCaseContext): Promise<UseCaseResult<UpdateOutcome>> {
     const { branch, environment } = await updatable(ctx);
     const author = await gitAuthorOf(ctx);
@@ -170,12 +157,7 @@ async function pushOrRefuse(remote: GitRemote, commit: string, branch: string, f
     }
 }
 
-/**
- * The merge written into the branch's working copy and kept pending. A file merged clean: the merged text, based on the
- * branch's. A conflicted file, as a moved branch marks one: the branch's text (ours), based on the merge base's, with
- * the conflict mark of the environment's tip (theirs), so that the three texts are row.base, row.content and the file
- * at row.conflict.
- */
+// marked as a moved branch marks a file: row.base, row.content and the file at row.conflict are the three texts
 async function holdMerge(
     db: Database,
     ctx: UseCaseContext,
@@ -259,10 +241,6 @@ async function holdMerge(
     };
 }
 
-/**
- * The Commit of a pending merge: every file of the working copy, no subset, as a merge commit on the tip it was made on
- * with the environment's tip as second parent. Outside the workspace, the commit has what git merged.
- */
 export async function commitPendingMerge(ctx: UseCaseContext, branch: WorkBranch, message: string): Promise<UseCaseResult<string>> {
     const author = await gitAuthorOf(ctx);
     const scope = scopeOf(branch.slug);
@@ -332,11 +310,7 @@ export async function commitPendingMerge(ctx: UseCaseContext, branch: WorkBranch
     );
 }
 
-/**
- * A pending merge aborted (Discard all), as `git merge --abort`: the files it wrote go back to no row, as they were
- * before the Update (it is refused while one of them has an uncommitted change), whatever was done to them since; every
- * other row of the working copy stays as it is. Called under the branch's lock.
- */
+// called under the branch's lock
 export async function abortMerge(db: Database, ctx: UseCaseContext, branch: WorkBranch, merge: PendingMerge): Promise<void> {
     await db.query('DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND path = ANY($3::text[])', [
         ctx.workspaceId,

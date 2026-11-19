@@ -13,9 +13,6 @@ import { canvasToFlowFile, flowFileToCanvas } from './flow-file';
  * reloaded; one the server could not take is tried again when the server is back. A flow the server no longer has as
  * active (archived or removed: the save answers not found) stops the saves too, nothing to retry. An archived flow opens
  * read-only: nothing is saved until it is restored.
- *
- * Pinned outputs are the user's, not the draft's: read with it, and each pin or unpin goes to the user's pins at once
- * (never a draft save, so pinning changes no revision and no one else sees it).
  */
 
 /** how long after the last change the draft is saved */
@@ -63,7 +60,6 @@ const byKey =
 
 const withoutPinned = (file: FlowFile): FlowFile => ({ ...file, nodes: file.nodes.map(({ pinned: _pinned, ...n }) => n) });
 
-/** the pins on the canvas, by node (the same object while a pin does not change) */
 const pinsOfFile = (file: FlowFile) => new Map(file.nodes.flatMap(n => (n.pinned ? [[n.id, n.pinned as Pinned] as const] : [])));
 
 const pinsChanged = (now: Map<string, Pinned>, synced: Map<string, Pinned>) =>
@@ -94,11 +90,6 @@ export type DraftSave = {
     flush: () => Promise<FlushResult>;
 };
 
-/**
- * `readOnly`: an archived flow, opened but never saved (until it is restored: then it saves again). `held`: the branch
- * takes no edit (a pull-request server's environment branch): a change is not saved, it calls `held` instead (which
- * offers Create branch, taking the canvas along).
- */
 export function useFlowDraft(
     flowId: string,
     canvas: { nodes: Node[]; edges: Edge[] },
@@ -113,7 +104,6 @@ export function useFlowDraft(
     // what the server has: its revision, the flow's name, and what was saved (to tell a real change)
     const server = useRef<{ revision: number; name: string; saved: string } | null>(null);
     const saving = useRef(false);
-    // the pins the server has for the user (the canvas's objects when they were sent), and the sync under way
     const pinsSynced = useRef(new Map<string, Pinned>());
     const pinning = useRef<Promise<boolean> | null>(null);
     // the last save answered not found (archived or removed)
@@ -160,7 +150,6 @@ export function useFlowDraft(
         [flowId],
     );
 
-    /** sends the pins that changed on the canvas; false when the server did not take one (an error, tried again) */
     const syncPins = useCallback(
         (keepalive = false): Promise<boolean> => {
             const run = async (): Promise<boolean> => {
@@ -263,7 +252,6 @@ export function useFlowDraft(
         return () => clearTimeout(timer.current);
     }, [flowId]);
 
-    // a pin or an unpin: sent at once
     useEffect(() => {
         if (server.current && !readOnly && pinsChanged(pinsOfFile(fileNow()), pinsSynced.current)) {
             void syncPins();

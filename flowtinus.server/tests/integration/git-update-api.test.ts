@@ -62,7 +62,6 @@ describe('Update merges the environment’s branch into a work branch; a conflic
             current.flow.nodes = current.flow.nodes.map((n: { type: string }) => (n.type === type ? { ...n, label } : n));
             return as(user)('PUT', `/flows/${flows[name]}/draft`, { revision: current.revision, flow: current.flow });
         };
-        /** a commit on a branch from a laptop: flows' node labels changed, the rest of the tree as it is */
         const pushLabels = (branch: string, labels: [name: string, type: string, label: string][]) => {
             const files: Record<string, string> = {};
             for (const path of git(repo, 'ls-tree', '-r', '--name-only', branch).split('\n').filter(Boolean)) {
@@ -85,7 +84,6 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         return { id, as, call, repo, projectId, pathOf, handle, changes, draft, relabel, pushLabels, inGit };
     }
 
-    /** Ana on a branch of her own with Orders' start label committed there, while dev got Orders' start and Invoices' end */
     async function diverged() {
         const ws = await workspace();
         const branch = `users/${await ws.handle(ANA)}/update`;
@@ -134,19 +132,16 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         expect(labelOf(inGit(branch, 'Orders')!, 'end')).toBe('Dev end');
         expect(labelOf(inGit(branch, 'Invoices')!, 'end')).toBe('Dev end');
         expect((await changes()).changes).toEqual([]);
-        // the branch reads the merge at once
         expect(labelOf((await draft('Orders')).flow, 'end')).toBe('Dev end');
 
         expect((await call('GET', '/git/update')).body.behind).toBe(0);
         expect((await call('POST', '/git/update')).body).toEqual({ outcome: 'up-to-date' });
 
-        // a shared branch: anyone updates it
         expect((await as(BIA)('POST', '/git/branches', { name: 'fix/shared' })).status).toBe(201);
         pushLabels('dev', [['Orders', 'start', 'Dev again']]);
         expect((await as(BIA)('POST', '/git/update')).body.outcome).toBe('merged');
         expect(labelOf(inGit('fix/shared', 'Orders')!, 'start')).toBe('Dev again');
 
-        // never on the environment's branch, nor on another user's
         expect((await as(BIA)('PUT', '/git/current-branch', { branch: 'dev' })).status).toBe(200);
         const onDev = await as(BIA)('POST', '/git/update');
         expect(onDev.status).toBe(409);
@@ -195,7 +190,6 @@ describe('Update merges the environment’s branch into a work branch; a conflic
             [pathOf('Invoices'), 'modified', undefined],
             [pathOf('Orders'), 'modified', theirs],
         ]);
-        // ours in the file, marked with dev's tip; what merged clean is in the working copy
         const orders = await draft('Orders');
         expect(orders.conflict).toBe(theirs);
         expect(labelOf(orders.flow, 'start')).toBe('Ana start');
@@ -207,7 +201,6 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         expect(stored).toEqual({ paths: [pathOf('Invoices'), pathOf('Orders')], conflicts: [pathOf('Orders')] });
         expect((await call('GET', '/git/update')).body.pending).toEqual(listed.merge);
 
-        // while it is pending: no other Update, no Create branch, no Commit of a conflicted file; a poll leaves it alone
         expect((await call('POST', '/git/update')).body.error.message).toContain('is pending');
         const create = await call('POST', '/git/branches', { name: `${branch}-2` });
         expect(create.status).toBe(409);
@@ -218,7 +211,6 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         await app.gitPoller.poll(id);
         expect((await draft('Orders')).conflict).toBe(theirs);
 
-        // the conflict resolved by discarding the file (ours); the Commit takes every file, whatever is asked for
         expect((await call('POST', '/git/discard', { paths: [pathOf('Orders')] })).status).toBe(200);
         const committed = await call('POST', '/git/commit', { paths: [pathOf('Invoices')], message: 'Merge dev, mine kept' });
         expect(committed.status).toBe(200);
@@ -261,7 +253,6 @@ describe('Update merges the environment’s branch into a work branch; a conflic
 
     test('with conflicts, Discard all aborts the pending merge: the branch as it was, its drafts kept, ready for another Update', async () => {
         const { id, call, repo, projectId, pathOf, branch, ours, theirs, changes, draft } = await diverged();
-        // drafts the merge does not touch: one made before the Update, one while it is pending
         const before = (await call('POST', `/projects/${projectId}/flows`, { name: 'Before' })).body.id as string;
         expect((await call('POST', '/git/update')).body.outcome).toBe('pending');
         const during = (await call('POST', `/projects/${projectId}/flows`, { name: 'During' })).body.id as string;
@@ -292,7 +283,6 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         ]);
         expect(merged).toEqual([]);
 
-        // a new file discarded leaves no row behind
         expect((await call('POST', '/git/discard', { mine: true })).body.discarded).toEqual([pathOf('Before'), pathOf('During')]);
         expect(await changes()).toEqual({ changes: [] });
         const tombstones = await db.query(
@@ -307,7 +297,6 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         expect(git(repo, 'rev-parse', branch)).toBe(ours);
         expect((await call('POST', '/git/branches', { name: `${branch}-2` })).status).toBe(201);
 
-        // the new branch is current: back to the first one, which updates again
         expect((await call('PUT', '/git/current-branch', { branch })).status).toBe(200);
         expect((await call('POST', '/git/update')).body).toEqual({ outcome: 'pending', conflicts: [pathOf('Orders')] });
         expect((await changes()).merge.theirs).toBe(theirs);

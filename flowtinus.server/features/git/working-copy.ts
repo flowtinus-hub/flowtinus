@@ -6,16 +6,6 @@ import { saveBlob, scriptBlobs } from '#features/scripts/script-store';
 import type { Database } from '#shared/database/database';
 import type { RepoFiles, Tree } from './workspace-export';
 
-/*
- * The working copy: per branch, the files changed since what the branch holds, in the repo format (or deleted), each
- * with the hash of the text it was based on (in script_blobs; null: a file the branch does not have), its last editor
- * and a conflict mark (the commit it could not be merged with). The environment's branch is ENVIRONMENT_BRANCH; a work branch is keyed by its name.
- *
- * A row stays once its file is back as committed (a clean row): its revision keeps counting, so an editor that read
- * it is not told to reload. A deleted row keeps its last text, so that restoring an archived flow brings its draft
- * back; one with no base (a new file removed again) is no change at all.
- */
-
 /** the environment's branch, whichever branch the topology gives it: its working copy survives a move to another one */
 export const ENVIRONMENT_BRANCH = '';
 
@@ -45,7 +35,6 @@ export const workingRows = (db: Database, workspaceId: string, branch = ENVIRONM
         [workspaceId, branch],
     );
 
-/** per file id, the row that holds the file: the one not deleted, else the last one deleted */
 export function bestRows(rows: WorkingRow[]): Map<string, WorkingRow> {
     const best = new Map<string, WorkingRow>();
     for (const row of rows) {
@@ -91,10 +80,6 @@ async function carriedRevision(db: Database, workspaceId: string, fileId: string
 
 type Written = { path: string; content: string; fileId: string | null; userId: string | null; revision?: number; committed?: string };
 
-/**
- * A file's new text in the working copy. A row is made with the committed text as its base (`committed`, or none for
- * a file the branch does not have); the revision grows by one, or is the one given.
- */
 export async function writeFile(db: Database, workspaceId: string, file: Written, branch = ENVIRONMENT_BRANCH): Promise<number> {
     const row = await rowAt(db, workspaceId, file.path, branch);
     if (row) {
@@ -117,7 +102,6 @@ export async function writeFile(db: Database, workspaceId: string, file: Written
     return revision;
 }
 
-/** a file removed in the working copy: `committed`, its text in the branch (none: it was never committed) */
 export async function removeFile(
     db: Database,
     workspaceId: string,
@@ -154,10 +138,6 @@ export async function removeFile(
     );
 }
 
-/**
- * A change of the tables (a rename, a folder, a project, a connection, an archive...) recorded in the working copy:
- * every file whose text differs between the trees before and after it. A file with no row was, before, as committed.
- */
 export async function recordChanges(
     db: Database,
     workspaceId: string,
@@ -226,7 +206,6 @@ export function idOfFile(path: string, text: string): string | null {
     return value.flow?.id ?? value.id ?? null;
 }
 
-/** git merge-file: the merged text, or null when the two changes conflict */
 export async function mergeText(ours: string, base: string, theirs: string): Promise<string | null> {
     const dir = await mkdtemp(join(tmpdir(), 'flowtinus-merge-'));
     try {
@@ -246,11 +225,6 @@ const mergedIsValid = (path: string, text: string) => {
 
 export type RenamedDraft = { id: string; from: string; to: string };
 
-/**
- * The working copy when a commit arrives on the branch (#35, per file, on any branch): a file git did not change stays;
- * one equal to its base follows git; one changed on both sides is merged three ways, its base moving on, or marked with
- * the commit when they conflict. A new flow whose path git takes is renamed "<name> (draft)".
- */
 export async function followGit(
     db: Database,
     workspaceId: string,
@@ -319,7 +293,6 @@ export async function followGit(
         if (row.deleted && movedTo && movedTo !== row.path) {
             const renamedHere = rows.find(r => r !== row && !r.deleted && r.base === null && r.file_id === row.file_id);
             if (renamedHere && renamedHere.path.toLowerCase() !== movedTo.toLowerCase()) {
-                // both renamed the flow, each to another name: a choice between the two (the conflict screen)
                 await mark(row);
                 await mark(renamedHere);
                 continue;
@@ -344,7 +317,6 @@ export async function followGit(
             if (arrived === undefined) {
                 await db.query(`DELETE FROM working_copy WHERE ${where}`, at(row));
             } else if (renamedTo && base !== undefined) {
-                // a file renamed here that git changed: git's change goes to where it is now
                 const ours = renamedTo.content ?? '';
                 const merged = textHash(ours) === row.base ? arrived : await mergeText(ours, base, arrived);
                 if (merged === null || !mergedIsValid(renamedTo.path, merged)) {
@@ -425,7 +397,6 @@ async function renameDraft(db: Database, workspaceId: string, row: WorkingRow, t
     return { id: row.file_id!, from, to: name };
 }
 
-/** the branch's files with the working copy over them */
 export async function overlay(db: Database, workspaceId: string, tip: RepoFiles, branch = ENVIRONMENT_BRANCH): Promise<RepoFiles> {
     return overlayRows(tip, await workingRows(db, workspaceId, branch));
 }

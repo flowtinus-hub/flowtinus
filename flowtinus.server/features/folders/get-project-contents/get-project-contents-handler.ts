@@ -14,7 +14,6 @@ export const GetProjectContentsQuery = z.object({ projectId: z.uuid('Invalid') }
 
 export type ProjectContentsResponse = {
     folders: FolderView[];
-    /** on a work branch, nothing of what is deployed (the environment's) */
     flows: (FlowView & { deployedVersion?: number | null; schedules?: { total: number; on: number } | null })[];
 };
 
