@@ -1,6 +1,8 @@
 import type { WorkspaceRole } from '#features/workspaces/workspace-member';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseError } from '#shared/use-cases/use-case-result';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
+import { branchFlow, branchProject, workBranch } from '#features/git/branch-read';
 
 /*
  * A token is its user's and reaches all the user's workspaces: each MCP call acts in one of them, the one it names
@@ -46,10 +48,38 @@ export async function workspaceOfCall(
       WHERE w.deleted_at IS NULL AND w.id IN (${source.sql})`,
         [value, ctx.userId],
     );
+    const onBranch = !row && (source.key === 'flowId' || source.key === 'projectId') ? await onWorkBranch(ctx, source.key, value) : null;
+    if (onBranch) {
+        return { ok: true, value: onBranch };
+    }
     if (!row) {
         const hint = source.key === 'workspace' ? ' (list_workspaces gives them)' : '';
         return { ok: false, error: { code: 'not-found', message: `${source.what} not found in your workspaces${hint}.` } };
     }
 
     return { ok: true, value: { ctx: { ...ctx, workspaceId: row.id, role: row.role }, slug: row.slug } };
+}
+
+/** a flow or project that has no row, only a file on the work branch the user is on in one of their workspaces */
+async function onWorkBranch(ctx: UseCaseContext, key: 'flowId' | 'projectId', id: string): Promise<CallWorkspace | null> {
+    const workspaces = await ctx.db.query<{ id: string; slug: string; role: WorkspaceRole }>(
+        `SELECT w.id, w.slug, m.role
+       FROM workspaces w JOIN workspace_members m ON m.workspace_id = w.id AND m.user_id::text = $1
+       JOIN user_branches b ON b.workspace_id = w.id AND b.user_id::text = $1
+      WHERE w.deleted_at IS NULL`,
+        [ctx.userId],
+    );
+    for (const workspace of workspaces) {
+        const at = { ...ctx, workspaceId: workspace.id, role: workspace.role };
+        const branch = await workBranch(at).catch((e: unknown) => {
+            if (e instanceof UseCaseFailure) {
+                return null;
+            }
+            throw e;
+        });
+        if (branch && (key === 'flowId' ? branchFlow(branch, id) : branchProject(branch, id))) {
+            return { ctx: at, slug: workspace.slug };
+        }
+    }
+    return null;
 }

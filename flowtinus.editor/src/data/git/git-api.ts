@@ -1,4 +1,4 @@
-import type { TreeIssue } from '@flowtinus/core';
+import type { FlowFile, TreeIssue } from '@flowtinus/core';
 import { api } from '@/lib/api';
 
 /** pollSeconds: how often the server fetches the environment's branch (60 when absent) */
@@ -54,8 +54,12 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
-/** the user's current branch in the workspace (the environment's branch until another is picked; null with git off), and whether they may edit there */
-export type CurrentBranch = { branch: string | null; editable: boolean };
+/**
+ * the user's current branch in the workspace (the environment's branch until another is picked; null with git off), and
+ * whether they may edit there; offersBranch: the environment's branch of a pull-request server, where the first edit
+ * offers Create branch
+ */
+export type CurrentBranch = { branch: string | null; editable: boolean; offersBranch?: boolean };
 
 export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git/current-branch`);
 
@@ -87,8 +91,18 @@ export const listBranches = (ws: string) =>
  * A branch cut from the current branch's tip and pushed at once; it becomes the current branch. It takes the
  * uncommitted changes along (from the environment's or a shared branch, one's own; from one's own branch, all of them).
  */
-export const createBranch = (ws: string, name: string) =>
-    api<{ branch: string; taken: string[] }>(`/w/${ws}/git/branches`, { method: 'POST', body: { name } });
+export const createBranch = (ws: string, name: string, draft?: { flowId: string; flow: FlowFile }) =>
+    api<{ branch: string; taken: string[]; draft?: { revision: number } | { error: string } }>(`/w/${ws}/git/branches`, {
+        method: 'POST',
+        body: draft ? { name, draft } : { name },
+    });
+
+/** a flow's name as the rest of a branch name: what git refuses in one (spaces, ~^:?*[\ and such) as one '-' */
+export const branchNamePart = (name: string) =>
+    name
+        .trim()
+        .replace(/[\s~^:?*[\\\x00-\x1f\x7f]+|\.\.+|@\{/g, '-')
+        .replace(/^[-./]+|[-./]+$|\.lock$/g, '');
 
 /** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
 export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';

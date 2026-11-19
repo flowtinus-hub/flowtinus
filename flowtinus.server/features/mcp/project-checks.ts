@@ -1,7 +1,8 @@
-import { COMPONENT_TYPE, CONNECTION_KEY, componentSettings, DYNAMIC_CONNECTION, DYNAMIC_TARGET, dynamicConnection, findProfile, inputTypeRef, isFolderVisible, scriptImports, START, startParameters, type ConnectionProfileData, type FlowFile, type FlowIssue, type SettingField } from '@flowtinus/core';
+import { COMPONENT_TYPE, CONNECTION_KEY, componentSettings, DYNAMIC_CONNECTION, DYNAMIC_TARGET, dynamicConnection, findProfile, inputTypeRef, isFolderVisible, scriptExports, scriptImports, START, startParameters, type ConnectionProfileData, type FlowFile, type FlowIssue, type SettingField } from '@flowtinus/core';
 import { eq } from 'drizzle-orm';
 import { connections as connectionsTable } from '#features/connections/connection';
 import { loadTree } from '#features/folders/project-tree';
+import { branchScripts, branchTree, workBranch } from '#features/git/branch-read';
 import { secrets as secretsTable } from '#features/secrets/secret';
 import { variables as variablesTable } from '#features/variables/variable';
 import { listScripts } from '#features/scripts/script-store';
@@ -55,11 +56,12 @@ function defaultParameters(flow: FlowFile): Record<string, unknown> {
 }
 
 export async function projectIssues(ctx: UseCaseContext, projectId: string, flow: FlowFile, selfId?: string): Promise<ProjectCheck> {
-    const tree = await loadTree(ctx.db, ctx.workspaceId, projectId);
+    const branch = await workBranch(ctx);
+    const tree = branch ? branchTree(branch, projectId) : await loadTree(ctx.db, ctx.workspaceId, projectId);
     const flows = new Map(
         tree.flows.filter(f => !f.archivedAt && isFolderVisible(tree.folders, f.folderId)).map(f => [f.id, f.name] as const),
     );
-    const [connections, secrets, variables, scripts] = await Promise.all([
+    const [connections, secrets, variables, listed] = await Promise.all([
         ctx.db.orm
             .select({ id: connectionsTable.id, name: connectionsTable.name, type: connectionsTable.type })
             .from(connectionsTable)
@@ -69,8 +71,11 @@ export async function projectIssues(ctx: UseCaseContext, projectId: string, flow
             .select({ name: variablesTable.name, value: variablesTable.value })
             .from(variablesTable)
             .where(eq(variablesTable.workspaceId, ctx.workspaceId)),
-        listScripts(ctx.db, ctx.workspaceId, projectId),
+        branch ? null : listScripts(ctx.db, ctx.workspaceId, projectId),
     ]);
+    const scripts = listed ?? {
+        scripts: branchScripts(branch!, projectId).map(s => ({ path: s.path, exports: scriptExports(s.content) })),
+    };
     const connectionById = new Map(connections.map(c => [c.id, c]));
     // by id or by name (whatever the case), as the run finds a dynamic one
     const profiles: Record<string, ConnectionProfileData> = Object.fromEntries(

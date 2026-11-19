@@ -3,9 +3,9 @@ import { readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspace
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
-import type { WorkBranch } from './branch-read';
+import { forgetWorkBranch, type WorkBranch } from './branch-read';
 import { editorOf, readOnlyBranch } from './current-branch';
-import { HEADS_SETTING } from './git-config';
+import { gitBranch, HEADS_SETTING } from './git-config';
 import type { Heads } from './git-heads';
 import type { RepoFiles } from './workspace-export';
 import { idOfFile, overlayRows, recordChanges, scriptFileId, workingRows, writeFile } from './working-copy';
@@ -18,10 +18,8 @@ import { idOfFile, overlayRows, recordChanges, scriptFileId, workingRows, writeF
 
 export async function refuseReadOnly(ctx: UseCaseContext, branch: WorkBranch): Promise<void> {
     if (!branch.editable) {
-        throw new UseCaseFailure(
-            'conflict',
-            readOnlyBranch(branch.branch, (await editorOf(ctx.db, ctx.workspaceId, ctx.userId)).environments),
-        );
+        const [editor, git] = await Promise.all([editorOf(ctx.db, ctx.workspaceId, ctx.userId), gitBranch(ctx.db, ctx.workspaceId)]);
+        throw new UseCaseFailure('conflict', readOnlyBranch(branch.branch, editor, git?.branch ?? null));
     }
 }
 
@@ -108,6 +106,7 @@ export async function changeBranch(ctx: UseCaseContext, branch: WorkBranch, chan
             branch.branch,
         );
     });
+    forgetWorkBranch(ctx);
 }
 
 /**
@@ -120,6 +119,7 @@ export async function saveBranchFile(
     file: { path: string; content: string; fileId: string; expected: number },
 ): Promise<number | null> {
     await refuseReadOnly(ctx, branch);
+    forgetWorkBranch(ctx);
     return ctx.db.transaction(async db => {
         await lockBranch(db, ctx.workspaceId, branch.branch);
         const row = (await workingRows(db, ctx.workspaceId, branch.branch)).find(r => r.path === file.path);

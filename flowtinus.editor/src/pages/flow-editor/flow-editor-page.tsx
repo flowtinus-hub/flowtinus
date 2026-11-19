@@ -25,7 +25,9 @@ import { FlowCanvas, type CanvasHandle } from './flow-canvas';
 import { RunPanel } from './run-panel';
 import { portLabel } from '@/editor/run/port-label';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
-import { getGitStatus } from '@/data/git/git-api';
+import { getCurrentBranch, getGitStatus } from '@/data/git/git-api';
+import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
+import { CreateBranchDialog } from '@/layout/create-branch-dialog';
 import { cancelRun, getLastRun, getRun, startRun, type RunUsage } from '@/data/flows/flows-api';
 import { followRun } from '@/data/flows/run-events';
 import { knownVariablesAfter, writingComponents, type KnownVariables } from '@flowtinus/core';
@@ -75,6 +77,19 @@ export function FlowEditorPage() {
     const onBranch = Boolean(current?.flow?.readOnly) && !archived;
     // on a work branch, editable or not: deploy, schedules and webhooks are the environment's
     const onWorkBranch = Boolean(current?.flow?.workBranch);
+    // a pull-request server's environment branch takes no edit: the first one offers Create branch, which takes it along
+    const { state: me } = useMe();
+    const { canEdit } = useWorkspace();
+    const handle = me.status === 'ready' ? me.me.handle : null;
+    const offersBranch = Boolean(current?.flow?.offersBranch) && !archived && canEdit && handle !== null;
+    const [offering, setOffering] = useState(false);
+    const [environmentBranch, setEnvironmentBranch] = useState('');
+    useEffect(() => {
+        if (offersBranch) {
+            void getCurrentBranch(ws).then(result => result.ok && setEnvironmentBranch(result.value.branch ?? ''));
+        }
+    }, [offersBranch, ws]);
+    const holdEdit = useCallback(() => setOffering(true), []);
     const [restoring, setRestoring] = useState<{ busy: boolean; error?: string }>({ busy: false });
     // Download: the canvas as it is now, as the core's YAML flow file
     const canvas = useRef<CanvasHandle | null>(null);
@@ -414,6 +429,7 @@ export function FlowEditorPage() {
                                 <FlowCanvas
                                     exportRef={canvas}
                                     readOnly={archived || onBranch}
+                                    onHeldEdit={offersBranch ? holdEdit : undefined}
                                     onSave={setSave}
                                     onRunFrom={runFrom}
                                     onToggleRunPanel={() => setPanelOpen(open => !open || running !== null)}
@@ -512,6 +528,25 @@ export function FlowEditorPage() {
                 )}
             </main>
             <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
+            {offering && handle && current?.flow && (
+                <CreateBranchDialog
+                    slug={ws}
+                    from={environmentBranch}
+                    handle={handle}
+                    edit={{
+                        flowName: current.flow.name,
+                        draft: () => {
+                            const flow = draftNow();
+                            return flow ? { flowId, flow } : null;
+                        },
+                    }}
+                    onClose={() => {
+                        // not taken to a branch: the edit goes, the canvas is the environment's draft again
+                        setOffering(false);
+                        save?.reload();
+                    }}
+                />
+            )}
         </div>
     );
 }

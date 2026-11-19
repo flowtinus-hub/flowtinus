@@ -96,7 +96,11 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 kind,
                 ...(owner ? { owner, ...(owners.has(owner) ? { ownerName: owners.get(owner) } : {}) } : {}),
                 mine: owner !== undefined && owner === me?.handle,
-                editable: canEditBranch(head.name, environment, { handle: me?.handle ?? null, environments: heads.environments }),
+                editable: canEditBranch(head.name, environment, {
+                    handle: me?.handle ?? null,
+                    environments: heads.environments,
+                    mode: git.mode,
+                }),
                 merged: head.merged && changes === 0,
                 changes,
             });

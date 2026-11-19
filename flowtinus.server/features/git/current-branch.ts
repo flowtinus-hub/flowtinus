@@ -8,7 +8,7 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { validate } from '#shared/use-cases/validate';
 import { gitBranch } from './git-config';
 import { readHeads } from './git-heads';
-import { CONFIG_BRANCH } from './topology';
+import { CONFIG_BRANCH, type Mode } from './topology';
 
 /** git's own rule (git check-ref-format --branch): any branch of the remote, those pushed from a laptop included */
 export function gitBranchNameError(branch: string): string | null {
@@ -56,31 +56,52 @@ export function branchKind(name: string, environments: string[]): { kind: Branch
     return user ? { kind: 'user', owner: user[1]! } : { kind: 'shared' };
 }
 
-/** who is asking: their handle, and the branches the topology gives an environment */
-export type Editor = { handle: string | null; environments: string[] };
+/** who is asking: their handle, the branches the topology gives an environment, and this environment's mode */
+export type Editor = { handle: string | null; environments: string[]; mode: Mode };
 
 /**
- * where this user may change the working copy: the environment's branch, a shared work branch, and their own
- * `users/<handle>/…` branch; nobody else's, admins included, and neither another environment's branch nor the app's own
+ * where this user may change the working copy: the environment's branch (not on a `pull-request` server, where the
+ * first edit offers Create branch), a shared work branch, and their own `users/<handle>/…` branch; nobody else's, admins
+ * included, and neither another environment's branch nor the app's own. A `protected` server is as step 2 left it:
+ * drafts on its environment's branch (its tree's changes refused), every other branch read only.
  */
 export function canEditBranch(branch: string | null, environment: string | null, editor: Editor): boolean {
-    if (branch === null || branch === environment) {
+    if (branch === null) {
         return true;
+    }
+    if (branch === environment) {
+        return editor.mode !== 'pull-request';
+    }
+    if (editor.mode === 'protected') {
+        return false;
     }
     const { kind, owner } = branchKind(branch, environment ? [...editor.environments, environment] : editor.environments);
     return kind === 'shared' || (kind === 'user' && owner === editor.handle);
 }
 
 export async function editorOf(db: Database, workspaceId: string, userId: string): Promise<Editor> {
-    const [[me], heads] = await Promise.all([
+    const [[me], heads, git] = await Promise.all([
         db.query<{ handle: string }>('SELECT handle FROM users WHERE id::text = $1', [userId]),
         readHeads(db, workspaceId),
+        gitBranch(db, workspaceId),
     ]);
-    return { handle: me?.handle ?? null, environments: heads?.environments ?? [] };
+    return { handle: me?.handle ?? null, environments: heads?.environments ?? [], mode: git?.mode ?? 'direct' };
 }
 
-/** editable: whether the editor may change things on it (else it is read only) */
-export type CurrentBranchView = { branch: string | null; editable: boolean };
+/**
+ * editable: whether the editor may change things on it (else it is read only); offersBranch: the environment's branch
+ * of a `pull-request` server, where the first edit offers Create branch and takes the edit along
+ */
+export type CurrentBranchView = { branch: string | null; editable: boolean; offersBranch?: true };
+
+export const offersBranch = (branch: string | null, environment: string | null, editor: Editor) =>
+    branch !== null && branch === environment && editor.mode === 'pull-request';
+
+const branchView = (branch: string | null, environment: string | null, editor: Editor): CurrentBranchView => ({
+    branch,
+    editable: canEditBranch(branch, environment, editor),
+    ...(offersBranch(branch, environment, editor) ? { offersBranch: true as const } : {}),
+});
 
 export async function currentBranchView(db: Database, workspaceId: string, userId: string): Promise<CurrentBranchView> {
     const [git, branch, editor] = await Promise.all([
@@ -88,19 +109,48 @@ export async function currentBranchView(db: Database, workspaceId: string, userI
         currentBranch(db, workspaceId, userId),
         editorOf(db, workspaceId, userId),
     ]);
-    return { branch, editable: canEditBranch(branch, git?.branch ?? null, editor) };
+    return branchView(branch, git?.branch ?? null, editor);
 }
 
-export function readOnlyBranch(branch: string, environments: string[]): string {
-    const { kind, owner } = branchKind(branch, environments);
+/** why the branch is read only to this user and what to do, in the editor or (`mcp`) told to an agent */
+export function readOnlyBranch(branch: string, editor: Editor, environment: string | null, to: 'editor' | 'mcp' = 'editor'): string {
+    const { kind, owner } = branchKind(branch, environment ? [...editor.environments, environment] : editor.environments);
+    if (to === 'mcp') {
+        const why =
+            branch === environment
+                ? `the branch ${branch} only takes pull requests`
+                : editor.mode === 'protected'
+                  ? `this server's environment is protected: the branch ${branch} is read only here`
+                  : kind === 'user'
+                    ? `the branch ${branch} is ${owner}'s: only its owner changes it`
+                    : `the branch ${branch} is read only here`;
+        return `Your current branch cannot be edited (${why}): pick or create a branch of your own in the editor, then try again.`;
+    }
+    if (branch === environment) {
+        return `${branch} only takes pull requests: create a branch of your own to make changes.`;
+    }
+    if (editor.mode === 'protected') {
+        return `This server's environment is protected: the branch ${branch} is read only here.`;
+    }
     return kind === 'user'
         ? `The branch ${branch} is ${owner}'s: only its owner changes it. Create a branch from it to make changes.`
         : `You are on the branch ${branch}, which is read only here: pick the environment's branch to make changes.`;
 }
 
+/** why the user cannot change the working copy of their current branch, told to an agent; null where they can */
+export async function mcpCannotEdit(db: Database, workspaceId: string, userId: string): Promise<string | null> {
+    const [git, branch, editor] = await Promise.all([
+        gitBranch(db, workspaceId),
+        currentBranch(db, workspaceId, userId),
+        editorOf(db, workspaceId, userId),
+    ]);
+    const environment = git?.branch ?? null;
+    return branch === null || canEditBranch(branch, environment, editor) ? null : readOnlyBranch(branch, editor, environment, 'mcp');
+}
+
 /**
- * Refused unless the user is on the environment's branch, for a change made to the tables (they are the environment's
- * branch): on a work branch it would land where they are not looking.
+ * Refused unless the user may edit the branch they are on and it is the environment's branch, for a change made to the
+ * tables (they are the environment's branch): on a work branch it would land where they are not looking.
  */
 export async function refuseOffEditableBranch(db: Database, workspaceId: string, userId: string | null): Promise<void> {
     if (userId === null) {
@@ -111,13 +161,16 @@ export async function refuseOffEditableBranch(db: Database, workspaceId: string,
         currentBranch(db, workspaceId, userId),
         editorOf(db, workspaceId, userId),
     ]);
-    if (branch === null || branch === git?.branch) {
+    if (branch === null) {
         return;
     }
-    if (!canEditBranch(branch, git?.branch ?? null, editor)) {
-        throw new UseCaseFailure('conflict', readOnlyBranch(branch, editor.environments));
+    const environment = git?.branch ?? null;
+    if (!canEditBranch(branch, environment, editor)) {
+        throw new UseCaseFailure('conflict', readOnlyBranch(branch, editor, environment));
     }
-    throw new UseCaseFailure('conflict', `This change cannot be made on a work branch yet: make it on ${git?.branch}.`);
+    if (branch !== environment) {
+        throw new UseCaseFailure('conflict', `This change cannot be made on a work branch yet: make it on ${environment}.`);
+    }
 }
 
 export class GetCurrentBranchHandler implements UseCaseHandler<CurrentBranchView> {
@@ -166,6 +219,6 @@ export class SetCurrentBranchHandler implements UseCaseHandler<CurrentBranchView
                 [ctx.workspaceId, ctx.userId, branch],
             );
         }
-        return success({ branch, editable: canEditBranch(branch, git.branch, await editorOf(ctx.db, ctx.workspaceId, ctx.userId)) });
+        return success(branchView(branch, git.branch, await editorOf(ctx.db, ctx.workspaceId, ctx.userId)));
     }
 }

@@ -79,7 +79,8 @@ describe("an environment's mode decides whether its server changes the tree", ()
 
     const REFUSED = 'DEV only takes pull requests: edit in git.';
 
-    for (const mode of ['pull-request', 'protected'] as const) {
+    // a pull-request environment's branch refuses drafts too, and offers Create branch: git-pull-request-api.test.ts
+    for (const mode of ['protected'] as const) {
         test(`${mode}: the Commit and the tree's actions are refused; drafts, test runs and the reconcile work`, async () => {
             const { call, repo, projectId, orders, show, tip } = await newWorkspace(mode);
             const before = tip();
@@ -131,7 +132,7 @@ describe("an environment's mode decides whether its server changes the tree", ()
         });
     }
 
-    test('pull-request: the MCP refuses a tree change with the same words; run_for_real of a draft runs, with the notice', async () => {
+    test('pull-request: the MCP refuses a change, saying to pick or create a branch; run_for_real of a draft runs, with the notice', async () => {
         const { id, projectId, orders } = await newWorkspace('pull-request');
         const { token } = newApiToken();
         await insertApiToken(db, { userId: ANA, name: 'test', token, scopes: API_SCOPES });
@@ -150,7 +151,7 @@ describe("an environment's mode decides whether its server changes the tree", ()
 
         const folder = await tool('create_folder', { projectId, name: 'Imports' });
         expect(folder.isError).toBe(true);
-        expect(folder.content[0]!.text).toContain(REFUSED);
+        expect(folder.content[0]!.text).toContain('pick or create a branch of your own in the editor');
 
         const real = await tool('run_for_real', { flowId: orders, userApproval: 'run Orders for real', timeoutS: 0 });
         expect(real.isError).toBeFalsy();

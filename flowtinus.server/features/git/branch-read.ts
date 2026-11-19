@@ -136,6 +136,9 @@ export function workBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
     return read;
 }
 
+/** after a change of the branch's working copy: the next read in this request (an MCP tool's next step) sees it */
+export const forgetWorkBranch = (ctx: UseCaseContext) => reads.delete(ctx);
+
 async function readWorkBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
     const [git, branch] = await Promise.all([gitBranch(ctx.db, ctx.workspaceId), currentBranch(ctx.db, ctx.workspaceId, ctx.userId)]);
     if (!git || branch === null || branch === git.branch) {

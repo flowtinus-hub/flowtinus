@@ -14,6 +14,7 @@ export const saveDraft = defineTool({
         expectedRevision: z.number().int().min(0).describe('the revision the yaml was based on'),
     },
     annotations: { destructiveHint: false, idempotentHint: false },
+    editsBranch: true,
     run: async ({ flowId, yaml, expectedRevision }, t) => {
         const found = await t.flowAndDraft(flowId);
         if (!found.ok) {

@@ -94,15 +94,21 @@ export type DraftSave = {
     flush: () => Promise<FlushResult>;
 };
 
-/** `readOnly`: an archived flow, opened but never saved (until it is restored: then it saves again) */
+/**
+ * `readOnly`: an archived flow, opened but never saved (until it is restored: then it saves again). `held`: the branch
+ * takes no edit (a pull-request server's environment branch): a change is not saved, it calls `held` instead (which
+ * offers Create branch, taking the canvas along).
+ */
 export function useFlowDraft(
     flowId: string,
     canvas: { nodes: Node[]; edges: Edge[] },
     load: (canvas: ReturnType<typeof flowFileToCanvas>) => void,
     readOnly = false,
+    held?: () => void,
 ): DraftSave {
     const [state, setState] = useState<SaveState>({ status: 'loading' });
     const readOnlyRef = useRef(readOnly);
+    const heldRef = useRef(held);
     const online = useServerConnection().state === 'online';
     // what the server has: its revision, the flow's name, and what was saved (to tell a real change)
     const server = useRef<{ revision: number; name: string; saved: string } | null>(null);
@@ -121,6 +127,7 @@ export function useFlowDraft(
         latest.current = canvas;
         loadRef.current = load;
         readOnlyRef.current = readOnly;
+        heldRef.current = held;
     });
 
     const fileNow = useCallback(
@@ -205,7 +212,7 @@ export function useFlowDraft(
         async (keepalive = false) => {
             clearTimeout(timer.current);
             const at = server.current;
-            if (!at || saving.current || readOnlyRef.current) {
+            if (!at || saving.current || readOnlyRef.current || heldRef.current) {
                 return;
             }
 
@@ -273,6 +280,10 @@ export function useFlowDraft(
         }
 
         if (!at || readOnly || draftFingerprint(fileNow()) === at.saved) {
+            return;
+        }
+        if (heldRef.current) {
+            heldRef.current();
             return;
         }
 

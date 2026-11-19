@@ -116,6 +116,8 @@ export type McpTool = {
     description: string;
     input: z.ZodRawShape;
     annotations?: ToolAnnotations;
+    /** it changes the working copy of the user's current branch: refused where the user cannot edit that branch */
+    editsBranch?: true;
     run: (args: never, t: ToolContext) => Promise<ToolResult>;
 };
 
@@ -125,6 +127,7 @@ export const defineTool = <S extends z.ZodRawShape>(tool: {
     description: string;
     input: S;
     annotations?: ToolAnnotations;
+    editsBranch?: true;
     run: (args: z.infer<z.ZodObject<S>>, t: ToolContext) => Promise<ToolResult>;
 }): McpTool => tool as McpTool;
 

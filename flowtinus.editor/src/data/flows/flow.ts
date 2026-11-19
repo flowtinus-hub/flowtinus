@@ -36,6 +36,8 @@ export type Flow = {
     readOnly?: boolean;
     /** read from a work branch: deploy, schedules, webhooks and the worker tag are the environment's, not here */
     workBranch?: boolean;
+    /** read from a pull-request server's environment branch: the first edit offers Create branch, which takes it along */
+    offersBranch?: boolean;
     /** the number of its deployed version in this environment: null when not deployed (known in the project's lists) */
     deployedVersion?: number | null;
     /** how many schedules it has, and how many are on (known in the project's lists; null: none) */
