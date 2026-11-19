@@ -9,9 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Flow, Folder, ProjectContents } from '@/data/flows/flow';
 import { anyTriggerOn, flowsTaken, folderPath, isFolderVisible, projectRepoPaths, repoPathIssue, siblingNames, triggersOn, withFlow, withFolder, type TreeContents } from '@/data/flows/project-tree';
+import * as flowsApi from '@/data/flows/flows-api';
 import { useProjectContents } from '@/data/flows/use-project-contents';
 import { useProject } from '@/data/projects/use-project';
 import type { ApiResult } from '@/lib/api';
+import { useBranchOffer } from '@/layout/use-branch-offer';
 import { readProjectView, saveProjectView, type ProjectView } from '@/lib/view-preference';
 import { ProjectPage } from '@/pages/project/project-page';
 import { ArchivedList } from './archived-list';
@@ -43,6 +45,31 @@ export function revealFolder(expanded: Set<string>, folders: Folder[], folderId:
 
     return next;
 }
+
+/** a folder by its names from the project root, as the current branch has it (null: the root): a work branch's folder ids are its own */
+async function folderOnBranch(projectId: string, names: string[]): Promise<ApiResult<string | null>> {
+    if (names.length === 0) {
+        return { ok: true, value: null };
+    }
+    const contents = await flowsApi.getProjectContents(projectId);
+    if (!contents.ok) {
+        return contents;
+    }
+    let id: string | null = null;
+    for (const name of names) {
+        const found = contents.value.folders.find(f => f.parentId === id && !f.archivedAt && f.name.toLowerCase() === name.toLowerCase());
+        if (!found) {
+            return { ok: false, error: { code: 'not-found', message: `The folder ${names.join(' / ')} is not on the new branch.` } };
+        }
+        id = found.id;
+    }
+    return { ok: true, value: id };
+}
+
+const inFolder = async (projectId: string, names: string[], change: (folderId: string | null) => Promise<ApiResult<unknown>>) => {
+    const folder = await folderOnBranch(projectId, names);
+    return folder.ok ? change(folder.value) : folder;
+};
 
 /**
  * A project's folders and flows (/projects/:projectId/flows), from flowtinus.server (data/flows/flows-api.ts). Tree or Cards
@@ -78,6 +105,8 @@ export function ProjectFlowsPage() {
     const [deleting, setDeleting] = useState<ConfirmTarget | null>(null);
     /** a failed restore (e.g. the name is taken where it goes back) */
     const [notice, setNotice] = useState('');
+    const branchOffer = useBranchOffer();
+    const namesOf = (folderId: string | null) => folderPath(contents.folders, folderId).map(f => f.name);
 
     const changeParams = (changes: Record<string, string | null>) => {
         const next = new URLSearchParams(params);
@@ -117,7 +146,11 @@ export function ProjectFlowsPage() {
                 siblings: siblingNames(contents, 'folder', parentId),
                 pathIssue: pathIssue(name => withFolder(contents, { id: '', parentId, name })),
                 onSave: async name => {
-                    const result = await store.createFolder(parentId, name);
+                    const result = await branchOffer.orOffer(
+                        name,
+                        () => store.createFolder(parentId, name),
+                        () => inFolder(projectId, namesOf(parentId), parent => flowsApi.createFolder(projectId, parent, name)),
+                    );
                     if (result.ok && parentId) {
                         setExpanded(current => new Set(current).add(parentId));
                     }
@@ -135,7 +168,11 @@ export function ProjectFlowsPage() {
                 siblings: siblingNames(contents, 'flow', folder),
                 pathIssue: pathIssue(name => withFlow(contents, { id: '', folderId: folder, name })),
                 onSave: async name => {
-                    const result = await store.createFlow(folder, name);
+                    const result = await branchOffer.orOffer(
+                        name,
+                        () => store.createFlow(folder, name),
+                        () => inFolder(projectId, namesOf(folder), parent => flowsApi.createFlow(projectId, { name, folderId: parent })),
+                    );
                     if (result.ok && folder) {
                         setExpanded(current => new Set(current).add(folder));
                     }
@@ -156,7 +193,18 @@ export function ProjectFlowsPage() {
                         ? withFolder(contents, { id: item.id, parentId, name })
                         : withFlow(contents, { id: item.id, folderId: parentId, name }),
                 ),
-                onSave: name => (kind === 'folder' ? store.renameFolder(item.id, name) : store.renameFlow(item.id, name)),
+                onSave: name =>
+                    kind === 'folder'
+                        ? branchOffer.orOffer(
+                              item.name,
+                              () => store.renameFolder(item.id, name),
+                              () => inFolder(projectId, namesOf(item.id), id => flowsApi.renameFolder(id!, name)),
+                          )
+                        : branchOffer.orOffer(
+                              item.name,
+                              () => store.renameFlow(item.id, name),
+                              () => flowsApi.renameFlow(item.id, name),
+                          ),
             });
         },
         move: (kind, item) =>
@@ -181,14 +229,28 @@ export function ProjectFlowsPage() {
                 kind: 'flow',
                 siblings,
                 pathIssue: pathIssue(name => withFlow(contents, { id: '', folderId: flow.folderId, name })),
-                onSave: name => store.cloneFlow(flow.id, name),
+                onSave: name =>
+                    branchOffer.orOffer(
+                        flow.name,
+                        () => store.cloneFlow(flow.id, name),
+                        () => flowsApi.cloneFlow(flow.id, name),
+                    ),
             });
         },
         archive: (kind, item) => setArchiving({ kind, id: item.id, name: item.name }),
     };
 
     const move = (target: MoveTarget, to: string | null): Promise<ApiResult<unknown>> =>
-        target.kind === 'folder' ? store.moveFolder(target.id, to) : store.moveFlow(target.id, to);
+        branchOffer.orOffer<unknown>(
+            target.name,
+            () => (target.kind === 'folder' ? store.moveFolder(target.id, to) : store.moveFlow(target.id, to)),
+            () =>
+                inFolder(projectId, namesOf(to), folderId =>
+                    target.kind === 'folder'
+                        ? inFolder(projectId, namesOf(target.id), id => flowsApi.moveFolder(id!, folderId))
+                        : flowsApi.moveFlow(target.id, folderId),
+                ),
+        );
 
     const restore = async (kind: 'folder' | 'flow', id: string) => {
         setNotice('');
@@ -335,8 +397,22 @@ export function ProjectFlowsPage() {
                 }
                 warning={anyTriggerOn(archivingOn) ? <TriggersWarning on={archivingOn} /> : undefined}
                 onClose={() => setArchiving(null)}
-                onArchive={() => (archiving!.kind === 'folder' ? store.archiveFolder(archiving!.id) : store.archiveFlow(archiving!.id))}
+                onArchive={() => {
+                    const { kind, id, name } = archiving!;
+                    return kind === 'folder'
+                        ? branchOffer.orOffer(
+                              name,
+                              () => store.archiveFolder(id),
+                              () => inFolder(projectId, namesOf(id), found => flowsApi.archiveFolder(found!)),
+                          )
+                        : branchOffer.orOffer(
+                              name,
+                              () => store.archiveFlow(id),
+                              () => flowsApi.archiveFlow(id),
+                          );
+                }}
             />
+            {branchOffer.dialog}
             <ConfirmDialog target={deleting} onClose={() => setDeleting(null)} />
         </ProjectPage>
     );

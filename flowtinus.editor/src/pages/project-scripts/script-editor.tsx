@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import Editor from '@monaco-editor/react';
+import { useEffect, useRef, useState } from 'react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import { LoaderCircle } from 'lucide-react';
 import { SCRIPT_GLOBALS, scriptModuleUri } from '@flowtinus/core';
-import { saveScript, useScriptContent } from '@/data/scripts/scripts-store';
+import { replaceScript, saveScript, useScriptContent } from '@/data/scripts/scripts-store';
+import { useBranchOffer } from '@/layout/use-branch-offer';
 import { ts, useScriptModels } from '@/editor/monaco-setup';
 
 const isDark = () => document.documentElement.classList.contains('dark');
@@ -14,6 +15,8 @@ const isDark = () => document.documentElement.classList.contains('dark');
 export default function ScriptEditor({ projectId, path }: { projectId: string; path: string }) {
     const [dark, setDark] = useState(isDark);
     const content = useScriptContent(projectId, path);
+    const branchOffer = useBranchOffer();
+    const editor = useRef<Parameters<OnMount>[0] | null>(null);
     useScriptModels(projectId);
     // a script runs in a TypeScript component: it sees the runner's globals too (log, $PARAMETERS...)
     useEffect(() => ts.typescriptDefaults.setExtraLibs([{ content: SCRIPT_GLOBALS, filePath: 'file:///flowtinus-globals.d.ts' }]), []);
@@ -31,22 +34,42 @@ export default function ScriptEditor({ projectId, path }: { projectId: string; p
         );
     }
 
+    const change = (code: string) => {
+        if (!branchOffer.offers) {
+            saveScript(projectId, path, code);
+            return;
+        }
+        if (code === content.code) {
+            return;
+        }
+        branchOffer.offer(
+            { name: path.split('/').at(-1)!, replay: () => replaceScript(projectId, path, editor.current?.getValue() ?? code) },
+            () => editor.current?.setValue(content.code),
+        );
+    };
+
     return (
-        <Editor
-            language="typescript"
-            path={scriptModuleUri(path)}
-            value={content.code}
-            theme={dark ? 'vs-dark' : 'light'}
-            onChange={next => saveScript(projectId, path, next ?? '')}
-            options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                tabSize: 2,
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                fixedOverflowWidgets: true,
-                editContext: false,
-            }}
-        />
+        <>
+            <Editor
+                language="typescript"
+                path={scriptModuleUri(path)}
+                value={content.code}
+                theme={dark ? 'vs-dark' : 'light'}
+                onMount={mounted => {
+                    editor.current = mounted;
+                }}
+                onChange={next => change(next ?? '')}
+                options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    tabSize: 2,
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    fixedOverflowWidgets: true,
+                    editContext: false,
+                }}
+            />
+            {branchOffer.dialog}
+        </>
     );
 }

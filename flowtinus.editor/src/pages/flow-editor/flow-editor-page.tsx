@@ -535,7 +535,7 @@ export function FlowEditorPage() {
                     from={environmentBranch}
                     handle={handle}
                     edit={{
-                        flowName: current.flow.name,
+                        name: current.flow.name,
                         draft: () => {
                             const flow = draftNow();
                             return flow ? { flowId, flow } : null;

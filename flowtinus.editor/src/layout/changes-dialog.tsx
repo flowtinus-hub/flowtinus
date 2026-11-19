@@ -3,9 +3,11 @@ import { CircleCheck, GitCommitHorizontal, Lock, LoaderCircle, TriangleAlert, Un
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
+import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, getCurrentBranch, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
+import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import type { ApiError } from '@/lib/api';
 import { ConflictDialog } from './conflict-dialog';
+import { CreateBranchDialog } from './create-branch-dialog';
 
 const CHANGE_LABEL: Record<WorkingChange['change'], string> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
 
@@ -41,6 +43,16 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     const [error, setError] = useState<ApiError | null>(null);
     const [committed, setCommitted] = useState<string | null>(null);
     const [resolving, setResolving] = useState<string | null>(null);
+    const [pullRequestsOnly, setPullRequestsOnly] = useState<string | null>(null);
+    const [creating, setCreating] = useState(false);
+    const { canEdit } = useWorkspace();
+    const { state: me } = useMe();
+    const handle = me.status === 'ready' ? me.me.handle : null;
+    useEffect(() => {
+        void getCurrentBranch(slug).then(result =>
+            setPullRequestsOnly(result.ok && result.value.offersBranch && result.value.branch ? result.value.branch : null),
+        );
+    }, [slug]);
 
     const load = useCallback(async () => {
         const result = await getChanges(slug);
@@ -194,13 +206,20 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                 );
                             })}
                         </ul>
-                        <Input
-                            aria-label="Commit message"
-                            placeholder="Commit message"
-                            value={message}
-                            disabled={busy}
-                            onChange={e => setMessage(e.target.value)}
-                        />
+                        {pullRequestsOnly ? (
+                            <p className="text-xs text-muted-foreground">
+                                <span className="font-mono">{pullRequestsOnly}</span> only takes pull requests: nothing is committed here.
+                                Discard changes, or create a branch of your own and take yours there.
+                            </p>
+                        ) : (
+                            <Input
+                                aria-label="Commit message"
+                                placeholder="Commit message"
+                                value={message}
+                                disabled={busy}
+                                onChange={e => setMessage(e.target.value)}
+                            />
+                        )}
                     </>
                 )}
                 {error && (
@@ -226,8 +245,20 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                             >
                                 {merge ? 'Abort the merge' : 'Discard all mine'}
                             </Button>
+                            {pullRequestsOnly && canEdit && handle && (
+                                <Button variant="outline" disabled={busy} onClick={() => setCreating(true)}>
+                                    Create branch...
+                                </Button>
+                            )}
                             <Button
-                                disabled={busy || (all.length === 0 && !merge) || !message.trim() || conflicted.length > 0}
+                                disabled={
+                                    busy || !!pullRequestsOnly || (all.length === 0 && !merge) || !message.trim() || conflicted.length > 0
+                                }
+                                title={
+                                    pullRequestsOnly
+                                        ? `${pullRequestsOnly} only takes pull requests: create a branch of your own to commit.`
+                                        : undefined
+                                }
                                 onClick={() => void commit()}
                             >
                                 {busy ? <LoaderCircle className="animate-spin" /> : <GitCommitHorizontal />}
@@ -237,6 +268,9 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                     )}
                 </DialogFooter>
             </DialogContent>
+            {creating && pullRequestsOnly && handle && (
+                <CreateBranchDialog slug={slug} from={pullRequestsOnly} handle={handle} onClose={() => setCreating(false)} />
+            )}
             {resolving && <ConflictDialog slug={slug} path={resolving} onClose={() => setResolving(null)} onResolved={() => void load()} />}
         </Dialog>
     );

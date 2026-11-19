@@ -251,6 +251,18 @@ export function saveScript(projectId: string, path: string, code: string) {
     );
 }
 
+/** a script's code saved over whatever revision the current branch has of it (an edit taken to a new branch) */
+export async function replaceScript(projectId: string, path: string, code: string): Promise<ApiResult<{ revision: number }>> {
+    const read = await api<{ revision: number }>(`/projects/${projectId}/scripts/content?path=${encodeURIComponent(path)}`);
+    if (!read.ok) {
+        return read;
+    }
+    return api<{ revision: number }>(`/projects/${projectId}/scripts/content`, {
+        method: 'PUT',
+        body: { path, content: code, revision: read.value.revision },
+    });
+}
+
 /** saves what waits now (Ctrl+S, or before a move) */
 export async function flushScripts(projectId: string) {
     const waiting = [...pending.keys()].filter(k => k.startsWith(`${projectId}\n`));
