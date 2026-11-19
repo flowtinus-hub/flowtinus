@@ -1,3 +1,4 @@
+import { currentBranchView } from './current-branch';
 import { z } from 'zod';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -14,7 +15,10 @@ export class GetChangesHandler implements UseCaseHandler<{ changes: WorkingChang
         if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
             return gitOff();
         }
-        return success({ changes: await workingChanges(ctx) });
+        // a work branch's own changes come with editing on it (#56)
+        return success({
+            changes: !(await currentBranchView(ctx.db, ctx.workspaceId, ctx.userId)).editable ? [] : await workingChanges(ctx),
+        });
     }
 }
 

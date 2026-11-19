@@ -87,19 +87,19 @@ describe("user handles, and each user's current branch", () => {
     test("each user's current branch is kept per workspace; absent, it is the environment's branch", async () => {
         const one = await newWorkspace();
         const two = await newWorkspace();
-        expect(await one.currentBranch(ANA)).toEqual({ branch: 'dev' });
+        expect(await one.currentBranch(ANA)).toEqual({ branch: 'dev', editable: true });
 
-        expect((await one.pick(ANA, 'users/ana/orders')).body).toEqual({ branch: 'users/ana/orders' });
-        expect(await one.currentBranch(ANA)).toEqual({ branch: 'users/ana/orders' });
-        expect(await one.currentBranch(BIA)).toEqual({ branch: 'dev' });
-        expect(await two.currentBranch(ANA)).toEqual({ branch: 'dev' });
+        expect((await one.pick(ANA, 'users/ana/orders')).body).toEqual({ branch: 'users/ana/orders', editable: false });
+        expect(await one.currentBranch(ANA)).toEqual({ branch: 'users/ana/orders', editable: false });
+        expect(await one.currentBranch(BIA)).toEqual({ branch: 'dev', editable: true });
+        expect(await two.currentBranch(ANA)).toEqual({ branch: 'dev', editable: true });
 
         await one.pick(BIA, 'feature/shared');
-        expect(await one.currentBranch(BIA)).toEqual({ branch: 'feature/shared' });
-        expect(await one.currentBranch(ANA)).toEqual({ branch: 'users/ana/orders' });
+        expect(await one.currentBranch(BIA)).toEqual({ branch: 'feature/shared', editable: false });
+        expect(await one.currentBranch(ANA)).toEqual({ branch: 'users/ana/orders', editable: false });
 
         await one.pick(ANA, 'dev');
-        expect(await one.currentBranch(ANA)).toEqual({ branch: 'dev' });
+        expect(await one.currentBranch(ANA)).toEqual({ branch: 'dev', editable: true });
     });
 
     test('a name git cannot take as a branch is refused', async () => {
@@ -107,12 +107,12 @@ describe("user handles, and each user's current branch", () => {
         for (const branch of ['', 'has space', 'a..b', 'end/', '-dash', 'users/x.lock', 'a@{b', 'x:y', 'HEAD']) {
             expect((await pick(ANA, branch)).status).toBe(400);
         }
-        expect(await currentBranch(ANA)).toEqual({ branch: 'dev' });
+        expect(await currentBranch(ANA)).toEqual({ branch: 'dev', editable: true });
     });
 
     test('with git off there is no current branch, and none can be set', async () => {
         const { pick, currentBranch } = await newWorkspace({ git: false });
-        expect(await currentBranch(ANA)).toEqual({ branch: null });
+        expect(await currentBranch(ANA)).toEqual({ branch: null, editable: true });
         expect((await pick(ANA, 'users/ana/orders')).status).toBe(409);
     });
 });

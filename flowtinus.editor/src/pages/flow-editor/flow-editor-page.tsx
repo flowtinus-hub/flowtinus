@@ -71,6 +71,8 @@ export function FlowEditorPage() {
     const flowName = current ? (current.flow?.name ?? 'Flow not found') : '';
     // an archived flow opens read-only (nothing saved, nothing run), with Restore
     const archived = Boolean(current?.flow?.archivedAt);
+    // read from a branch the user cannot edit: nothing is saved, it still runs (what the branch has)
+    const onBranch = Boolean(current?.flow?.readOnly) && !archived;
     const [restoring, setRestoring] = useState<{ busy: boolean; error?: string }>({ busy: false });
     // Download: the canvas as it is now, as the core's YAML flow file
     const canvas = useRef<CanvasHandle | null>(null);
@@ -181,7 +183,7 @@ export function FlowEditorPage() {
             return { ok: true, value: null };
         };
         const flushed = save ? await save.flush() : 'saved';
-        if (flushed !== 'saved') {
+        if (flushed !== 'saved' && !(flushed === 'read-only' && onBranch)) {
             return fail(
                 flushed === 'not-saved'
                     ? 'The flow could not be saved, so it did not run.'
@@ -361,6 +363,15 @@ export function FlowEditorPage() {
                     flowName={flowName}
                 />
                 <div className="ml-auto flex shrink-0 items-center gap-1">
+                    {onBranch && (
+                        <span
+                            role="status"
+                            className="shrink-0 text-xs whitespace-nowrap text-muted-foreground"
+                            title="This branch is read only here: pick the environment's branch in the sidebar to make changes. Run runs what the branch has."
+                        >
+                            Read only
+                        </span>
+                    )}
                     <SaveStatus
                         save={save}
                         archived={
@@ -400,7 +411,7 @@ export function FlowEditorPage() {
                             <div className="relative min-h-0 flex-1">
                                 <FlowCanvas
                                     exportRef={canvas}
-                                    readOnly={archived}
+                                    readOnly={archived || onBranch}
                                     onSave={setSave}
                                     onRunFrom={runFrom}
                                     onToggleRunPanel={() => setPanelOpen(open => !open || running !== null)}
@@ -411,7 +422,7 @@ export function FlowEditorPage() {
                                             // which workers run it, before Arrange
                                             <WorkerTagMenu
                                                 flow={current.flow}
-                                                readOnly={archived}
+                                                readOnly={archived || onBranch}
                                                 onChanged={flow =>
                                                     setLoaded(previous => (previous?.flow ? { ...previous, flow } : previous))
                                                 }
@@ -419,7 +430,8 @@ export function FlowEditorPage() {
                                         )
                                     }
                                     toolsAfter={
-                                        current?.flow && (
+                                        current?.flow &&
+                                        !onBranch && (
                                             // after Group: Deploy, and the schedules of the deployed version
                                             <>
                                                 <DeployMenu

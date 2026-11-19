@@ -23,6 +23,8 @@ export type ProjectView = {
     color: string;
     createdAt: Date;
     archivedAt: Date | null;
+    /** read from a work branch the user cannot edit */
+    readOnly?: true;
 };
 
 export const toProjectView = (project: Project): ProjectView => ({

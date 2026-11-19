@@ -54,11 +54,34 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
-/** the user's current branch in the workspace (the environment's branch until another is picked); null with git off */
-export const getCurrentBranch = (ws: string) => api<{ branch: string | null }>(`/w/${ws}/git/current-branch`);
+/** the user's current branch in the workspace (the environment's branch until another is picked; null with git off), and whether they may edit there */
+export type CurrentBranch = { branch: string | null; editable: boolean };
+
+export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git/current-branch`);
 
 export const setCurrentBranch = (ws: string, branch: string) =>
-    api<{ branch: string }>(`/w/${ws}/git/current-branch`, { method: 'PUT', body: { branch } });
+    api<CurrentBranch>(`/w/${ws}/git/current-branch`, { method: 'PUT', body: { branch } });
+
+/** an environment's (in the topology), a user's (users/<handle>/...: only its owner writes), or shared (anyone) */
+export type BranchKind = 'environment' | 'user' | 'shared';
+
+export type BranchInfo = {
+    name: string;
+    kind: BranchKind;
+    /** a user's branch: the owner's handle, and name when known */
+    owner?: string;
+    ownerName?: string;
+    mine: boolean;
+    editable: boolean;
+    /** contained in the environment's branch with no uncommitted change: behind "show merged" */
+    merged: boolean;
+    /** uncommitted changes on this server */
+    changes: number;
+};
+
+/** the remote's branches as the last fetch found them (the app's own left out), by kind */
+export const listBranches = (ws: string) =>
+    api<{ current: string | null; environment: string | null; branches: BranchInfo[]; fetchedAt: string | null }>(`/w/${ws}/git/branches`);
 
 /** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
 export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';

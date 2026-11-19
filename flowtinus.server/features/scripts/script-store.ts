@@ -1,10 +1,12 @@
-import { insideScriptFolder, repoPath, movedScriptPath, normalizeScriptPath, pathCaseClash, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
+import { insideScriptFolder, repoPath, movedScriptPath, normalizeScriptPath, pathCaseClash, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type FlowFile, type ScriptExport } from '@flowtinus/core';
 import { eq } from 'drizzle-orm';
-import { flows as flowsTable } from '#features/flows/flow';
+import { flows as flowsTable, type Flow } from '#features/flows/flow';
 import { loadDraft } from '#features/flows/flow-draft';
 import { FlowRepository } from '#features/folders/project-tree';
 import { bestRows, ENVIRONMENT_BRANCH, fileRow, removeFile, scriptFileId, writeFile, type WorkingRow } from '#features/git/working-copy';
 import type { Database } from '#shared/database/database';
+import type { WorkBranch } from '#features/git/branch-read';
+import { refuseOffEditableBranch } from '#features/git/current-branch';
 
 export type ScriptEntry = { path: string; revision: number; exports: ScriptExport[]; updatedBy: string | null; updatedAt: Date };
 
@@ -100,6 +102,7 @@ export async function writeScript(
     userId: string | null,
     expected?: number,
 ): Promise<number | null> {
+    await refuseOffEditableBranch(db, workspaceId, userId);
     const fileId = scriptFileId(projectId, path);
     const row = await fileRow(db, workspaceId, fileId);
     const live = row && !row.deleted ? row : null;
@@ -153,7 +156,8 @@ export const saveBlob = async (db: Database, workspaceId: string, content: strin
 
 export type ScriptUser = { label: string; code: string };
 
-export type ScriptSource = 'editing' | 'deployed';
+/** being edited on the environment's branch, deployed, or a work branch's (its tip with its working copy) */
+export type ScriptSource = 'editing' | 'deployed' | { branch: { path: string; content: string }[] };
 
 export async function scriptContents(
     db: Database,
@@ -162,6 +166,9 @@ export async function scriptContents(
     source: ScriptSource,
     paths?: string[],
 ): Promise<{ path: string; content: string }[]> {
+    if (typeof source === 'object') {
+        return source.branch.filter(s => !paths || paths.includes(s.path)).map(s => ({ path: s.path, content: s.content }));
+    }
     if (source === 'editing') {
         const scripts = await workingScripts(db, workspaceId, projectId);
         return scripts.filter(s => !paths || paths.includes(s.path)).map(s => ({ path: s.path, content: s.content }));
@@ -260,13 +267,16 @@ export async function scriptUsage(
     workspaceId: string,
     projectId: string,
     path: string,
+    branch: WorkBranch | null = null,
 ): Promise<{ flows: { id: string; name: string }[]; scripts: string[] }> {
     const imports = (code: string) => scriptImports(code).some(p => insideScriptFolder(p, path));
-    const scripts = await workingScripts(db, workspaceId, projectId);
-    const flows = await new FlowRepository(db, workspaceId).findMany(eq(flowsTable.projectId, projectId));
+    const scripts = branch ? (branch.scripts.get(projectId) ?? []) : await workingScripts(db, workspaceId, projectId);
+    const flows: (Flow & { file?: FlowFile })[] = branch
+        ? branch.flows.filter(f => f.projectId === projectId)
+        : await new FlowRepository(db, workspaceId).findMany(eq(flowsTable.projectId, projectId));
     const users: { id: string; name: string }[] = [];
     for (const flow of flows) {
-        const { flow: file } = await loadDraft(db, workspaceId, flow);
+        const file = flow.file ?? (await loadDraft(db, workspaceId, flow)).flow;
         if (imports(file.nodes.map(n => scriptCodeOf(n.type, n.config ?? {}) ?? '').join('\n'))) {
             users.push({ id: flow.id, name: flow.name });
         }
@@ -304,7 +314,13 @@ export async function deleteScriptPath(db: Database, workspaceId: string, projec
     );
 }
 
-export async function typeSources(db: Database, workspaceId: string, projectId: string, path: string): Promise<Record<string, string>> {
+export async function typeSources(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+    path: string,
+    source: ScriptSource = 'editing',
+): Promise<Record<string, string>> {
     const sources: Record<string, string> = {};
     const queue = [path];
     while (queue.length > 0 && Object.keys(sources).length < 200) {
@@ -313,7 +329,7 @@ export async function typeSources(db: Database, workspaceId: string, projectId: 
             continue;
         }
 
-        const script = await getScript(db, workspaceId, projectId, next);
+        const [script] = await scriptContents(db, workspaceId, projectId, source, [next]);
         if (!script) {
             continue;
         }

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Database } from '#shared/database/database';
 import { requireRole } from '#shared/use-cases/require-role';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
@@ -37,7 +38,33 @@ export async function currentBranch(db: Database, workspaceId: string, userId: s
     return row?.branch ?? git.branch;
 }
 
-export type CurrentBranchView = { branch: string | null };
+/** where this user may change the working copy: only the environment's branch until editing on work branches (#56) */
+export const canEditBranch = (branch: string | null, environment: string | null) => branch === null || branch === environment;
+
+/** editable: whether the editor may change things on it (else it is read only) */
+export type CurrentBranchView = { branch: string | null; editable: boolean };
+
+export async function currentBranchView(db: Database, workspaceId: string, userId: string): Promise<CurrentBranchView> {
+    const [git, branch] = await Promise.all([gitBranch(db, workspaceId), currentBranch(db, workspaceId, userId)]);
+    return { branch, editable: canEditBranch(branch, git?.branch ?? null) };
+}
+
+/**
+ * Refused while the user's current branch is one they cannot edit: what they change would land on the environment's
+ * branch, which they are not looking at.
+ */
+export async function refuseOffEditableBranch(db: Database, workspaceId: string, userId: string | null): Promise<void> {
+    if (userId === null) {
+        return;
+    }
+    const view = await currentBranchView(db, workspaceId, userId);
+    if (!view.editable) {
+        throw new UseCaseFailure(
+            'conflict',
+            `You are on the branch ${view.branch}, which is read only here: pick the environment's branch to make changes.`,
+        );
+    }
+}
 
 export class GetCurrentBranchHandler implements UseCaseHandler<CurrentBranchView> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CurrentBranchView>> {
@@ -46,7 +73,7 @@ export class GetCurrentBranchHandler implements UseCaseHandler<CurrentBranchView
             return denied;
         }
 
-        return success({ branch: await currentBranch(ctx.db, ctx.workspaceId, ctx.userId) });
+        return success(await currentBranchView(ctx.db, ctx.workspaceId, ctx.userId));
     }
 }
 
@@ -85,6 +112,6 @@ export class SetCurrentBranchHandler implements UseCaseHandler<CurrentBranchView
                 [ctx.workspaceId, ctx.userId, branch],
             );
         }
-        return success({ branch });
+        return success({ branch, editable: canEditBranch(branch, git.branch) });
     }
 }

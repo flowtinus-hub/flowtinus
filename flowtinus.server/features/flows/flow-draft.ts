@@ -3,6 +3,7 @@ import { loadTree } from '#features/folders/project-tree';
 import { committedFlowText, flowsInRepo } from '#features/git/workspace-export';
 import { ENVIRONMENT_BRANCH, fileRow, writeFile } from '#features/git/working-copy';
 import { withoutPinned } from '#features/pins/pins';
+import { refuseOffEditableBranch } from '#features/git/current-branch';
 import type { Database } from '#shared/database/database';
 import type { Flow } from './flow';
 
@@ -66,6 +67,7 @@ export async function writeDraft(
     expected?: number,
     options: { asNew?: boolean } = {},
 ): Promise<number | null> {
+    await refuseOffEditableBranch(db, workspaceId, userId);
     await db.query('UPDATE flows SET updated_at = now(), updated_by = $3 WHERE workspace_id = $1 AND id = $2', [
         workspaceId,
         row.id,

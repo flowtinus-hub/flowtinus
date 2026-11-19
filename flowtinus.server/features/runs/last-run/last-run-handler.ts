@@ -1,6 +1,6 @@
+import { currentFlow } from '#features/git/branch-read';
 import { z } from 'zod';
-import { isFolderVisible, type RunRecord } from '@flowtinus/core';
-import { FlowRepository, loadTree } from '#features/folders/project-tree';
+import type { RunRecord } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
@@ -35,9 +35,7 @@ export class LastRunHandler implements UseCaseHandler<LastRunView> {
         }
 
         const flowId = parsed.value.id;
-        const row = await new FlowRepository(ctx.db, ctx.workspaceId).findById(flowId);
-        const tree = row ? await loadTree(ctx.db, ctx.workspaceId, row.projectId) : null;
-        if (!row || !tree || !isFolderVisible(tree.folders, row.folderId)) {
+        if (!(await currentFlow(ctx, flowId))) {
             return fail('not-found', 'Flow not found.');
         }
 

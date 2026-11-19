@@ -1,7 +1,9 @@
+import { refuseOffEditableBranch } from '#features/git/current-branch';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
 import { rewriteMovedScript, scriptStates, type ScriptState } from './script-git';
-import { movedScriptPath, normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
+import { movedScriptPath, normalizeScriptPath, scriptContentIssue, scriptExports } from '@flowtinus/core';
+import { branchScripts, workBranch } from '#features/git/branch-read';
 import { pathTooLong, requireActiveProject } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -29,6 +31,15 @@ export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
         const project = await new GetProjectHandler().handle({ id: parsed.value.projectId }, ctx);
         if (!project.ok) {
             return project;
+        }
+
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const scripts = branchScripts(branch, parsed.value.projectId).map(({ content, ...script }) => ({
+                ...script,
+                exports: scriptExports(content),
+            }));
+            return success({ scripts, folders: allFolders(scripts, branch.scriptFolders.get(parsed.value.projectId) ?? []) });
         }
 
         const { scripts, folders } = await listScripts(ctx.db, ctx.workspaceId, parsed.value.projectId);
@@ -102,6 +113,7 @@ export class SaveScriptHandler implements UseCaseHandler<{ revision: number }> {
             return denied;
         }
 
+        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
         const parsed = validate(z.object({ projectId, path, content: z.string(), revision: z.number().int().min(0) }), input);
         if (!parsed.ok) {
             return parsed;
@@ -210,7 +222,7 @@ export class ScriptUsageHandler implements UseCaseHandler<{ flows: { id: string;
             return project;
         }
 
-        return success(await scriptUsage(ctx.db, ctx.workspaceId, parsed.value.projectId, parsed.value.path));
+        return success(await scriptUsage(ctx.db, ctx.workspaceId, parsed.value.projectId, parsed.value.path, await workBranch(ctx)));
     }
 }
 
@@ -226,7 +238,11 @@ export class GetScriptHandler implements UseCaseHandler<{ path: string; content:
             return project;
         }
 
-        const script = await getScript(ctx.db, ctx.workspaceId, parsed.value.projectId, parsed.value.path);
+        const branch = await workBranch(ctx);
+        const onBranch = branch ? branchScripts(branch, parsed.value.projectId).find(s => s.path === parsed.value.path) : undefined;
+        const script = branch
+            ? onBranch && { path: onBranch.path, content: onBranch.content, revision: onBranch.revision }
+            : await getScript(ctx.db, ctx.workspaceId, parsed.value.projectId, parsed.value.path);
         return script ? success(script) : fail('not-found', 'Script not found.');
     }
 }

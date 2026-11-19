@@ -1,3 +1,4 @@
+import { branchTree, workBranch } from '#features/git/branch-read';
 import { z } from 'zod';
 import { scheduleCounts } from '#features/schedules/schedules';
 import { webhookCounts } from '#features/webhooks/webhooks';
@@ -13,7 +14,8 @@ export const GetProjectContentsQuery = z.object({ projectId: z.uuid('Invalid') }
 
 export type ProjectContentsResponse = {
     folders: FolderView[];
-    flows: (FlowView & { deployedVersion: number | null; schedules: { total: number; on: number } | null })[];
+    /** on a work branch, nothing of what is deployed (the environment's) */
+    flows: (FlowView & { deployedVersion?: number | null; schedules?: { total: number; on: number } | null })[];
 };
 
 export class GetProjectContentsHandler implements UseCaseHandler<ProjectContentsResponse> {
@@ -26,6 +28,21 @@ export class GetProjectContentsHandler implements UseCaseHandler<ProjectContents
         const project = await new GetProjectHandler().handle({ id: parsed.value.projectId }, ctx);
         if (!project.ok) {
             return project;
+        }
+
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const tree = branchTree(branch, parsed.value.projectId);
+            return success({
+                folders: tree.folders.map(toFolderView),
+                flows: await withUpdatedByName(
+                    ctx.db,
+                    tree.flows.map(flow => ({
+                        ...toFlowView(flow),
+                        ...(branch.editable ? {} : { readOnly: true as const }),
+                    })),
+                ),
+            });
         }
 
         const tree = await loadTree(ctx.db, ctx.workspaceId, parsed.value.projectId);
