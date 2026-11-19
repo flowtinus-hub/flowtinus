@@ -1,3 +1,5 @@
+import { workBranch } from '#features/git/branch-read';
+import { renameFlowOnBranch } from '#features/git/branch-edits';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
@@ -22,6 +24,10 @@ export class RenameFlowHandler implements UseCaseHandler<FlowView> {
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return renameFlowOnBranch(ctx, branch, parsed.value);
+        }
         const repository = new FlowRepository(ctx.db, ctx.workspaceId);
         const flow = await repository.findById(parsed.value.id);
         const tree = flow ? await loadTree(ctx.db, ctx.workspaceId, flow.projectId) : null;

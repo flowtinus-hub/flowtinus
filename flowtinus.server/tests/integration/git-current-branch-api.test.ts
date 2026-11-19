@@ -95,7 +95,7 @@ describe("user handles, and each user's current branch", () => {
         expect(await two.currentBranch(ANA)).toEqual({ branch: 'dev', editable: true });
 
         await one.pick(BIA, 'feature/shared');
-        expect(await one.currentBranch(BIA)).toEqual({ branch: 'feature/shared', editable: false });
+        expect(await one.currentBranch(BIA)).toEqual({ branch: 'feature/shared', editable: true });
         expect(await one.currentBranch(ANA)).toEqual({ branch: 'users/ana/orders', editable: false });
 
         await one.pick(ANA, 'dev');

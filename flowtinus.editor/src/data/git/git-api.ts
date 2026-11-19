@@ -83,6 +83,13 @@ export type BranchInfo = {
 export const listBranches = (ws: string) =>
     api<{ current: string | null; environment: string | null; branches: BranchInfo[]; fetchedAt: string | null }>(`/w/${ws}/git/branches`);
 
+/**
+ * A branch cut from the current branch's tip and pushed at once; it becomes the current branch. It takes the
+ * uncommitted changes along (from the environment's or a shared branch, one's own; from one's own branch, all of them).
+ */
+export const createBranch = (ws: string, name: string) =>
+    api<{ branch: string; taken: string[] }>(`/w/${ws}/git/branches`, { method: 'POST', body: { name } });
+
 /** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
 export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';
 

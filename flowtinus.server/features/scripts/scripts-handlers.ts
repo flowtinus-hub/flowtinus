@@ -1,3 +1,4 @@
+import { createScriptOnBranch, deleteScriptOnBranch, saveScriptOnBranch } from '#features/git/branch-edits';
 import { refuseOffEditableBranch } from '#features/git/current-branch';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
@@ -17,6 +18,7 @@ const projectId = z.uuid('Invalid');
 const path = z.string().transform(normalizeScriptPath);
 const invalidPath = (error: string) => fail('validation', 'The request has invalid fields.', { path: error });
 const conflict = () => fail('conflict', 'This script was changed elsewhere. Reload it to see the latest version.');
+const NEW_SCRIPT = `export function example(): string {\n  return 'hello';\n}\n`;
 const tooLarge = (error: string) => fail('validation', 'The request has invalid fields.', { content: error });
 
 export type ScriptsView = { scripts: (ScriptEntry & Partial<ScriptState>)[]; folders: string[] };
@@ -35,9 +37,11 @@ export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
 
         const branch = await workBranch(ctx);
         if (branch) {
+            const states = await scriptStates(ctx.db, ctx.workspaceId, parsed.value.projectId, branch.branch);
             const scripts = branchScripts(branch, parsed.value.projectId).map(({ content, ...script }) => ({
                 ...script,
                 exports: scriptExports(content),
+                ...states?.get(script.path),
             }));
             return success({ scripts, folders: allFolders(scripts, branch.scriptFolders.get(parsed.value.projectId) ?? []) });
         }
@@ -61,6 +65,12 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
         }
 
         const { projectId: id, path: target, kind, content } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const code = content ?? NEW_SCRIPT;
+            const large = scriptContentIssue(code);
+            return large ? tooLarge(large) : createScriptOnBranch(ctx, branch, { projectId: id, path: target, kind, content: code });
+        }
         const missing = await requireActiveProject(ctx, id);
         if (missing && !missing.ok) {
             return missing;
@@ -88,7 +98,7 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
             return tooLong;
         }
 
-        const code = content ?? `export function example(): string {\n  return 'hello';\n}\n`;
+        const code = content ?? NEW_SCRIPT;
         const large = scriptContentIssue(code);
         if (large) {
             return tooLarge(large);
@@ -113,13 +123,18 @@ export class SaveScriptHandler implements UseCaseHandler<{ revision: number }> {
             return denied;
         }
 
-        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
         const parsed = validate(z.object({ projectId, path, content: z.string(), revision: z.number().int().min(0) }), input);
         if (!parsed.ok) {
             return parsed;
         }
 
         const { projectId: id, path: target, content, revision } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const large = scriptContentIssue(content);
+            return large ? tooLarge(large) : saveScriptOnBranch(ctx, branch, parsed.value);
+        }
+        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
         const missing = await requireActiveProject(ctx, id);
         if (missing && !missing.ok) {
             return missing;
@@ -197,6 +212,10 @@ export class DeleteScriptPathHandler implements UseCaseHandler<{ path: string }>
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return deleteScriptOnBranch(ctx, branch, parsed.value);
+        }
         const missing = await requireActiveProject(ctx, parsed.value.projectId);
         if (missing && !missing.ok) {
             return missing;

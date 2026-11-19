@@ -1,9 +1,11 @@
-import { Check, ChevronsUpDown, GitBranch, Lock } from 'lucide-react';
+import { Check, ChevronsUpDown, GitBranch, GitBranchPlus, Lock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { projectsPath } from '@/app/paths';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
 import { getCurrentBranch, listBranches, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch } from '@/data/git/git-api';
+import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
+import { CreateBranchDialog } from './create-branch-dialog';
 
 const GROUPS: { kind: BranchKind; label: string }[] = [
     { kind: 'environment', label: 'Environments' },
@@ -31,6 +33,7 @@ function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: 
 /**
  * With git on, the branch the user is on in this workspace; a click lists the remote's branches by kind (merged ones
  * behind "Show merged") and picks one: the projects and flows then answer for it. One the user cannot edit opens read only.
+ * Create branch cuts one from the current branch, taking the user's changes along.
  */
 export function BranchPicker({ slug }: { slug: string }) {
     const { isMobile } = useSidebar();
@@ -38,6 +41,10 @@ export function BranchPicker({ slug }: { slug: string }) {
     const [branches, setBranches] = useState<{ slug: string; list: BranchInfo[]; error?: string } | null>(null);
     const [showMerged, setShowMerged] = useState(false);
     const [error, setError] = useState('');
+    const [creating, setCreating] = useState(false);
+    const { state } = useMe();
+    const { canEdit } = useWorkspace();
+    const handle = state.status === 'ready' ? state.me.handle : null;
 
     useEffect(() => {
         let gone = false;
@@ -112,6 +119,15 @@ export function BranchPicker({ slug }: { slug: string }) {
                             )
                         );
                     })}
+                    {canEdit && handle && (
+                        <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => setCreating(true)}>
+                                <GitBranchPlus />
+                                Create branch...
+                            </DropdownMenuItem>
+                        </>
+                    )}
                     {merged.length > 0 && (
                         <>
                             <DropdownMenuSeparator />
@@ -127,6 +143,9 @@ export function BranchPicker({ slug }: { slug: string }) {
                 </DropdownMenuContent>
             </DropdownMenu>
             {error && <p className="px-2 text-xs text-destructive group-data-[collapsible=icon]:hidden">{error}</p>}
+            {creating && handle && (
+                <CreateBranchDialog slug={slug} from={value.branch} handle={handle} onClose={() => setCreating(false)} />
+            )}
         </SidebarMenuItem>
     );
 }

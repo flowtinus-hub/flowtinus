@@ -1,4 +1,4 @@
-import { refuseOffEditableBranch } from './current-branch';
+import { branchKind, editorOf, gitBranchNameError, refuseOffEditableBranch } from './current-branch';
 import { flowCalls, flowResources, flowScriptUses, repoEntry, repoFlowFromYaml, repoFlowToYaml, scriptImports, toExecutableFlow, type RepoEntry } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
 import { saveBlob, scriptBlobs } from '#features/scripts/script-store';
@@ -6,10 +6,14 @@ import { withUpdatedByName } from '#features/users/user-names';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseError, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { commitTree } from './git-first';
+import { onClone, workBranch, type WorkBranch } from './branch-read';
+import { branchIds, lockBranch, noteHead, refuseReadOnly } from './branch-write';
+import { gitAuthorOf, gitBranch } from './git-config';
+import { GitError } from './git-remote';
 import { lockReconcile } from './reconcile';
-import { ENVIRONMENT_BRANCH, isChange, workingRows, type WorkingRow } from './working-copy';
+import { ENVIRONMENT_BRANCH, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
 import { committedFlowText, exportTree, flowsInRepo, type GitChanges, type RepoFiles } from './workspace-export';
-import { importStructure } from './workspace-import';
+import { importStructure, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed';
 
@@ -69,6 +73,9 @@ function itemsOf(rows: WorkingRow[], userId: string): Item[] {
     }
     return items.filter(item => !(item.change === 'deleted' && items.some(other => other.from === item.path)));
 }
+
+/** how many changes these rows make, as the Changes list shows them (a rename is one) */
+export const changeCount = (rows: WorkingRow[]) => itemsOf(rows, '').length;
 
 /** the working tree's scripts of a project, by path */
 function projectScripts(files: RepoFiles, workspace: string, project: string): Map<string, string> {
@@ -189,10 +196,18 @@ function withDependents(items: Item[], chosen: Item[]): Item[] {
     return [...all];
 }
 
-async function workingItems(ctx: UseCaseContext): Promise<{ items: Item[]; files: RepoFiles; ids: Record<string, string> }> {
-    const [rows, tree] = await Promise.all([workingRows(ctx.db, ctx.workspaceId), exportTree(ctx.db, ctx.workspaceId)]);
+async function workingItems(
+    ctx: UseCaseContext,
+    branch: WorkBranch | null = null,
+): Promise<{ items: Item[]; files: RepoFiles; ids: Record<string, string> }> {
+    const [rows, tree] = await Promise.all([
+        workingRows(ctx.db, ctx.workspaceId, branch?.branch ?? ENVIRONMENT_BRANCH),
+        branch ? null : exportTree(ctx.db, ctx.workspaceId),
+    ]);
+    const files = branch ? overlayRows(branch.tipFiles, rows) : tree!.files;
+    const ids = branch ? branchIds(files, branch.slug) : tree!.ids;
     const items = itemsOf(rows, ctx.userId);
-    addRequirements(items, tree.files);
+    addRequirements(items, files);
     const named = await withUpdatedByName(
         ctx.db,
         items.map(item => ({ updatedBy: item.editedBy })),
@@ -202,11 +217,12 @@ async function workingItems(ctx: UseCaseContext): Promise<{ items: Item[]; files
             item.editedByName = named[i].updatedByName;
         }
     });
-    return { items, files: tree.files, ids: tree.ids };
+    return { items, files, ids };
 }
 
+/** the uncommitted changes of the user's current branch */
 export async function workingChanges(ctx: UseCaseContext): Promise<WorkingChange[]> {
-    return (await workingItems(ctx)).items.map(({ rows: _rows, ...change }) => change);
+    return (await workingItems(ctx, await workBranch(ctx))).items.map(({ rows: _rows, ...change }) => change);
 }
 
 const chosenBy = (items: Item[], paths: string[]) => items.filter(item => pathsOf(item).some(path => paths.includes(path)));
@@ -223,23 +239,19 @@ export type CommitRequest = {
  * The files committed stay in the working copy as committed (their revision goes on).
  */
 export async function commitWorkingCopy(ctx: UseCaseContext, request: CommitRequest): Promise<UseCaseResult<string>> {
+    const branch = await workBranch(ctx);
+    if (branch) {
+        return commitOnBranch(ctx, branch, request);
+    }
     await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
     const committed = await commitTree(ctx, request.message, async (db, tip) => {
         const at = { ...ctx, db };
         const { items, files, ids } = await workingItems(at);
-        const chosen = withRequirements(items, chosenBy(items, request.paths));
-        const conflicted = chosen.find(item => item.conflict);
-        if (conflicted) {
-            return {
-                code: 'conflict',
-                message: `${conflicted.path} conflicts with git's commit ${conflicted.conflict!.slice(0, 7)}: resolve or discard it first.`,
-            } satisfies UseCaseError;
+        const chosen = chosenChanges(items, request.paths);
+        if ('code' in chosen) {
+            return chosen;
         }
-
-        const changes: GitChanges = {};
-        for (const row of chosen.flatMap(item => item.rows)) {
-            changes[row.path] = row.deleted ? null : (row.content ?? '');
-        }
+        const { changes } = chosen;
         const deployed = request.deploy && Object.keys(ids).find(path => ids[path] === request.deploy!.flowId);
         if (deployed) {
             changes[deployed] = deployedText(deployed, files[deployed]!);
@@ -258,18 +270,89 @@ export async function commitWorkingCopy(ctx: UseCaseContext, request: CommitRequ
     return committed.value ? success(committed.value) : fail('validation', 'Nothing to commit.');
 }
 
-async function markCommitted(ctx: UseCaseContext, changes: GitChanges): Promise<void> {
+/** the files chosen and what they need, as changes to commit; refused when one is conflicted */
+function chosenChanges(items: Item[], paths: string[]): { changes: GitChanges } | UseCaseError {
+    const chosen = withRequirements(items, chosenBy(items, paths));
+    const conflicted = chosen.find(item => item.conflict);
+    if (conflicted) {
+        return {
+            code: 'conflict',
+            message: `${conflicted.path} conflicts with git's commit ${conflicted.conflict!.slice(0, 7)}: resolve or discard it first.`,
+        };
+    }
+    const changes: GitChanges = {};
+    for (const row of chosen.flatMap(item => item.rows)) {
+        changes[row.path] = row.deleted ? null : (row.content ?? '');
+    }
+    return { changes };
+}
+
+/**
+ * A Commit on a work branch: pushed on its tip as git has it now, after the whole tree is validated (an invalid one is
+ * refused with its errors). Only the environment's branch is reconciled into the tables: here nothing else changes.
+ */
+async function commitOnBranch(ctx: UseCaseContext, branch: WorkBranch, request: CommitRequest): Promise<UseCaseResult<string>> {
+    await refuseReadOnly(ctx, branch);
+    if (request.deploy) {
+        return fail('conflict', `A flow is deployed from the environment's branch: on ${branch.branch}, Commit its changes.`);
+    }
+    const author = await gitAuthorOf(ctx);
+    return onClone(ctx, `Git could not be reached, nothing was committed`, remote =>
+        ctx.db.transaction(async (db): Promise<UseCaseResult<string>> => {
+            const at = { ...ctx, db };
+            await lockBranch(db, ctx.workspaceId, branch.branch);
+            const tip = await remote.fetch(branch.branch);
+            if (!tip) {
+                return fail('conflict', `The branch ${branch.branch} is not in the repository any more: nothing was committed.`);
+            }
+            const { items } = await workingItems(at, branch);
+            const chosen = chosenChanges(items, request.paths);
+            if ('code' in chosen) {
+                return { ok: false, error: chosen };
+            }
+            const { changes } = chosen;
+            const tipFiles = tip === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, tip, branch.slug);
+            // a file another commit changed since its base is merged when the branch moves (#57): until then, refused
+            const moved = Object.keys(changes).filter(path => (tipFiles[path] ?? null) !== (branch.tipFiles[path] ?? null));
+            if (moved.length > 0) {
+                return fail('conflict', `${moved.join(', ')} changed on ${branch.branch} meanwhile: nothing was committed.`);
+            }
+            for (const [path, content] of Object.entries(changes)) {
+                if (content === (tipFiles[path] ?? null)) {
+                    delete changes[path];
+                }
+            }
+            if (Object.keys(changes).length === 0) {
+                return fail('validation', 'Nothing to commit.');
+            }
+
+            const commit = await remote.commit({ parent: tip, changes, message: request.message, author });
+            const files = await readBranchWorkspace(remote, commit, branch.slug);
+            const { errors } = await validateImport(db, ctx.workspaceId, branch.slug, files);
+            if (errors.length > 0) {
+                return fail('validation', `The commit on ${branch.branch} would not be valid: nothing was committed.`, issueFields(errors));
+            }
+            try {
+                await remote.push(commit, branch.branch, tip);
+            } catch (e) {
+                if (e instanceof GitError && (await remote.branches()).get(branch.branch) !== tip) {
+                    return fail('conflict', `The branch ${branch.branch} moved during the push: nothing was committed, try again.`);
+                }
+                throw e;
+            }
+            await markCommitted(at, changes, branch.branch);
+            await noteHead(db, ctx.workspaceId, ctx.userId, branch.branch, commit);
+            return success(commit);
+        }),
+    );
+}
+
+async function markCommitted(ctx: UseCaseContext, changes: GitChanges, branch = ENVIRONMENT_BRANCH): Promise<void> {
     for (const [path, content] of Object.entries(changes)) {
         await ctx.db.query(
             `UPDATE working_copy SET base = $4, content = coalesce($5, content), conflict = NULL, updated_at = now()
            WHERE workspace_id = $1 AND branch = $2 AND path = $3`,
-            [
-                ctx.workspaceId,
-                ENVIRONMENT_BRANCH,
-                path,
-                content === null ? null : await saveBlob(ctx.db, ctx.workspaceId, content),
-                content,
-            ],
+            [ctx.workspaceId, branch, path, content === null ? null : await saveBlob(ctx.db, ctx.workspaceId, content), content],
         );
     }
 }
@@ -283,26 +366,47 @@ export async function discardWorkingCopy(
     ctx: UseCaseContext,
     which: { paths: string[] } | 'mine',
 ): Promise<UseCaseResult<{ discarded: string[] }>> {
-    await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
+    const branch = await workBranch(ctx);
+    if (branch) {
+        await refuseReadOnly(ctx, branch);
+    } else {
+        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
+    }
     return ctx.db.transaction(async db => {
         const at = { ...ctx, db };
-        await lockReconcile(db, ctx.workspaceId);
-        const { items, files } = await workingItems(at);
+        if (branch) {
+            await lockBranch(db, ctx.workspaceId, branch.branch);
+        } else {
+            await lockReconcile(db, ctx.workspaceId);
+        }
+        const { items, files } = await workingItems(at, branch);
         const chosen = withDependents(items, which === 'mine' ? items.filter(i => i.mine) : chosenBy(items, which.paths));
         if (chosen.length === 0) {
             return fail('not-found', 'No such change.');
         }
-        const rows = chosen.flatMap(item => item.rows);
-        const bases = await scriptBlobs(
-            db,
-            ctx.workspaceId,
-            rows.flatMap(r => (r.base ? [r.base] : [])),
-        );
-        // a file in conflict goes back to what git has now, not to the base it could not be merged from
-        const committed = new Map<WorkingRow, string | null>();
-        for (const row of rows) {
-            committed.set(row, row.conflict ? await committedText(at, row) : row.base ? (bases.get(row.base) ?? '') : null);
+        await putBack(at, branch, chosen, files);
+        return success({ discarded: chosen.map(item => item.path).sort() });
+    });
+}
+
+/** these changes back as committed: the tables follow on the environment's branch (a work branch has none) */
+async function putBack(ctx: UseCaseContext, branch: WorkBranch | null, chosen: Item[], files: RepoFiles): Promise<void> {
+    const rows = chosen.flatMap(item => item.rows);
+    const bases = await scriptBlobs(
+        ctx.db,
+        ctx.workspaceId,
+        rows.flatMap(r => (r.base ? [r.base] : [])),
+    );
+    // a file in conflict goes back to what git has now, not to the base it could not be merged from
+    const committed = new Map<WorkingRow, string | null>();
+    for (const row of rows) {
+        if (row.conflict) {
+            committed.set(row, branch ? (branch.tipFiles[row.path] ?? null) : await committedText(ctx, row));
+        } else {
+            committed.set(row, row.base ? (bases.get(row.base) ?? '') : null);
         }
+    }
+    if (!branch) {
         const working = { ...files };
         for (const [row, text] of committed) {
             if (text === null) {
@@ -311,24 +415,23 @@ export async function discardWorkingCopy(
                 working[row.path] = text;
             }
         }
-        await importStructure(at, await workspaceSlug(at), working, { keep: true });
-        for (const [row, text] of committed) {
-            await db.query(
-                `UPDATE working_copy SET content = coalesce($4, content), deleted = $5, base = $6, conflict = NULL, edited_by = $7,
-               revision = revision + 1, updated_at = now() WHERE workspace_id = $1 AND branch = $2 AND path = $3`,
-                [
-                    ctx.workspaceId,
-                    ENVIRONMENT_BRANCH,
-                    row.path,
-                    text,
-                    text === null,
-                    text === null ? null : await saveBlob(db, ctx.workspaceId, text),
-                    ctx.userId,
-                ],
-            );
-        }
-        return success({ discarded: chosen.map(item => item.path).sort() });
-    });
+        await importStructure(ctx, await workspaceSlug(ctx), working, { keep: true });
+    }
+    for (const [row, text] of committed) {
+        await ctx.db.query(
+            `UPDATE working_copy SET content = coalesce($4, content), deleted = $5, base = $6, conflict = NULL, edited_by = $7,
+           revision = revision + 1, updated_at = now() WHERE workspace_id = $1 AND branch = $2 AND path = $3`,
+            [
+                ctx.workspaceId,
+                branch?.branch ?? ENVIRONMENT_BRANCH,
+                row.path,
+                text,
+                text === null,
+                text === null ? null : await saveBlob(ctx.db, ctx.workspaceId, text),
+                ctx.userId,
+            ],
+        );
+    }
 }
 
 /** a file's text as the branch has it now (a flow's version in the repo, a script in the deployed set), else its base */
@@ -359,4 +462,95 @@ export function deployedText(path: string, text: string): string {
     const entry = repoEntry(path);
     const read = entry.kind === 'flow' ? repoFlowFromYaml(text, entry.name) : null;
     return read?.ok ? repoFlowToYaml(read.value.flow) : text;
+}
+
+export type CreatedBranch = { branch: string; taken: string[] };
+
+/**
+ * A new branch, cut from the tip of the user's current branch and pushed at once; it becomes their current branch. It
+ * takes the working copy along, as `git switch -c` does: from one's own branch all of it, from the environment's or a
+ * shared branch only one's own changes (and what needs them); they leave the branch they were on.
+ */
+export async function createBranch(ctx: UseCaseContext, name: string): Promise<UseCaseResult<CreatedBranch>> {
+    const git = await gitBranch(ctx.db, ctx.workspaceId);
+    if (!git?.branch) {
+        return fail('conflict', 'Git is off in this workspace: there are no branches.');
+    }
+    const invalid = gitBranchNameError(name);
+    if (invalid) {
+        return fail('validation', 'The request has invalid fields.', { name: invalid });
+    }
+    const editor = await editorOf(ctx.db, ctx.workspaceId, ctx.userId);
+    const { kind, owner } = branchKind(name, [...editor.environments, git.branch]);
+    if (kind === 'environment' || kind === 'app') {
+        return fail('validation', 'The request has invalid fields.', {
+            name: kind === 'environment' ? "That is an environment's branch." : 'That name is kept for the branches the app makes.',
+        });
+    }
+    if (kind === 'user' && owner !== editor.handle) {
+        return fail('validation', 'The request has invalid fields.', {
+            name: `users/${owner}/… is ${owner}'s: name yours users/${editor.handle}/…`,
+        });
+    }
+    const [held] = await ctx.db.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM working_copy WHERE workspace_id = $1 AND branch = $2',
+        [ctx.workspaceId, name],
+    );
+    if (held!.n > 0) {
+        return fail('conflict', `This server still has changes on a branch ${name}: pick another name.`);
+    }
+
+    const source = await workBranch(ctx);
+    const from = source?.branch ?? git.branch;
+    return onClone(ctx, `Git could not be reached, no branch was created`, async remote => {
+        const branches = await remote.branches();
+        if ([...branches.keys()].some(b => b.toLowerCase() === name.toLowerCase())) {
+            return fail('conflict', `The branch ${name} already exists.`, { name: 'Already exists' });
+        }
+        const tip = await remote.fetch(from, branches);
+        if (!tip) {
+            return fail('conflict', `The branch ${from} is not in the repository any more.`);
+        }
+        await remote.push(tip, name, null);
+
+        return ctx.db.transaction(async db => {
+            const at = { ...ctx, db };
+            if (source) {
+                await lockBranch(db, ctx.workspaceId, source.branch);
+            } else {
+                await lockReconcile(db, ctx.workspaceId);
+            }
+            const { items, files } = await workingItems(at, source);
+            const own = source !== null && branchKind(source.branch, editor.environments).owner === editor.handle;
+            const taken = own
+                ? items
+                : withDependents(
+                      items,
+                      items.filter(i => i.mine),
+                  );
+            const paths = taken.flatMap(item => item.rows.map(r => r.path));
+            await db.query(
+                `INSERT INTO working_copy (workspace_id, branch, path, content, deleted, file_id, base, edited_by, conflict, revision, updated_at)
+               SELECT workspace_id, $3, path, content, deleted, file_id, base, edited_by, conflict, revision, updated_at
+                 FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND path = ANY($4::text[])`,
+                [ctx.workspaceId, source?.branch ?? ENVIRONMENT_BRANCH, name, paths],
+            );
+            if (source) {
+                await db.query('DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND path = ANY($3::text[])', [
+                    ctx.workspaceId,
+                    source.branch,
+                    paths,
+                ]);
+            } else if (taken.length > 0) {
+                await putBack(at, null, taken, files);
+            }
+            await noteHead(db, ctx.workspaceId, ctx.userId, name, tip);
+            await db.query(
+                `INSERT INTO user_branches (workspace_id, user_id, branch) VALUES ($1, $2, $3)
+                 ON CONFLICT (workspace_id, user_id) DO UPDATE SET branch = EXCLUDED.branch, updated_at = now()`,
+                [ctx.workspaceId, ctx.userId, name],
+            );
+            return success({ branch: name, taken: taken.map(item => item.path).sort() });
+        });
+    });
 }

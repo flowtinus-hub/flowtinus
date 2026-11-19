@@ -7,10 +7,10 @@ import type { Folder } from '#features/folders/folder';
 import type { Project } from '#features/projects/project';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
-import { canEditBranch, currentBranch } from './current-branch';
+import { canEditBranch, currentBranch, editorOf } from './current-branch';
 import { gitAccess, gitBranch, readGitConfig } from './git-config';
 import { readHeads } from './git-heads';
-import { GitError, withWorkspaceClone } from './git-remote';
+import { GitError, withWorkspaceClone, type GitRemote } from './git-remote';
 import type { RepoFiles } from './workspace-export';
 import { overlayRows, workingRows, type WorkingRow } from './working-copy';
 
@@ -29,8 +29,11 @@ export type BranchScript = { path: string; content: string; revision: number; up
 export type WorkBranch = {
     branch: string;
     tip: string;
-    /** whether this user may change it (read only until #56 opens work branches to edits) */
+    /** whether this user may change it: a shared branch, or their own */
     editable: boolean;
+    slug: string;
+    /** the files at the tip, without the working copy */
+    tipFiles: RepoFiles;
     projects: Project[];
     folders: BranchFolder[];
     flows: BranchFlow[];
@@ -64,33 +67,38 @@ async function slugOf(ctx: UseCaseContext): Promise<string> {
     return row!.slug;
 }
 
+/** work on the workspace's clone; git out of reach is `unavailable`, saying `what` could not be done */
+export async function onClone<T>(ctx: UseCaseContext, what: string, work: (remote: GitRemote) => Promise<T>): Promise<T> {
+    const config = await readGitConfig(ctx.db, ctx.workspaceId);
+    if (!config || !ctx.git) {
+        throw new UseCaseFailure('unavailable', 'Git is on, but this server has no git options.');
+    }
+    const access = await gitAccess(ctx, config);
+    if (!access.ok) {
+        throw new UseCaseFailure(access.error.code, access.error.message);
+    }
+    try {
+        return await withWorkspaceClone(ctx.git.clonesDir, ctx.workspaceId, access.value, work);
+    } catch (e) {
+        if (e instanceof GitError) {
+            throw new UseCaseFailure('unavailable', `${what}: ${e.message}`);
+        }
+        throw e;
+    }
+}
+
 function readTip(ctx: UseCaseContext, branch: string, sha: string, slug: string): Promise<Tip> {
-    return cachedTip(`${ctx.workspaceId}:${sha}`, async () => {
-        const config = await readGitConfig(ctx.db, ctx.workspaceId);
-        if (!config || !ctx.git) {
-            throw new UseCaseFailure('unavailable', 'Git is on, but this server has no git options.');
-        }
-        const access = await gitAccess(ctx, config);
-        if (!access.ok) {
-            throw new UseCaseFailure(access.error.code, access.error.message);
-        }
-        try {
-            return await withWorkspaceClone(ctx.git.clonesDir, ctx.workspaceId, access.value, async remote => {
-                // a head another server fetched: this server's clone may not have it yet
-                if (!(await remote.hasCommit(sha))) {
-                    await remote.fetch(branch);
-                }
-                const files = await remote.files(sha, [slug, '.gitattributes']);
-                const at = new Date((await remote.run(['show', '-s', '--format=%cI', sha])).trim());
-                return { files, at, flows: new Map() };
-            });
-        } catch (e) {
-            if (e instanceof GitError) {
-                throw new UseCaseFailure('unavailable', `The branch ${branch} could not be read from git: ${e.message}`);
+    return cachedTip(`${ctx.workspaceId}:${sha}`, () =>
+        onClone(ctx, `The branch ${branch} could not be read from git`, async remote => {
+            // a head another server fetched: this server's clone may not have it yet
+            if (!(await remote.hasCommit(sha))) {
+                await remote.fetch(branch);
             }
-            throw e;
-        }
-    });
+            const files = await remote.files(sha, [slug, '.gitattributes']);
+            const at = new Date((await remote.run(['show', '-s', '--format=%cI', sha])).trim());
+            return { files, at, flows: new Map() };
+        }),
+    );
 }
 
 function readFlow(tip: Tip, path: string, text: string, name: string): RepoFlow | null {
@@ -108,7 +116,7 @@ function readFlow(tip: Tip, path: string, text: string, name: string): RepoFlow 
 }
 
 /** an id for a folder of a branch, made from its project and path: the same on each read */
-function folderId(projectId: string, names: string[]): string {
+export function branchFolderId(projectId: string, names: string[]): string {
     const h = new Bun.CryptoHasher('sha256').update(`${projectId}/${names.join('/').toLowerCase()}`).digest('hex');
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
@@ -139,8 +147,12 @@ async function readWorkBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
     }
 
     const slug = await slugOf(ctx);
-    const [tip, rows] = await Promise.all([readTip(ctx, branch, sha, slug), workingRows(ctx.db, ctx.workspaceId, branch)]);
-    return buildBranch(ctx, { branch, sha, slug, tip, rows, editable: canEditBranch(branch, git.branch) });
+    const [tip, rows, editor] = await Promise.all([
+        readTip(ctx, branch, sha, slug),
+        workingRows(ctx.db, ctx.workspaceId, branch),
+        editorOf(ctx.db, ctx.workspaceId, ctx.userId),
+    ]);
+    return buildBranch(ctx, { branch, sha, slug, tip, rows, editable: canEditBranch(branch, git.branch, editor) });
 }
 
 async function buildBranch(
@@ -187,7 +199,7 @@ async function buildBranch(
     const folderOf = (projectId: string, names: string[]): string | null => {
         let parentId: string | null = null;
         for (let i = 1; i <= names.length; i++) {
-            const id = folderId(projectId, names.slice(0, i));
+            const id = branchFolderId(projectId, names.slice(0, i));
             if (!folders.has(id)) {
                 folders.set(id, {
                     id,
@@ -288,6 +300,8 @@ async function buildBranch(
         branch,
         tip: sha,
         editable,
+        slug,
+        tipFiles: tip.files,
         projects: projects.sort(byName),
         folders: [...folders.values()].sort(byName),
         flows: flows.sort(byName),

@@ -73,6 +73,8 @@ export function FlowEditorPage() {
     const archived = Boolean(current?.flow?.archivedAt);
     // read from a branch the user cannot edit: nothing is saved, it still runs (what the branch has)
     const onBranch = Boolean(current?.flow?.readOnly) && !archived;
+    // on a work branch, editable or not: deploy, schedules and webhooks are the environment's
+    const onWorkBranch = Boolean(current?.flow?.workBranch);
     const [restoring, setRestoring] = useState<{ busy: boolean; error?: string }>({ busy: false });
     // Download: the canvas as it is now, as the core's YAML flow file
     const canvas = useRef<CanvasHandle | null>(null);
@@ -422,7 +424,7 @@ export function FlowEditorPage() {
                                             // which workers run it, before Arrange
                                             <WorkerTagMenu
                                                 flow={current.flow}
-                                                readOnly={archived || onBranch}
+                                                readOnly={archived || onBranch || onWorkBranch}
                                                 onChanged={flow =>
                                                     setLoaded(previous => (previous?.flow ? { ...previous, flow } : previous))
                                                 }
@@ -431,7 +433,7 @@ export function FlowEditorPage() {
                                     }
                                     toolsAfter={
                                         current?.flow &&
-                                        !onBranch && (
+                                        !onWorkBranch && (
                                             // after Group: Deploy, and the schedules of the deployed version
                                             <>
                                                 <DeployMenu

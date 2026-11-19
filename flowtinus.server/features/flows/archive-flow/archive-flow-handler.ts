@@ -1,3 +1,5 @@
+import { workBranch } from '#features/git/branch-read';
+import { archiveFlowOnBranch } from '#features/git/branch-edits';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
 import { undeployArchived } from '#features/deployments/deployments';
@@ -27,6 +29,10 @@ export class ArchiveFlowHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return archiveFlowOnBranch(ctx, branch, id);
+        }
         const archived = await changeTree(ctx, async tx => {
             if (!(await new FlowRepository(tx, ctx.workspaceId).softDelete(id, ctx.userId))) {
                 return false;

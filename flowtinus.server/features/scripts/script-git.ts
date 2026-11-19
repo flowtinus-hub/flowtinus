@@ -1,3 +1,4 @@
+import { workBranch } from '#features/git/branch-read';
 import { z } from 'zod';
 import { and, eq, isNull } from 'drizzle-orm';
 import { flowWithScriptsMoved, movedScriptImports, normalizeScriptPath, scriptCodeOf, scriptImports, type FlowFile } from '@flowtinus/core';
@@ -17,23 +18,33 @@ import { workingScripts, writeScript } from './script-store';
 
 export type ScriptState = { changed: boolean; conflict?: string };
 
-/** a project's scripts' rows in the working copy of the environment's branch, by script path */
-async function scriptRows(db: Database, workspaceId: string, projectId: string): Promise<Map<string, WorkingRow>> {
+/** a project's scripts' rows in the working copy of a branch (the environment's by default), by script path */
+async function scriptRows(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+    branch = ENVIRONMENT_BRANCH,
+): Promise<Map<string, WorkingRow>> {
     const prefix = scriptFileId(projectId, '');
     const rows = await db.query<WorkingRow>(
         `SELECT path, content, deleted, file_id, base, edited_by, conflict, revision, updated_at FROM working_copy
        WHERE workspace_id = $1 AND branch = $2 AND starts_with(file_id, $3)`,
-        [workspaceId, ENVIRONMENT_BRANCH, prefix],
+        [workspaceId, branch, prefix],
     );
     return new Map([...bestRows(rows)].map(([fileId, row]) => [fileId.slice(prefix.length), row]));
 }
 
 /** with git on, each script against the script as committed: changed (or never committed), in conflict */
-export async function scriptStates(db: Database, workspaceId: string, projectId: string): Promise<Map<string, ScriptState> | null> {
+export async function scriptStates(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+    branch = ENVIRONMENT_BRANCH,
+): Promise<Map<string, ScriptState> | null> {
     if (!(await isGitOn(db, workspaceId))) {
         return null;
     }
-    const rows = await scriptRows(db, workspaceId, projectId);
+    const rows = await scriptRows(db, workspaceId, projectId, branch);
     return new Map([...rows].map(([path, row]) => [path, { changed: isChange(row), ...(row.conflict ? { conflict: row.conflict } : {}) }]));
 }
 
@@ -77,8 +88,14 @@ export async function rewriteMovedScript(ctx: UseCaseContext, projectId: string,
 
 const projectId = z.uuid('Invalid');
 
-export async function workingScriptPaths(db: Database, workspaceId: string, projectId: string, paths: string[]): Promise<string[]> {
-    const rows = await scriptRows(db, workspaceId, projectId);
+export async function workingScriptPaths(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+    paths: string[],
+    branch = ENVIRONMENT_BRANCH,
+): Promise<string[]> {
+    const rows = await scriptRows(db, workspaceId, projectId, branch);
     return paths.flatMap(path => {
         const row = rows.get(path);
         return row ? [row.path] : [];
@@ -105,16 +122,17 @@ export class CommitScriptsHandler implements UseCaseHandler<{ commit: string }> 
         }
 
         const { projectId: id, paths, message } = parsed.value;
-        const missing = await requireActiveProject(ctx, id);
+        const branch = (await workBranch(ctx))?.branch ?? ENVIRONMENT_BRANCH;
+        const missing = branch === ENVIRONMENT_BRANCH ? await requireActiveProject(ctx, id) : null;
         if (missing && !missing.ok) {
             return missing;
         }
 
-        const files = await workingScriptPaths(ctx.db, ctx.workspaceId, id, paths);
+        const files = await workingScriptPaths(ctx.db, ctx.workspaceId, id, paths, branch);
         if (files.length === 0) {
             return fail('validation', 'Nothing to commit: the scripts are as committed.');
         }
-        const rows = await scriptRows(ctx.db, ctx.workspaceId, id);
+        const rows = await scriptRows(ctx.db, ctx.workspaceId, id, branch);
         const conflicted = paths.find(path => rows.get(path)?.conflict);
         if (conflicted) {
             const commit = rows.get(conflicted)!.conflict!.slice(0, 7);
@@ -141,7 +159,8 @@ export class DiscardScriptHandler implements UseCaseHandler<{ revision: number }
         }
 
         const { projectId: id, path } = parsed.value;
-        const row = (await scriptRows(ctx.db, ctx.workspaceId, id)).get(path);
+        const branch = (await workBranch(ctx))?.branch ?? ENVIRONMENT_BRANCH;
+        const row = (await scriptRows(ctx.db, ctx.workspaceId, id, branch)).get(path);
         if (!row) {
             return fail('not-found', 'Script not found.');
         }
@@ -152,6 +171,6 @@ export class DiscardScriptHandler implements UseCaseHandler<{ revision: number }
         if (!discarded.ok) {
             return discarded;
         }
-        return success({ revision: (await scriptRows(ctx.db, ctx.workspaceId, id)).get(path)?.revision ?? 0 });
+        return success({ revision: (await scriptRows(ctx.db, ctx.workspaceId, id, branch)).get(path)?.revision ?? 0 });
     }
 }

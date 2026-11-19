@@ -9,7 +9,7 @@ import type { RepoFiles, Tree } from './workspace-export';
 /*
  * The working copy: per branch, the files changed since what the branch holds, in the repo format (or deleted), each
  * with the hash of the text it was based on (in script_blobs; null: a file the branch does not have), its last editor
- * and a conflict mark (the commit it could not be merged with). Only the environment's branch has one so far.
+ * and a conflict mark (the commit it could not be merged with). The environment's branch is ENVIRONMENT_BRANCH; a work branch is keyed by its name.
  *
  * A row stays once its file is back as committed (a clean row): its revision keeps counting, so an editor that read
  * it is not told to reload. A deleted row keeps its last text, so that restoring an archived flow brings its draft
@@ -60,31 +60,31 @@ export function bestRows(rows: WorkingRow[]): Map<string, WorkingRow> {
     return best;
 }
 
-export async function fileRow(db: Database, workspaceId: string, fileId: string): Promise<WorkingRow | null> {
+export async function fileRow(db: Database, workspaceId: string, fileId: string, branch = ENVIRONMENT_BRANCH): Promise<WorkingRow | null> {
     const [row] = await db.query<WorkingRow>(
         `SELECT path, content, deleted, file_id, base, edited_by, conflict, revision, updated_at FROM working_copy
        WHERE workspace_id = $1 AND branch = $2 AND file_id = $3 ORDER BY deleted, updated_at DESC LIMIT 1`,
-        [workspaceId, ENVIRONMENT_BRANCH, fileId],
+        [workspaceId, branch, fileId],
     );
     return row ?? null;
 }
 
-const rowAt = async (db: Database, workspaceId: string, path: string) =>
+const rowAt = async (db: Database, workspaceId: string, path: string, branch: string) =>
     (
         await db.query<WorkingRow>(
             `SELECT path, content, deleted, file_id, base, edited_by, conflict, revision, updated_at FROM working_copy
          WHERE workspace_id = $1 AND branch = $2 AND path = $3`,
-            [workspaceId, ENVIRONMENT_BRANCH, path],
+            [workspaceId, branch, path],
         )
     )[0] ?? null;
 
-async function carriedRevision(db: Database, workspaceId: string, fileId: string | null): Promise<number> {
+async function carriedRevision(db: Database, workspaceId: string, fileId: string | null, branch: string): Promise<number> {
     if (!fileId) {
         return 0;
     }
     const [row] = await db.query<{ revision: number | null }>(
         'SELECT max(revision) AS revision FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND file_id = $3',
-        [workspaceId, ENVIRONMENT_BRANCH, fileId],
+        [workspaceId, branch, fileId],
     );
     return row?.revision ?? 0;
 }
@@ -95,24 +95,24 @@ type Written = { path: string; content: string; fileId: string | null; userId: s
  * A file's new text in the working copy. A row is made with the committed text as its base (`committed`, or none for
  * a file the branch does not have); the revision grows by one, or is the one given.
  */
-export async function writeFile(db: Database, workspaceId: string, file: Written): Promise<number> {
-    const row = await rowAt(db, workspaceId, file.path);
+export async function writeFile(db: Database, workspaceId: string, file: Written, branch = ENVIRONMENT_BRANCH): Promise<number> {
+    const row = await rowAt(db, workspaceId, file.path, branch);
     if (row) {
         const revision = file.revision ?? row.revision + 1;
         await db.query(
             `UPDATE working_copy SET content = $4, deleted = false, file_id = $5, edited_by = $6, revision = $7, updated_at = now()
          WHERE workspace_id = $1 AND branch = $2 AND path = $3`,
-            [workspaceId, ENVIRONMENT_BRANCH, file.path, file.content, file.fileId, file.userId, revision],
+            [workspaceId, branch, file.path, file.content, file.fileId, file.userId, revision],
         );
         return revision;
     }
 
     const base = file.committed === undefined ? null : await saveBlob(db, workspaceId, file.committed);
-    const revision = file.revision ?? (await carriedRevision(db, workspaceId, file.fileId)) + 1;
+    const revision = file.revision ?? (await carriedRevision(db, workspaceId, file.fileId, branch)) + 1;
     await db.query(
         `INSERT INTO working_copy (workspace_id, branch, path, content, file_id, base, edited_by, revision)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [workspaceId, ENVIRONMENT_BRANCH, file.path, file.content, file.fileId, base, file.userId, revision],
+        [workspaceId, branch, file.path, file.content, file.fileId, base, file.userId, revision],
     );
     return revision;
 }
@@ -122,13 +122,14 @@ export async function removeFile(
     db: Database,
     workspaceId: string,
     file: { path: string; fileId: string | null; userId: string | null; last?: string; committed?: string },
+    branch = ENVIRONMENT_BRANCH,
 ): Promise<void> {
-    const row = await rowAt(db, workspaceId, file.path);
+    const row = await rowAt(db, workspaceId, file.path, branch);
     if (row) {
         if (!row.deleted) {
             await db.query(
                 `UPDATE working_copy SET deleted = true, edited_by = $4, updated_at = now() WHERE workspace_id = $1 AND branch = $2 AND path = $3`,
-                [workspaceId, ENVIRONMENT_BRANCH, file.path, file.userId],
+                [workspaceId, branch, file.path, file.userId],
             );
         }
         return;
@@ -142,13 +143,13 @@ export async function removeFile(
        VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8)`,
         [
             workspaceId,
-            ENVIRONMENT_BRANCH,
+            branch,
             file.path,
             file.last ?? file.committed,
             file.fileId,
             base,
             file.userId,
-            await carriedRevision(db, workspaceId, file.fileId),
+            await carriedRevision(db, workspaceId, file.fileId, branch),
         ],
     );
 }
@@ -157,7 +158,14 @@ export async function removeFile(
  * A change of the tables (a rename, a folder, a project, a connection, an archive...) recorded in the working copy:
  * every file whose text differs between the trees before and after it. A file with no row was, before, as committed.
  */
-export async function recordChanges(db: Database, workspaceId: string, before: Tree, after: Tree, userId: string | null): Promise<void> {
+export async function recordChanges(
+    db: Database,
+    workspaceId: string,
+    before: Tree,
+    after: Tree,
+    userId: string | null,
+    branch = ENVIRONMENT_BRANCH,
+): Promise<void> {
     const paths = new Set([...Object.keys(before.files), ...Object.keys(after.files)]);
     for (const path of [...paths].sort()) {
         const was = before.files[path];
@@ -167,22 +175,27 @@ export async function recordChanges(db: Database, workspaceId: string, before: T
         }
         const fileId = after.ids[path] ?? before.ids[path] ?? null;
         if (now === undefined) {
-            await removeFile(db, workspaceId, { path, fileId, userId, committed: was, last: was });
+            await removeFile(db, workspaceId, { path, fileId, userId, committed: was, last: was }, branch);
             continue;
         }
-        const row = await rowAt(db, workspaceId, path);
+        const row = await rowAt(db, workspaceId, path, branch);
         if (row && !row.deleted && row.content === now) {
             continue;
         }
         // a file moved keeps the revision its editor read
-        await writeFile(db, workspaceId, {
-            path,
-            content: now,
-            fileId,
-            userId,
-            ...(row ? {} : { revision: await carriedRevision(db, workspaceId, fileId) }),
-            ...(row || was === undefined ? {} : { committed: was }),
-        });
+        await writeFile(
+            db,
+            workspaceId,
+            {
+                path,
+                content: now,
+                fileId,
+                userId,
+                ...(row ? {} : { revision: await carriedRevision(db, workspaceId, fileId, branch) }),
+                ...(row || was === undefined ? {} : { committed: was }),
+            },
+            branch,
+        );
     }
 }
 
