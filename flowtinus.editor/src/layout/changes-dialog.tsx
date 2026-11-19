@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleCheck, GitCommitHorizontal, Lock, LoaderCircle, TriangleAlert, Undo2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleCheck, GitCommitHorizontal, Lock, LoaderCircle, TriangleAlert, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
 import type { ApiError } from '@/lib/api';
 import { ConflictDialog } from './conflict-dialog';
+import { FileDiffView } from './file-diff';
 
 const CHANGE_LABEL: Record<WorkingChange['change'], string> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
 
@@ -41,10 +42,13 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     const [error, setError] = useState<ApiError | null>(null);
     const [committed, setCommitted] = useState<string | null>(null);
     const [resolving, setResolving] = useState<string | null>(null);
+    const [diffOf, setDiffOf] = useState<string | null>(null);
+    const [loads, setLoads] = useState(0);
 
     const load = useCallback(async () => {
         const result = await getChanges(slug);
         if (result.ok) {
+            setLoads(n => n + 1);
             const pending = result.value.merge ?? null;
             setChanges(result.value.changes);
             setMerge(pending);
@@ -103,7 +107,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
 
     return (
         <Dialog open onOpenChange={isOpen => !isOpen && !busy && onClose()}>
-            <DialogContent className="sm:max-w-2xl">
+            <DialogContent className="sm:max-w-3xl">
                 <DialogHeader>
                     <DialogTitle>Changes</DialogTitle>
                     <DialogDescription>
@@ -131,65 +135,83 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                 {merge.conflicts.length > 0 && ' Discard a conflicted file to keep this branch’s version of it.'}
                             </p>
                         )}
-                        <ul className="grid max-h-80 gap-1 overflow-y-auto text-sm">
+                        <ul className="grid max-h-[60vh] gap-1 overflow-y-auto text-sm">
                             {changes.map(change => {
                                 const reason = locked.get(change.path);
                                 return (
-                                    <li key={change.path} className="flex items-start gap-2">
-                                        <input
-                                            type="checkbox"
-                                            className="mt-1"
-                                            aria-label={shortPath(slug, change.path)}
-                                            checked={!!merge || chosen.has(change.path) || !!reason}
-                                            disabled={busy || !!merge || !!reason || !!change.conflict}
-                                            onChange={e => toggle(change.path, e.target.checked)}
-                                        />
-                                        <span className="w-4 font-mono text-xs text-muted-foreground" title={change.change}>
-                                            {CHANGE_LABEL[change.change]}
-                                        </span>
-                                        <span className="grid min-w-0 flex-1">
-                                            <span className="truncate font-mono text-xs">
-                                                {change.from && `${shortPath(slug, change.from)} → `}
-                                                {shortPath(slug, change.path)}
+                                    <li key={change.path} className="grid gap-1">
+                                        <div className="flex items-start gap-2">
+                                            <input
+                                                type="checkbox"
+                                                className="mt-1"
+                                                aria-label={shortPath(slug, change.path)}
+                                                checked={!!merge || chosen.has(change.path) || !!reason}
+                                                disabled={busy || !!merge || !!reason || !!change.conflict}
+                                                onChange={e => toggle(change.path, e.target.checked)}
+                                            />
+                                            <span className="w-4 font-mono text-xs text-muted-foreground" title={change.change}>
+                                                {CHANGE_LABEL[change.change]}
                                             </span>
-                                            {!change.mine && (
-                                                <span className="text-xs text-muted-foreground">
-                                                    edited by {change.editedByName ?? change.editedBy ?? 'someone else'}
-                                                </span>
-                                            )}
-                                            {reason && (
-                                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                                    <Lock className="size-3" />
-                                                    {reason}
-                                                </span>
-                                            )}
+                                            <span className="grid min-w-0 flex-1">
+                                                <button
+                                                    type="button"
+                                                    className="flex min-w-0 items-center gap-1 text-left hover:underline"
+                                                    title={diffOf === change.path ? 'Hide the diff' : 'Show the diff'}
+                                                    aria-expanded={diffOf === change.path}
+                                                    onClick={() => setDiffOf(diffOf === change.path ? null : change.path)}
+                                                >
+                                                    {diffOf === change.path ? (
+                                                        <ChevronDown className="size-3 shrink-0" />
+                                                    ) : (
+                                                        <ChevronRight className="size-3 shrink-0" />
+                                                    )}
+                                                    <span className="truncate font-mono text-xs">
+                                                        {change.from && `${shortPath(slug, change.from)} → `}
+                                                        {shortPath(slug, change.path)}
+                                                    </span>
+                                                </button>
+                                                {!change.mine && (
+                                                    <span className="text-xs text-muted-foreground">
+                                                        edited by {change.editedByName ?? change.editedBy ?? 'someone else'}
+                                                    </span>
+                                                )}
+                                                {reason && (
+                                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                                        <Lock className="size-3" />
+                                                        {reason}
+                                                    </span>
+                                                )}
+                                                {change.conflict && (
+                                                    <span className="text-xs text-red-700 dark:text-red-400">
+                                                        conflicts with {change.conflict.slice(0, 7)}: resolve or discard it first
+                                                    </span>
+                                                )}
+                                            </span>
                                             {change.conflict && (
-                                                <span className="text-xs text-red-700 dark:text-red-400">
-                                                    conflicts with {change.conflict.slice(0, 7)}: resolve or discard it first
-                                                </span>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 border-amber-500/60"
+                                                    disabled={busy}
+                                                    onClick={() => setResolving(change.path)}
+                                                >
+                                                    <TriangleAlert className="text-amber-500" /> Resolve
+                                                </Button>
                                             )}
-                                        </span>
-                                        {change.conflict && (
                                             <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-7 border-amber-500/60"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="size-7"
+                                                title="Discard this change"
                                                 disabled={busy}
-                                                onClick={() => setResolving(change.path)}
+                                                onClick={() => void discard({ paths: [change.path] })}
                                             >
-                                                <TriangleAlert className="text-amber-500" /> Resolve
+                                                <Undo2 />
                                             </Button>
+                                        </div>
+                                        {diffOf === change.path && (
+                                            <FileDiffView key={loads} slug={slug} path={change.path} className="ml-6" />
                                         )}
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="size-7"
-                                            title="Discard this change"
-                                            disabled={busy}
-                                            onClick={() => void discard({ paths: [change.path] })}
-                                        >
-                                            <Undo2 />
-                                        </Button>
                                     </li>
                                 );
                             })}

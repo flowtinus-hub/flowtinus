@@ -4,6 +4,7 @@ import { CreateTopologyHandler, GetGitConfigHandler, GetTopologyHandler, GetTurn
 import { GetCurrentBranchHandler, SetCurrentBranchHandler } from '#features/git/current-branch';
 import { ListBranchesHandler } from '#features/git/branches';
 import { OpenPullRequestHandler } from '#features/git/pull-request';
+import { GetFileDiffHandler } from '#features/git/file-diff';
 import { CommitChangesHandler, CreateBranchHandler, DiscardChangesHandler, GetChangesHandler, GetConflictHandler, GetUpdateHandler, ResolveConflictHandler, UpdateBranchHandler } from '#features/git/working-copy-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
@@ -27,6 +28,7 @@ export function gitRoutes(options: GitOptions) {
         .put('/current-branch', async c => toHttpResult(c, await new SetCurrentBranchHandler().handle(await jsonBody(c), c.get('useCase'))))
         .post('/hook-token', async c => toHttpResult(c, await new RenewHookTokenHandler().handle({}, c.get('useCase'))))
         .get('/changes', async c => toHttpResult(c, await new GetChangesHandler().handle({}, c.get('useCase'))))
+        .get('/diff', async c => toHttpResult(c, await new GetFileDiffHandler().handle({ path: c.req.query('path') }, c.get('useCase'))))
         .post('/commit', async c => toHttpResult(c, await new CommitChangesHandler().handle(await jsonBody(c), c.get('useCase'))))
         .post('/discard', async c => toHttpResult(c, await new DiscardChangesHandler().handle(await jsonBody(c), c.get('useCase'))))
         .get('/update', async c => toHttpResult(c, await new GetUpdateHandler().handle({}, c.get('useCase'))))
