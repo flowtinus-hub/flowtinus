@@ -79,16 +79,31 @@ export async function editorOf(db: Database, workspaceId: string, userId: string
     return { handle: me?.handle ?? null, environments: heads?.environments ?? [] };
 }
 
-/** editable: whether the editor may change things on it (else it is read only) */
-export type CurrentBranchView = { branch: string | null; editable: boolean };
+/**
+ * editable: whether the editor may change things on it (else it is read only). removed: gone from the remote while
+ * this server has uncommitted changes on it (read only: they can be taken to a new branch or discarded).
+ */
+export type CurrentBranchView = { branch: string | null; editable: boolean; removed?: true };
 
-export async function currentBranchView(db: Database, workspaceId: string, userId: string): Promise<CurrentBranchView> {
-    const [git, branch, editor] = await Promise.all([
+/** the user's current branch, whether the branch rules let them change it, and whether it was removed on the remote */
+export async function branchAccess(
+    db: Database,
+    workspaceId: string,
+    userId: string,
+): Promise<{ branch: string | null; mayChange: boolean; removed: boolean }> {
+    const [git, branch, editor, heads] = await Promise.all([
         gitBranch(db, workspaceId),
         currentBranch(db, workspaceId, userId),
         editorOf(db, workspaceId, userId),
+        readHeads(db, workspaceId),
     ]);
-    return { branch, editable: canEditBranch(branch, git?.branch ?? null, editor) };
+    const removed = branch !== null && heads?.heads.some(h => h.name === branch && h.removed) === true;
+    return { branch, mayChange: canEditBranch(branch, git?.branch ?? null, editor), removed };
+}
+
+export async function currentBranchView(db: Database, workspaceId: string, userId: string): Promise<CurrentBranchView> {
+    const { branch, mayChange, removed } = await branchAccess(db, workspaceId, userId);
+    return { branch, editable: mayChange && !removed, ...(removed ? { removed: true as const } : {}) };
 }
 
 export function readOnlyBranch(branch: string, environments: string[]): string {
@@ -166,6 +181,6 @@ export class SetCurrentBranchHandler implements UseCaseHandler<CurrentBranchView
                 [ctx.workspaceId, ctx.userId, branch],
             );
         }
-        return success({ branch, editable: canEditBranch(branch, git.branch, await editorOf(ctx.db, ctx.workspaceId, ctx.userId)) });
+        return success(await currentBranchView(ctx.db, ctx.workspaceId, ctx.userId));
     }
 }

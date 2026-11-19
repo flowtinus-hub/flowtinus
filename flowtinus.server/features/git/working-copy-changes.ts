@@ -11,7 +11,7 @@ import { branchIds, lockBranch, noteHead, refuseReadOnly } from './branch-write'
 import { gitAuthorOf, gitBranch } from './git-config';
 import { GitError } from './git-remote';
 import { lockReconcile } from './reconcile';
-import { ENVIRONMENT_BRANCH, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
+import { ENVIRONMENT_BRANCH, followGit, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
 import { committedFlowText, exportTree, flowsInRepo, type GitChanges, type RepoFiles } from './workspace-export';
 import { importStructure, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 
@@ -305,18 +305,18 @@ async function commitOnBranch(ctx: UseCaseContext, branch: WorkBranch, request: 
             if (!tip) {
                 return fail('conflict', `The branch ${branch.branch} is not in the repository any more: nothing was committed.`);
             }
-            const { items } = await workingItems(at, branch);
+            // the branch may have moved since the last poll: its files are merged onto the tip first (a conflict stays marked)
+            const tipFiles = tip === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, tip, branch.slug);
+            await followGit(db, ctx.workspaceId, tipFiles, tip, branch.branch);
+            if (tip !== branch.tip) {
+                await noteHead(db, ctx.workspaceId, ctx.userId, branch.branch, tip);
+            }
+            const { items } = await workingItems(at, { ...branch, tip, tipFiles });
             const chosen = chosenChanges(items, request.paths);
             if ('code' in chosen) {
                 return { ok: false, error: chosen };
             }
             const { changes } = chosen;
-            const tipFiles = tip === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, tip, branch.slug);
-            // a file another commit changed since its base is merged when the branch moves (#57): until then, refused
-            const moved = Object.keys(changes).filter(path => (tipFiles[path] ?? null) !== (branch.tipFiles[path] ?? null));
-            if (moved.length > 0) {
-                return fail('conflict', `${moved.join(', ')} changed on ${branch.branch} meanwhile: nothing was committed.`);
-            }
             for (const [path, content] of Object.entries(changes)) {
                 if (content === (tipFiles[path] ?? null)) {
                     delete changes[path];
@@ -368,7 +368,7 @@ export async function discardWorkingCopy(
 ): Promise<UseCaseResult<{ discarded: string[] }>> {
     const branch = await workBranch(ctx);
     if (branch) {
-        await refuseReadOnly(ctx, branch);
+        await refuseReadOnly(ctx, branch, true);
     } else {
         await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
     }
@@ -507,11 +507,14 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
         if ([...branches.keys()].some(b => b.toLowerCase() === name.toLowerCase())) {
             return fail('conflict', `The branch ${name} already exists.`, { name: 'Already exists' });
         }
-        const tip = await remote.fetch(from, branches);
+        // a branch removed on the remote is cut from its last tip, which this server still has
+        const tip = source?.removed ? source.tip : await remote.fetch(from, branches);
         if (!tip) {
             return fail('conflict', `The branch ${from} is not in the repository any more.`);
         }
         await remote.push(tip, name, null);
+        const tipFiles =
+            tip === source?.tip ? source.tipFiles : await readBranchWorkspace(remote, tip, source?.slug ?? (await workspaceSlug(ctx)));
 
         return ctx.db.transaction(async db => {
             const at = { ...ctx, db };
@@ -544,6 +547,8 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
             } else if (taken.length > 0) {
                 await putBack(at, null, taken, files);
             }
+            // the changes' bases are what their branch held when they were made: onto the tip the new branch starts from
+            await followGit(db, ctx.workspaceId, tipFiles, tip, name);
             await noteHead(db, ctx.workspaceId, ctx.userId, name, tip);
             await db.query(
                 `INSERT INTO user_branches (workspace_id, user_id, branch) VALUES ($1, $2, $3)

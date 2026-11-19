@@ -29,8 +29,12 @@ export type BranchScript = { path: string; content: string; revision: number; up
 export type WorkBranch = {
     branch: string;
     tip: string;
-    /** whether this user may change it: a shared branch, or their own */
+    /** whether this user may change it: a shared branch, or their own, while it is on the remote */
     editable: boolean;
+    /** removed on the remote while this server has uncommitted changes on it: read at its last tip */
+    removed: boolean;
+    /** a shared branch or the user's own, removed or not: on a removed one, its changes may still be discarded or taken to a new branch */
+    mayChange: boolean;
     slug: string;
     /** the files at the tip, without the working copy */
     tipFiles: RepoFiles;
@@ -141,18 +145,20 @@ async function readWorkBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
     if (!git || branch === null || branch === git.branch) {
         return null;
     }
-    const sha = (await readHeads(ctx.db, ctx.workspaceId))?.heads.find(h => h.name === branch)?.sha;
-    if (!sha) {
+    const head = (await readHeads(ctx.db, ctx.workspaceId))?.heads.find(h => h.name === branch);
+    if (!head) {
         throw new UseCaseFailure('conflict', `The branch ${branch} is not in the repository: pick another branch.`);
     }
 
     const slug = await slugOf(ctx);
     const [tip, rows, editor] = await Promise.all([
-        readTip(ctx, branch, sha, slug),
+        readTip(ctx, branch, head.sha, slug),
         workingRows(ctx.db, ctx.workspaceId, branch),
         editorOf(ctx.db, ctx.workspaceId, ctx.userId),
     ]);
-    return buildBranch(ctx, { branch, sha, slug, tip, rows, editable: canEditBranch(branch, git.branch, editor) });
+    const mayChange = canEditBranch(branch, git.branch, editor);
+    const removed = head.removed === true;
+    return { ...(await buildBranch(ctx, { branch, sha: head.sha, slug, tip, rows, editable: mayChange && !removed })), removed, mayChange };
 }
 
 async function buildBranch(
@@ -165,7 +171,7 @@ async function buildBranch(
         rows,
         editable,
     }: { branch: string; sha: string; slug: string; tip: Tip; rows: WorkingRow[]; editable: boolean },
-): Promise<WorkBranch> {
+): Promise<Omit<WorkBranch, 'removed' | 'mayChange'>> {
     const files = overlayRows(tip.files, rows);
     const byPath = new Map(rows.map(r => [r.path, r]));
     const entries = Object.entries(files)

@@ -23,6 +23,8 @@ export type BranchView = {
     merged: boolean;
     /** uncommitted changes on this server */
     changes: number;
+    /** removed on the remote while this server has uncommitted changes on it: they can be taken to a new branch or discarded */
+    removed?: true;
 };
 
 export type BranchesView = { current: string | null; environment: string | null; branches: BranchView[]; fetchedAt: string | null };
@@ -96,9 +98,12 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 kind,
                 ...(owner ? { owner, ...(owners.has(owner) ? { ownerName: owners.get(owner) } : {}) } : {}),
                 mine: owner !== undefined && owner === me?.handle,
-                editable: canEditBranch(head.name, environment, { handle: me?.handle ?? null, environments: heads.environments }),
+                editable:
+                    !head.removed &&
+                    canEditBranch(head.name, environment, { handle: me?.handle ?? null, environments: heads.environments }),
                 merged: head.merged && changes === 0,
                 changes,
+                ...(head.removed ? { removed: true as const } : {}),
             });
         }
         branches.sort(
