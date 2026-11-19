@@ -88,7 +88,24 @@ export const REMOVED_BRANCH = 'Removed on the remote: create a branch with its c
 
 /** the remote's branches as the last fetch found them (the app's own left out), by kind */
 export const listBranches = (ws: string) =>
-    api<{ current: string | null; environment: string | null; branches: BranchInfo[]; fetchedAt: string | null }>(`/w/${ws}/git/branches`);
+    api<{ current: string | null; environment: string | null; mode: Mode; branches: BranchInfo[]; fetchedAt: string | null }>(
+        `/w/${ws}/git/branches`,
+    );
+
+export type PullRequest = {
+    branch: string;
+    target: string;
+    /** commits of the branch its target does not have */
+    commits: number;
+    /** commits from another work branch not yet merged, which leave the diff once that one is */
+    borrowed: { branch: string; commits: number }[];
+    provider: 'gitlab' | 'github' | null;
+    /** the provider's page for a new pull request; null for a provider the app does not know */
+    url: string | null;
+};
+
+/** the current work branch checked on the remote, with the link to the provider's page for its pull request into the environment's branch */
+export const openPullRequest = (ws: string) => api<PullRequest>(`/w/${ws}/git/pull-request`, { method: 'POST' });
 
 /**
  * A branch cut from the current branch's tip and pushed at once; it becomes the current branch. It takes the
