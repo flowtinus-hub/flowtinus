@@ -1,3 +1,4 @@
+import { branchScripts, branchTree, workBranch } from '#features/git/branch-read';
 import { z } from 'zod';
 import { workingScripts } from '#features/scripts/script-store';
 import { desc } from 'drizzle-orm';
@@ -44,6 +45,23 @@ export class ListProjectsHandler implements UseCaseHandler<ListProjectsResponse>
         const parsed = validate(ListProjectsQuery, input ?? {});
         if (!parsed.ok) {
             return parsed;
+        }
+
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const items =
+                parsed.value.status === 'active'
+                    ? branch.projects.map(project => {
+                          const flows = branchTree(branch, project.id).flows;
+                          const summary = {
+                              flows: flows.length,
+                              deployed: flows.filter(f => f.deployed).length,
+                              scripts: branchScripts(branch, project.id).length,
+                          };
+                          return { ...toProjectView(project), ...(branch.editable ? {} : { readOnly: true as const }), summary };
+                      })
+                    : [];
+            return success({ items });
         }
 
         const repository = new ProjectRepository(ctx.db, ctx.workspaceId);

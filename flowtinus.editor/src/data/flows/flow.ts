@@ -32,6 +32,8 @@ export type Flow = {
     updatedByName?: string;
     /** when it was archived; null while it is active */
     archivedAt: Date | null;
+    /** read from a branch the user cannot edit: it opens read only (it still runs) */
+    readOnly?: boolean;
     /** the number of its deployed version in this environment: null when not deployed (known in the project's lists) */
     deployedVersion?: number | null;
     /** how many schedules it has, and how many are on (known in the project's lists; null: none) */

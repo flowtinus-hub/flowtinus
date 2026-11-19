@@ -1,3 +1,4 @@
+import { branchDraft, branchFlow, workBranch } from '#features/git/branch-read';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { FlowRepository } from '#features/folders/project-tree';
@@ -15,6 +16,12 @@ export class GetDraftHandler implements UseCaseHandler<FlowDraft> {
         const parsed = validate(GetDraftQuery, input);
         if (!parsed.ok) {
             return parsed;
+        }
+
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const found = branchFlow(branch, parsed.value.id);
+            return found ? success(branchDraft(found)) : fail('not-found', 'Flow not found.');
         }
 
         const [flow] = await new FlowRepository(ctx.db, ctx.workspaceId).findAll(eq(flows.id, parsed.value.id));

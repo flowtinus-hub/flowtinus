@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { activeFlow } from '#features/deployments/deployments';
+import { currentFlow } from '#features/git/branch-read';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -23,7 +23,7 @@ export class GetPinsHandler implements UseCaseHandler<{ pins: Pins }> {
             return parsed;
         }
 
-        const flow = await activeFlow(ctx, parsed.value.id);
+        const flow = await currentFlow(ctx, parsed.value.id);
         return flow ? success({ pins: await pinsOf(ctx.db, ctx.workspaceId, ctx.userId, flow.id) }) : fail('not-found', 'Flow not found.');
     }
 }
@@ -40,7 +40,7 @@ export class SetPinHandler implements UseCaseHandler<{ nodeId: string }> {
             return parsed;
         }
 
-        const flow = await activeFlow(ctx, parsed.value.id);
+        const flow = await currentFlow(ctx, parsed.value.id);
         return flow ? setPin(ctx, flow.id, parsed.value.nodeId, parsed.value.pinned as Pinned) : fail('not-found', 'Flow not found.');
     }
 }
@@ -57,7 +57,7 @@ export class UnpinHandler implements UseCaseHandler<{ unpinned: string[] }> {
             return parsed;
         }
 
-        const flow = await activeFlow(ctx, parsed.value.id);
+        const flow = await currentFlow(ctx, parsed.value.id);
         return flow ? success({ unpinned: await removePins(ctx, flow.id, [parsed.value.nodeId]) }) : fail('not-found', 'Flow not found.');
     }
 }

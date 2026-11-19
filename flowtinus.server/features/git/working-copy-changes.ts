@@ -1,3 +1,4 @@
+import { refuseOffEditableBranch } from './current-branch';
 import { flowCalls, flowResources, flowScriptUses, repoEntry, repoFlowFromYaml, repoFlowToYaml, scriptImports, toExecutableFlow, type RepoEntry } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
 import { saveBlob, scriptBlobs } from '#features/scripts/script-store';
@@ -222,6 +223,7 @@ export type CommitRequest = {
  * The files committed stay in the working copy as committed (their revision goes on).
  */
 export async function commitWorkingCopy(ctx: UseCaseContext, request: CommitRequest): Promise<UseCaseResult<string>> {
+    await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
     const committed = await commitTree(ctx, request.message, async (db, tip) => {
         const at = { ...ctx, db };
         const { items, files, ids } = await workingItems(at);
@@ -281,6 +283,7 @@ export async function discardWorkingCopy(
     ctx: UseCaseContext,
     which: { paths: string[] } | 'mine',
 ): Promise<UseCaseResult<{ discarded: string[] }>> {
+    await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
     return ctx.db.transaction(async db => {
         const at = { ...ctx, db };
         await lockReconcile(db, ctx.workspaceId);

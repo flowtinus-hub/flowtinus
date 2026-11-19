@@ -1,7 +1,8 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitBranch, GitPullRequest, GitCommitHorizontal } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, GitCommitHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { CHANGES_CHANGED, getChanges, getCurrentBranch, getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { CHANGES_CHANGED, getChanges, getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
 import { ChangesDialog } from './changes-dialog';
+import { BranchPicker } from './branch-picker';
 import { API_WRITE_DONE } from '@/lib/api';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -128,31 +129,6 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     );
 }
 
-/** with git on, the branch the user is on in this workspace */
-function CurrentBranchItem({ slug }: { slug: string }) {
-    const [current, setCurrent] = useState<{ slug: string; branch: string | null } | null>(null);
-    useEffect(() => {
-        let gone = false;
-        void getCurrentBranch(slug).then(result => !gone && result.ok && setCurrent({ slug, branch: result.value.branch }));
-        return () => {
-            gone = true;
-        };
-    }, [slug]);
-
-    const branch = current?.slug === slug ? current.branch : null;
-    if (!branch) {
-        return null;
-    }
-    return (
-        <SidebarMenuItem>
-            <SidebarMenuButton tooltip={`On ${branch}`} className="text-muted-foreground" aria-label={`Current branch: ${branch}`}>
-                <GitBranch />
-                <span className="truncate font-mono text-xs">{branch}</span>
-            </SidebarMenuButton>
-        </SidebarMenuItem>
-    );
-}
-
 /** with git on, when the working copy has changes: their count, a click opens the Commit */
 function ChangesItem({ slug, pathname }: { slug: string; pathname: string }) {
     const [count, setCount] = useState<{ slug: string; value: number } | null>(null);
@@ -236,7 +212,7 @@ export function AppSidebar() {
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}
-                        {current && <CurrentBranchItem slug={current.slug} />}
+                        {current && <BranchPicker slug={current.slug} />}
                         {current && <GitAheadItem slug={current.slug} pathname={pathname} />}
                         {current && <ChangesItem slug={current.slug} pathname={pathname} />}
                     </SidebarMenu>

@@ -4,7 +4,7 @@ import { deleteWorkspaceSetting, readWorkspaceSetting, writeWorkspaceSetting } f
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
-import { isGitOn, POLL_SETTING, RECONCILE_SETTING, type GitConfig } from './git-config';
+import { HEADS_SETTING, isGitOn, POLL_SETTING, RECONCILE_SETTING, type GitConfig } from './git-config';
 import type { GitRemote } from './git-remote';
 import { exportTree, type RepoFiles } from './workspace-export';
 import { fileRow, writeFile } from './working-copy';
@@ -63,6 +63,7 @@ export async function forgetReconcile(ctx: UseCaseContext) {
     }
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, POLL_SETTING);
+    await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, HEADS_SETTING);
     await ctx.db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1', [ctx.workspaceId]);
 }
 

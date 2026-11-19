@@ -117,6 +117,8 @@ export type FlowView = {
     updatedBy: string | null;
     archivedAt: Date | null;
     archivedByCommit: string | null;
+    /** read from a work branch the user cannot edit */
+    readOnly?: true;
 };
 
 export const toFolderView = (folder: Folder): FolderView => ({

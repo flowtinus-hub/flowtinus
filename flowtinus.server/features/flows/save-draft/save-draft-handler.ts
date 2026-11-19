@@ -1,3 +1,4 @@
+import { refuseOffEditableBranch } from '#features/git/current-branch';
 import { z } from 'zod';
 import { isFolderVisible, validateFlowFile } from '@flowtinus/core';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
@@ -21,6 +22,7 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number }> {
             return denied;
         }
 
+        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
         const parsed = validate(SaveDraftCommand, input);
         if (!parsed.ok) {
             return parsed;

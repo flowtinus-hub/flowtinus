@@ -119,6 +119,45 @@ export class GitRemote {
         return sha;
     }
 
+    /** every head of the remote fetched (a head removed there goes here too): each one's tip, by name */
+    async fetchHeads(): Promise<Map<string, string>> {
+        await this.run(['fetch', '--quiet', '--prune', '--no-tags', 'origin', '+refs/heads/*:refs/remotes/origin/*']);
+        const out = await this.run(['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin/']);
+        const heads = new Map<string, string>();
+        for (const line of out.split('\n').filter(Boolean)) {
+            const [sha, ref] = line.split(' ') as [string, string];
+            const name = ref.slice('refs/remotes/origin/'.length);
+            if (name !== 'HEAD') {
+                heads.set(name, sha);
+            }
+        }
+        return heads;
+    }
+
+    async isAncestor(commit: string, of: string): Promise<boolean> {
+        try {
+            await this.run(['merge-base', '--is-ancestor', commit, of]);
+            return true;
+        } catch (e) {
+            if (e instanceof GitError) {
+                return false;
+            }
+            throw e;
+        }
+    }
+
+    async hasCommit(commit: string): Promise<boolean> {
+        try {
+            await this.run(['cat-file', '-e', `${commit}^{commit}`]);
+            return true;
+        } catch (e) {
+            if (e instanceof GitError) {
+                return false;
+            }
+            throw e;
+        }
+    }
+
     async readFile(commit: string, path: string): Promise<string | null> {
         try {
             return await this.run(['cat-file', 'blob', `${commit}:${path}`]);

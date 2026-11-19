@@ -4,7 +4,7 @@ import type { Logger } from '#shared/logging/logger';
 import { DEFAULT_POLL_SECONDS, GIT_SETTING, type GitOptions } from './git-config';
 import { recordPoll } from './git-poll-state';
 import { onWorkspaceRepository } from './git-handlers';
-import { reconcile } from './reconcile';
+import { fetchAndReconcile } from './git-heads';
 
 /** at most one fetch a webhook brings forward per workspace in this time; more calls are absorbed */
 export const HOOK_INTERVAL_MS = 5000;
@@ -86,7 +86,7 @@ export class GitPoller {
     private async reconcile(workspaceId: string): Promise<void> {
         const ctx = { db: this.db, workspaceId, userId: 'git', keyring: this.keyring, git: this.git };
         try {
-            const result = await onWorkspaceRepository(ctx, this.git, (remote, config) => reconcile(ctx, remote, config));
+            const result = await onWorkspaceRepository(ctx, this.git, (remote, config) => fetchAndReconcile(ctx, remote, config));
             // another reconcile of the workspace running is no reason to say anything
             if (!result.ok && result.error.message === 'A reconcile of this workspace is already running.') {
                 return;

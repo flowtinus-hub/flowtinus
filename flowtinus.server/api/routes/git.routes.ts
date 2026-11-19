@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { GitOptions } from '#features/git/git-config';
 import { CreateTopologyHandler, GetGitConfigHandler, GetTopologyHandler, GetTurnOnPlanHandler, GetGitStatusHandler, ReconcileHandler, RemoveGitConfigHandler, RenewHookTokenHandler, SaveGitConfigHandler, TestGitAccessHandler, TurnGitOnHandler } from '#features/git/git-handlers';
 import { GetCurrentBranchHandler, SetCurrentBranchHandler } from '#features/git/current-branch';
+import { ListBranchesHandler } from '#features/git/branches';
 import { CommitChangesHandler, DiscardChangesHandler, GetChangesHandler } from '#features/git/working-copy-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
@@ -19,6 +20,7 @@ export function gitRoutes(options: GitOptions) {
         .get('/on', async c => toHttpResult(c, await new GetTurnOnPlanHandler(options).handle({}, c.get('useCase'))))
         .post('/on', async c => toHttpResult(c, await new TurnGitOnHandler(options).handle(await jsonBody(c), c.get('useCase'))))
         .get('/status', async c => toHttpResult(c, await new GetGitStatusHandler().handle({}, c.get('useCase'))))
+        .get('/branches', async c => toHttpResult(c, await new ListBranchesHandler(options).handle({}, c.get('useCase'))))
         .get('/current-branch', async c => toHttpResult(c, await new GetCurrentBranchHandler().handle({}, c.get('useCase'))))
         .put('/current-branch', async c => toHttpResult(c, await new SetCurrentBranchHandler().handle(await jsonBody(c), c.get('useCase'))))
         .post('/hook-token', async c => toHttpResult(c, await new RenewHookTokenHandler().handle({}, c.get('useCase'))))

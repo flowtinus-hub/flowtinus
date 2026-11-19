@@ -11,10 +11,11 @@ import { branchNameError, CONFIG_BRANCH, TOPOLOGY_FILE, topologyYaml, type Envir
 import { readTopology, type TopologyView } from './workspace-topology';
 import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
-import { forgetReconcile, lockReconcile, reconcile, type ReconcileResult } from './reconcile';
+import { forgetReconcile, lockReconcile, type ReconcileResult } from './reconcile';
 import { ensureHookToken, forgetHookToken, hookPath, readHookToken, renewHookToken } from './git-hook';
 import { readLastPoll, recordPoll, type LastPoll } from './git-poll-state';
 import { readState } from './reconcile';
+import { fetchAndReconcile } from './git-heads';
 import { workspaceSlug } from '#features/folders/project-tree';
 
 /** hook (admins): the webhook's path on the server; lastPoll: the last fetch of the environment's branch, and why it could not reconcile */
@@ -344,7 +345,7 @@ export class ReconcileHandler implements UseCaseHandler<ReconcileResult> {
             return denied;
         }
 
-        const result = await onWorkspaceRepository(ctx, this.options, (remote, config) => reconcile(ctx, remote, config));
+        const result = await onWorkspaceRepository(ctx, this.options, (remote, config) => fetchAndReconcile(ctx, remote, config));
         // Reconcile now is a fetch like a poll's: what it found is what the git section shows (another one running is not)
         if (
             (result.ok || result.error.message !== 'A reconcile of this workspace is already running.') &&

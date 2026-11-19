@@ -4,6 +4,7 @@ import { isGitOn } from '#features/git/git-config';
 import { scriptContents, scriptsForRun, type ScriptSource } from '#features/scripts/script-store';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { calledFlows, type CalledFlow } from './called-flows';
+import { branchScripts, type WorkBranch } from '#features/git/branch-read';
 
 export type RunSnapshot = { ok: true; calledFlows: CalledFlow[]; scripts: Record<string, string> } | { ok: false; error: string };
 
@@ -13,9 +14,14 @@ export async function runSnapshot(
     tree: ProjectTree,
     root: FlowFile,
     source: 'draft' | 'deployed',
+    branch: WorkBranch | null = null,
 ): Promise<RunSnapshot> {
-    const called = await calledFlows(ctx, projectId, tree, root, source);
-    const scripts: ScriptSource = source === 'deployed' && (await isGitOn(ctx.db, ctx.workspaceId)) ? 'deployed' : 'editing';
+    const called = await calledFlows(ctx, projectId, tree, root, source, branch);
+    const scripts: ScriptSource = branch
+        ? { branch: branchScripts(branch, projectId) }
+        : source === 'deployed' && (await isGitOn(ctx.db, ctx.workspaceId))
+          ? 'deployed'
+          : 'editing';
     const usersOf = (file: FlowFile) =>
         file.nodes.flatMap(n => {
             const code = scriptCodeOf(n.type, n.config);

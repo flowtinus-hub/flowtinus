@@ -19,6 +19,8 @@ export const POLL_SETTING = 'git-poll';
 
 export const HOOK_SETTING = 'git-hook';
 
+export const HEADS_SETTING = 'git-heads';
+
 /** pollSeconds: how often the server fetches the environment's branch (DEFAULT_POLL_SECONDS when absent) */
 export type GitConfig = { repository: string; tokenSecret: string; environment: string; pollSeconds?: number };
 

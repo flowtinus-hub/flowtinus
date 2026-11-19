@@ -8,6 +8,7 @@ import { GitError, withWorkspaceClone, type GitRemote } from './git-remote';
 import { applyCommit, lockReconcile, readState } from './reconcile';
 import { exportTree, type GitChanges, type RepoFiles } from './workspace-export';
 import { recordChanges } from './working-copy';
+import { refuseOffEditableBranch } from './current-branch';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
 import type { Mode } from './topology';
@@ -23,6 +24,7 @@ type Cloned = OnGit & { remote: GitRemote };
  */
 export async function changeTree<T>(ctx: UseCaseContext, change: (db: Database) => Promise<T>, also: string[] = []): Promise<T> {
     const workspaceIds = [...new Set([ctx.workspaceId, ...also])].sort();
+    await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
     return ctx.db.transaction(async tx => {
         const before = [];
         for (const workspaceId of workspaceIds) {

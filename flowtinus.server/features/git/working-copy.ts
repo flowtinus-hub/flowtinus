@@ -392,9 +392,13 @@ async function renameDraft(db: Database, workspaceId: string, row: WorkingRow, t
 }
 
 /** the branch's files with the working copy over them */
-export async function overlay(db: Database, workspaceId: string, tip: RepoFiles): Promise<RepoFiles> {
+export async function overlay(db: Database, workspaceId: string, tip: RepoFiles, branch = ENVIRONMENT_BRANCH): Promise<RepoFiles> {
+    return overlayRows(tip, await workingRows(db, workspaceId, branch));
+}
+
+export function overlayRows(tip: RepoFiles, rows: WorkingRow[]): RepoFiles {
     const files = { ...tip };
-    for (const row of await workingRows(db, workspaceId)) {
+    for (const row of rows) {
         if (row.deleted) {
             if (row.base !== null) {
                 delete files[row.path];
