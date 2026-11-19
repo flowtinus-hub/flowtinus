@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleCheck, GitCommitHorizontal, Lock, LoaderCircle, Undo2 } from 'lucide-react';
+import { CircleCheck, GitCommitHorizontal, Lock, LoaderCircle, TriangleAlert, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
 import type { ApiError } from '@/lib/api';
+import { ConflictDialog } from './conflict-dialog';
 
 const CHANGE_LABEL: Record<WorkingChange['change'], string> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
 
@@ -39,6 +40,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
     const [committed, setCommitted] = useState<string | null>(null);
+    const [resolving, setResolving] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         const result = await getChanges(slug);
@@ -163,10 +165,21 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                             )}
                                             {change.conflict && (
                                                 <span className="text-xs text-red-700 dark:text-red-400">
-                                                    conflicts with {change.conflict.slice(0, 7)}: discard it first
+                                                    conflicts with {change.conflict.slice(0, 7)}: resolve or discard it first
                                                 </span>
                                             )}
                                         </span>
+                                        {change.conflict && (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 border-amber-500/60"
+                                                disabled={busy}
+                                                onClick={() => setResolving(change.path)}
+                                            >
+                                                <TriangleAlert className="text-amber-500" /> Resolve
+                                            </Button>
+                                        )}
                                         <Button
                                             variant="ghost"
                                             size="icon"
@@ -224,6 +237,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                     )}
                 </DialogFooter>
             </DialogContent>
+            {resolving && <ConflictDialog slug={slug} path={resolving} onClose={() => setResolving(null)} onResolved={() => void load()} />}
         </Dialog>
     );
 }

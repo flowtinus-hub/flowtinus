@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
 import { deployFlow, deployVersion, discardDraft, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
-import { ONLY_PULL_REQUESTS } from '@/data/git/git-api';
+import { getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
+import { ConflictDialog } from '@/layout/conflict-dialog';
 import type { FlushResult } from '@/editor/flow-save';
 import type { ApiResult } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
@@ -40,6 +41,8 @@ export function DeployBadge({ state }: { state: DeployState }) {
 
 type Props = {
     flowId: string;
+    /** the workspace's slug: its conflict screen */
+    workspace: string;
     /** the server's environment (DEV, QA…): a deploy is to this one */
     environment: string;
     /** archived, or the server away */
@@ -61,11 +64,23 @@ type Props = {
  * Deploy in the canvas's tools (after Group): the state (not deployed, the deployed version, the draft changed since),
  * Deploy the draft, the versions (deploy or roll back to one, restore the draft from one), Undeploy.
  */
-export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, flush, onDraftReplaced, confirm, onDeployed }: Props) {
+export function DeployMenu({
+    flowId,
+    workspace,
+    environment,
+    disabled,
+    draftNow,
+    saveMark,
+    flush,
+    onDraftReplaced,
+    confirm,
+    onDeployed,
+}: Props) {
     const [deployments, setDeployments] = useState<{ flowId: string; value: FlowDeployments } | null>(null);
     const [busy, setBusy] = useState(false);
     const [versionsOpen, setVersionsOpen] = useState(false);
     const [compareOpen, setCompareOpen] = useState(false);
+    const [resolving, setResolving] = useState<string | null>(null);
     const [committing, setCommitting] = useState<{ number: number; warnings: string[]; saved: boolean; scripts: string[] } | null>(null);
     const current = deployments?.flowId === flowId ? deployments.value : NO_DEPLOYMENTS;
     const git = current.git;
@@ -131,6 +146,21 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                 return result;
             },
         });
+    };
+
+    const openConflict = async () => {
+        const result = await getChanges(workspace);
+        const change = result.ok ? result.value.changes.find(c => c.fileId === flowId && c.conflict) : undefined;
+        if (change) {
+            setResolving(change.path);
+        }
+    };
+    const resolved = async () => {
+        onDraftReplaced();
+        const fresh = await getDeployments(flowId);
+        if (fresh.ok) {
+            setDeployments({ flowId, value: fresh.value });
+        }
     };
 
     const deploy = async () => {
@@ -279,6 +309,9 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                             <DropdownMenuLabel className="font-normal text-red-700 dark:text-red-400">
                                 The draft conflicts with git&apos;s commit <span className="font-mono">{shortSha(conflict)}</span>
                             </DropdownMenuLabel>
+                            <DropdownMenuItem disabled={busy} onSelect={() => void openConflict()}>
+                                <TriangleAlert /> Resolve the conflict...
+                            </DropdownMenuItem>
                             <DropdownMenuItem disabled={busy} onSelect={() => resolve(false)}>
                                 <GitMerge /> Discard draft, take git&apos;s
                             </DropdownMenuItem>
@@ -334,6 +367,9 @@ export function DeployMenu({ flowId, environment, disabled, draftNow, saveMark, 
                     onCommit={(message, scripts) => act(() => deployFlow(flowId, message, scripts))}
                     onClose={() => setCommitting(null)}
                 />
+            )}
+            {resolving && (
+                <ConflictDialog slug={workspace} path={resolving} onClose={() => setResolving(null)} onResolved={() => void resolved()} />
             )}
         </>
     );

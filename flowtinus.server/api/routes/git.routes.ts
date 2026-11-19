@@ -4,7 +4,7 @@ import { CreateTopologyHandler, GetGitConfigHandler, GetTopologyHandler, GetTurn
 import { GetCurrentBranchHandler, SetCurrentBranchHandler } from '#features/git/current-branch';
 import { ListBranchesHandler } from '#features/git/branches';
 import { OpenPullRequestHandler } from '#features/git/pull-request';
-import { CommitChangesHandler, CreateBranchHandler, DiscardChangesHandler, GetChangesHandler, GetUpdateHandler, UpdateBranchHandler } from '#features/git/working-copy-handlers';
+import { CommitChangesHandler, CreateBranchHandler, DiscardChangesHandler, GetChangesHandler, GetConflictHandler, GetUpdateHandler, ResolveConflictHandler, UpdateBranchHandler } from '#features/git/working-copy-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
 import { jsonBody } from './request-input';
@@ -31,6 +31,10 @@ export function gitRoutes(options: GitOptions) {
         .post('/discard', async c => toHttpResult(c, await new DiscardChangesHandler().handle(await jsonBody(c), c.get('useCase'))))
         .get('/update', async c => toHttpResult(c, await new GetUpdateHandler().handle({}, c.get('useCase'))))
         .post('/update', async c => toHttpResult(c, await new UpdateBranchHandler().handle({}, c.get('useCase'))))
+        .get('/conflict', async c =>
+            toHttpResult(c, await new GetConflictHandler().handle({ path: c.req.query('path') }, c.get('useCase'))),
+        )
+        .post('/conflict', async c => toHttpResult(c, await new ResolveConflictHandler().handle(await jsonBody(c), c.get('useCase'))))
         .post('/pull-request', async c => toHttpResult(c, await new OpenPullRequestHandler().handle({}, c.get('useCase'))))
         .post('/reconcile', async c => toHttpResult(c, await new ReconcileHandler(options).handle({}, c.get('useCase'))))
         .delete('/', async c => toHttpResult(c, await new RemoveGitConfigHandler().handle({}, c.get('useCase'))));

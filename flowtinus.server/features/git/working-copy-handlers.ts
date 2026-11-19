@@ -12,6 +12,7 @@ import { branchAccess, currentBranchView } from './current-branch';
 import { isGitOn } from './git-config';
 import { pendingMerge, pendingMergeView, type PendingMergeView } from './pending-merge';
 import { updateBranch, updateStatus, type UpdateOutcome, type UpdateStatus } from './update';
+import { readConflict, resolveConflict, type ConflictView } from './conflicts';
 import { commitWorkingCopy, createBranch, discardWorkingCopy, workingChanges, type CreatedBranch, type WorkingChange } from './working-copy-changes';
 
 const gitOff = () => fail('conflict', 'Git is off in this workspace.');
@@ -151,5 +152,49 @@ export class DiscardChangesHandler implements UseCaseHandler<{ discarded: string
             return gitOff();
         }
         return discardWorkingCopy(ctx, 'paths' in parsed.value ? { paths: parsed.value.paths } : 'mine');
+    }
+}
+
+export class GetConflictHandler implements UseCaseHandler<ConflictView> {
+    async handle(input: { path?: string }, ctx: UseCaseContext): Promise<UseCaseResult<ConflictView>> {
+        const denied = requireRole(ctx, 'viewer');
+        if (denied) {
+            return denied;
+        }
+        if (!input.path) {
+            return fail('validation', 'The request has invalid fields.', { path: 'Required' });
+        }
+        if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
+            return gitOff();
+        }
+        return readConflict(ctx, input.path);
+    }
+}
+
+const HunkChoiceSchema = z.union([z.enum(['mine', 'theirs', 'both']), z.object({ edit: z.string() })]);
+
+export const ResolveConflictCommand = z.object({
+    path: z.string().min(1),
+    revision: z.number().int(),
+    hunks: z.array(HunkChoiceSchema).optional(),
+    name: z.enum(['mine', 'theirs']).optional(),
+    keep: z.boolean().optional(),
+    rename: z.string().optional(),
+});
+
+export class ResolveConflictHandler implements UseCaseHandler<{ path: string }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ path: string }>> {
+        const denied = requireRole(ctx, 'editor');
+        if (denied) {
+            return denied;
+        }
+        const parsed = validate(ResolveConflictCommand, input);
+        if (!parsed.ok) {
+            return parsed;
+        }
+        if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
+            return gitOff();
+        }
+        return resolveConflict(ctx, parsed.value);
     }
 }

@@ -316,6 +316,15 @@ export async function followGit(
             continue;
         }
 
+        if (row.deleted && movedTo && movedTo !== row.path) {
+            const renamedHere = rows.find(r => r !== row && !r.deleted && r.base === null && r.file_id === row.file_id);
+            if (renamedHere && renamedHere.path.toLowerCase() !== movedTo.toLowerCase()) {
+                // both renamed the flow, each to another name: a choice between the two (the conflict screen)
+                await mark(row);
+                await mark(renamedHere);
+                continue;
+            }
+        }
         const move = movedTo && movedTo !== row.path && !row.deleted ? movedTo : null;
         if (arrived !== undefined && textHash(arrived) === row.base) {
             if (move) {
