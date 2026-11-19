@@ -3,28 +3,14 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
-import { canEditBranch, currentBranch } from './current-branch';
+import { branchKind, canEditBranch, currentBranch, type BranchKind } from './current-branch';
 import { gitBranch, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import { readHeads, recordHeads } from './git-heads';
-import { ENVIRONMENT_BRANCH, isChange } from './working-copy';
+import { ENVIRONMENT_BRANCH, type WorkingRow } from './working-copy';
+import { changeCount } from './working-copy-changes';
 
-/**
- * A branch's kind, told by its name and the topology with nothing stored: an environment's (in the topology), the
- * app's own (never offered as a work branch), a user's (`users/<handle>/…`, its owner by the handle), or shared.
- */
-export type BranchKind = 'environment' | 'app' | 'user' | 'shared';
-
-export function branchKind(name: string, environments: string[]): { kind: BranchKind; owner?: string } {
-    if (environments.includes(name)) {
-        return { kind: 'environment' };
-    }
-    if (/^(promote|backport|hotfix|flowtinus)\//.test(name)) {
-        return { kind: 'app' };
-    }
-    const user = /^users\/([^/]+)\/./.exec(name);
-    return user ? { kind: 'user', owner: user[1]! } : { kind: 'shared' };
-}
+export { branchKind, type BranchKind };
 
 export type BranchView = {
     name: string;
@@ -42,18 +28,19 @@ export type BranchView = {
 export type BranchesView = { current: string | null; environment: string | null; branches: BranchView[]; fetchedAt: string | null };
 
 async function changesPerBranch(db: Database, workspaceId: string, environment: string | null): Promise<Map<string, number>> {
-    const rows = await db.query<{ branch: string; deleted: boolean; base: string | null; content: string | null }>(
-        'SELECT branch, deleted, base, content FROM working_copy WHERE workspace_id = $1',
+    const rows = await db.query<WorkingRow & { branch: string }>(
+        `SELECT branch, path, content, deleted, file_id, base, edited_by, conflict, revision, updated_at FROM working_copy
+       WHERE workspace_id = $1 ORDER BY path`,
         [workspaceId],
     );
-    const counts = new Map<string, number>();
-    for (const row of rows.filter(isChange)) {
+    const byBranch = new Map<string, WorkingRow[]>();
+    for (const row of rows) {
         const name = row.branch === ENVIRONMENT_BRANCH ? environment : row.branch;
         if (name !== null) {
-            counts.set(name, (counts.get(name) ?? 0) + 1);
+            byBranch.set(name, [...(byBranch.get(name) ?? []), row]);
         }
     }
-    return counts;
+    return new Map([...byBranch].map(([name, list]) => [name, changeCount(list)]));
 }
 
 const KIND_ORDER = { environment: 0, user: 1, shared: 2 };
@@ -109,7 +96,7 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 kind,
                 ...(owner ? { owner, ...(owners.has(owner) ? { ownerName: owners.get(owner) } : {}) } : {}),
                 mine: owner !== undefined && owner === me?.handle,
-                editable: canEditBranch(head.name, environment),
+                editable: canEditBranch(head.name, environment, { handle: me?.handle ?? null, environments: heads.environments }),
                 merged: head.merged && changes === 0,
                 changes,
             });

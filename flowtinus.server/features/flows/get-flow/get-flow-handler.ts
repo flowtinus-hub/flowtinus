@@ -21,7 +21,7 @@ export class GetFlowHandler implements UseCaseHandler<FlowView> {
         if (branch) {
             const found = branchFlow(branch, parsed.value.id);
             return found
-                ? success({ ...toFlowView(found), ...(branch.editable ? {} : { readOnly: true as const }) })
+                ? success({ ...toFlowView(found), workBranch: true as const, ...(branch.editable ? {} : { readOnly: true as const }) })
                 : fail('not-found', 'Flow not found.');
         }
 

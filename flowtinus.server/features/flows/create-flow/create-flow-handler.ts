@@ -1,3 +1,5 @@
+import { workBranch } from '#features/git/branch-read';
+import { createFlowOnBranch } from '#features/git/branch-edits';
 import { z } from 'zod';
 import { isFolderVisible } from '@flowtinus/core';
 import { changeTree } from '#features/git/git-first';
@@ -27,6 +29,10 @@ export class CreateFlowHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { projectId, folderId } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return createFlowOnBranch(ctx, branch, parsed.value);
+        }
         const missing = await requireActiveProject(ctx, projectId);
         if (missing) {
             return missing;

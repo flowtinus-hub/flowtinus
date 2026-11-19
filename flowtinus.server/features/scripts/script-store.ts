@@ -242,12 +242,20 @@ export async function newPathIssue(
     text: string,
     from?: string,
 ): Promise<string | null> {
+    return pathIssueIn(await listScripts(db, workspaceId, projectId), text, from);
+}
+
+/** what is wrong with a new path among these scripts and folders (`from`: the path it moves from) */
+export function pathIssueIn(
+    { scripts, folders }: { scripts: { path: string }[]; folders: string[] },
+    text: string,
+    from?: string,
+): string | null {
     const path = normalizeScriptPath(text);
     const issue = scriptPathIssue(path);
     if (issue) {
         return issue;
     }
-    const { scripts, folders } = await listScripts(db, workspaceId, projectId);
     if (scripts.some(s => s.path === path)) {
         return 'A script with this path already exists.';
     }

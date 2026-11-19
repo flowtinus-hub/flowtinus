@@ -34,6 +34,8 @@ export type Flow = {
     archivedAt: Date | null;
     /** read from a branch the user cannot edit: it opens read only (it still runs) */
     readOnly?: boolean;
+    /** read from a work branch: deploy, schedules, webhooks and the worker tag are the environment's, not here */
+    workBranch?: boolean;
     /** the number of its deployed version in this environment: null when not deployed (known in the project's lists) */
     deployedVersion?: number | null;
     /** how many schedules it has, and how many are on (known in the project's lists; null: none) */

@@ -1,3 +1,5 @@
+import { workBranch } from '#features/git/branch-read';
+import { moveFlowOnBranch } from '#features/git/branch-edits';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
@@ -23,6 +25,10 @@ export class MoveFlowHandler implements UseCaseHandler<FlowView> {
         }
 
         const { id, folderId } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return moveFlowOnBranch(ctx, branch, { id, folderId });
+        }
         const repository = new FlowRepository(ctx.db, ctx.workspaceId);
         const flow = await repository.findById(id);
         const tree = flow ? await loadTree(ctx.db, ctx.workspaceId, flow.projectId) : null;

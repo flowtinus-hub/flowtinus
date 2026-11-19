@@ -1,3 +1,5 @@
+import { workBranch } from '#features/git/branch-read';
+import { saveDraftOnBranch } from '#features/git/branch-edits';
 import { refuseOffEditableBranch } from '#features/git/current-branch';
 import { z } from 'zod';
 import { isFolderVisible, validateFlowFile } from '@flowtinus/core';
@@ -22,11 +24,19 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number }> {
             return denied;
         }
 
-        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
         const parsed = validate(SaveDraftCommand, input);
         if (!parsed.ok) {
             return parsed;
         }
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const checked = validateFlowFile(parsed.value.flow);
+            if (!checked.ok) {
+                return fail('validation', `The flow is not valid: ${checked.errors.join(' ')}`);
+            }
+            return saveDraftOnBranch(ctx, branch, { id: parsed.value.id, revision: parsed.value.revision, flow: checked.value });
+        }
+        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
 
         const { id, revision } = parsed.value;
         const row = await new FlowRepository(ctx.db, ctx.workspaceId).findById(id);

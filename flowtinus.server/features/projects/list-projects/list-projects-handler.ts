@@ -49,13 +49,23 @@ export class ListProjectsHandler implements UseCaseHandler<ListProjectsResponse>
 
         const branch = await workBranch(ctx);
         if (branch) {
+            // deployed means the same as on the environment's branch: deployed in this environment (a branch is never deployed)
+            const deployed = new Set(
+                (
+                    await ctx.db.query<{ flow_id: string }>(
+                        `SELECT d.flow_id FROM deployments d JOIN flows f ON f.id = d.flow_id
+                       WHERE f.workspace_id = $1 AND f.deleted_at IS NULL AND d.flow_id = ANY($2::uuid[])`,
+                        [ctx.workspaceId, branch.flows.map(f => f.id)],
+                    )
+                ).map(row => row.flow_id),
+            );
             const items =
                 parsed.value.status === 'active'
                     ? branch.projects.map(project => {
                           const flows = branchTree(branch, project.id).flows;
                           const summary = {
                               flows: flows.length,
-                              deployed: flows.filter(f => f.deployed).length,
+                              deployed: flows.filter(f => deployed.has(f.id)).length,
                               scripts: branchScripts(branch, project.id).length,
                           };
                           return { ...toProjectView(project), ...(branch.editable ? {} : { readOnly: true as const }), summary };

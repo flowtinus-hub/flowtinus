@@ -133,7 +133,7 @@ describe('every head of the remote, read as a branch', () => {
                 owner: ana,
                 ownerName: 'Ana',
                 mine: true,
-                editable: false,
+                editable: true,
                 merged: false,
                 changes: 0,
             },
@@ -153,7 +153,7 @@ describe('every head of the remote, read as a branch', () => {
                 owner: undefined,
                 ownerName: undefined,
                 mine: false,
-                editable: false,
+                editable: true,
                 merged: false,
                 changes: 0,
             },
@@ -163,9 +163,9 @@ describe('every head of the remote, read as a branch', () => {
         expect(forBia).toEqual(['dev', `users/${bia}/done`, `users/${ana}/try`, 'fix/shared']);
     });
 
-    test('on a work branch the project, flow and script endpoints answer from its tip, a flow only there included; it is read only', async () => {
+    test("on another user's branch the project, flow and script endpoints answer from its tip, a flow only there included; it is read only", async () => {
         const { call, as, projectId, orders, handle, push, poll } = await workspace();
-        const ana = await handle(ANA);
+        const ana = await handle(BIA);
         const onlyId = crypto.randomUUID();
         const begin = newFlowFile('Orders', orders);
         begin.nodes = begin.nodes.map(n => (n.id === 'start' ? { ...n, label: 'Begin' } : n));
@@ -182,7 +182,7 @@ describe('every head of the remote, read as a branch', () => {
 
         const projects = (await call('GET', '/projects')).body.items;
         expect(projects.map((p: { id: string; name: string; summary: unknown }) => [p.id, p.name, p.summary])).toEqual([
-            [projectId, 'Sales', { flows: 2, deployed: 2, scripts: 1 }],
+            [projectId, 'Sales', { flows: 2, deployed: 1, scripts: 1 }],
         ]);
         expect((await call('GET', `/projects/${projectId}`)).body).toMatchObject({ id: projectId, name: 'Sales', readOnly: true });
 

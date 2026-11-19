@@ -6,7 +6,7 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { isGitOn } from './git-config';
-import { commitWorkingCopy, discardWorkingCopy, workingChanges, type WorkingChange } from './working-copy-changes';
+import { commitWorkingCopy, createBranch, discardWorkingCopy, workingChanges, type CreatedBranch, type WorkingChange } from './working-copy-changes';
 
 const gitOff = () => fail('conflict', 'Git is off in this workspace.');
 
@@ -15,7 +15,6 @@ export class GetChangesHandler implements UseCaseHandler<{ changes: WorkingChang
         if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
             return gitOff();
         }
-        // a work branch's own changes come with editing on it (#56)
         return success({
             changes: !(await currentBranchView(ctx.db, ctx.workspaceId, ctx.userId)).editable ? [] : await workingChanges(ctx),
         });
@@ -39,6 +38,22 @@ export class CommitChangesHandler implements UseCaseHandler<{ commit: string }> 
         }
         const committed = await commitWorkingCopy(ctx, parsed.value);
         return committed.ok ? success({ commit: committed.value }) : committed;
+    }
+}
+
+export const CreateBranchCommand = z.object({ name: z.string().trim().min(1, 'Required') });
+
+export class CreateBranchHandler implements UseCaseHandler<CreatedBranch> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CreatedBranch>> {
+        const denied = requireRole(ctx, 'editor');
+        if (denied) {
+            return denied;
+        }
+        const parsed = validate(CreateBranchCommand, input);
+        if (!parsed.ok) {
+            return parsed;
+        }
+        return createBranch(ctx, parsed.value.name);
     }
 }
 
