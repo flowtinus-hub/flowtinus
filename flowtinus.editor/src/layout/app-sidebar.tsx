@@ -202,6 +202,20 @@ export function AppSidebar() {
                                 canCreate={state.status === 'ready' && state.me.isAdmin}
                             />
                         </SidebarMenuItem>
+                    </SidebarMenu>
+                </SidebarGroup>
+                {current && (
+                    // with git off every item renders nothing: the group and its lines go too
+                    <SidebarGroup className="mx-2 w-auto border-y border-sidebar-border px-0 has-[>ul:empty]:hidden">
+                        <SidebarMenu>
+                            <BranchPicker slug={current.slug} />
+                            <GitAheadItem slug={current.slug} pathname={pathname} />
+                            <ChangesItem slug={current.slug} pathname={pathname} />
+                        </SidebarMenu>
+                    </SidebarGroup>
+                )}
+                <SidebarGroup>
+                    <SidebarMenu>
                         {workspaceItems.map(item => (
                             <SidebarMenuItem key={item.to}>
                                 <SidebarMenuButton isActive={isActive(item.to, pathname)} tooltip={item.label} asChild>
@@ -212,9 +226,6 @@ export function AppSidebar() {
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}
-                        {current && <BranchPicker slug={current.slug} />}
-                        {current && <GitAheadItem slug={current.slug} pathname={pathname} />}
-                        {current && <ChangesItem slug={current.slug} pathname={pathname} />}
                     </SidebarMenu>
                 </SidebarGroup>
                 {/* the environment's pages (not a workspace's), at the bottom */}
