@@ -176,6 +176,16 @@ export type PendingMerge = { from: string; theirs: string; ours: string; conflic
 
 export const getChanges = (ws: string) => api<{ changes: WorkingChange[]; merge?: PendingMerge }>(`/w/${ws}/git/changes`);
 
+/** a line of a file's diff: its number in the committed text (old) and in the working copy's (new) */
+export type DiffLine = { kind: ' ' | '-' | '+'; text: string; old?: number; new?: number };
+
+export type DiffHunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: DiffLine[] };
+
+/** a change's diff: the committed text (a rename's old file; nothing for an added file) against the working copy's */
+export type FileDiff = { path: string; from?: string; change: WorkingChange['change']; kind: string; hunks: DiffHunk[] };
+
+export const getFileDiff = (ws: string, path: string) => api<FileDiff>(`/w/${ws}/git/diff?path=${encodeURIComponent(path)}`);
+
 /** how far the current work branch is behind the environment's branch, and its pending merge */
 export type UpdateStatus = { branch: string; environment: string; behind: number; pending?: PendingMerge };
 

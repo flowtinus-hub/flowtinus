@@ -11,6 +11,7 @@ import { branchIds, lockBranch, noteHead, refuseReadOnly } from './branch-write'
 import { gitAuthorOf, gitBranch } from './git-config';
 import { GitError } from './git-remote';
 import { pendingMerge, pendingMergeRefusal } from './pending-merge';
+import { dropNeverCommitted, liveFolderIds } from './never-committed';
 import { lockReconcile } from './reconcile';
 import { abortMerge, commitPendingMerge } from './update';
 import { ENVIRONMENT_BRANCH, followGit, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
@@ -46,7 +47,7 @@ const nameOf = (path: string) => {
     return 'name' in entry ? entry.name : 'project' in entry ? entry.project : path;
 };
 
-function itemsOf(rows: WorkingRow[], userId: string): Item[] {
+export function itemsOf(rows: WorkingRow[], userId: string): Item[] {
     const changed = rows.filter(isChange);
     const deletedById = new Map(changed.filter(r => r.deleted && r.file_id).map(r => [r.file_id!, r]));
     const paired = new Set<WorkingRow>();
@@ -364,9 +365,9 @@ async function markCommitted(ctx: UseCaseContext, changes: GitChanges, branch = 
 }
 
 /**
- * Discard of these files (and of what needs them), or of all one's own: each goes back as committed; a new file goes, a
- * deleted one comes back, a rename goes back to its old path; the tables follow (a new connection keeps its
- * configuration, archived).
+ * Discard of these files (and of what needs them), or of all one's own: each goes back as committed; a new file goes
+ * (on the environment's branch, what it made in the tables too: nothing of it in the archive), a deleted one comes
+ * back, a rename goes back to its old path.
  */
 export async function discardWorkingCopy(
     ctx: UseCaseContext,
@@ -427,16 +428,24 @@ async function putBack(ctx: UseCaseContext, branch: WorkBranch | null, chosen: I
                 working[row.path] = text;
             }
         }
+        const foldersBefore = await liveFolderIds(ctx);
         await importStructure(ctx, await workspaceSlug(ctx), working, { keep: true });
+        await dropNeverCommitted(
+            ctx,
+            [...committed].filter(([, text]) => text === null).map(([row]) => row),
+            files,
+            foldersBefore,
+        );
     }
     for (const [row, text] of committed) {
         if (text === null) {
-            // a file the branch does not have: no row (a deleted row with no base would stand for a file git never had)
-            await ctx.db.query('DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND path = $3', [
-                ctx.workspaceId,
-                branch?.branch ?? ENVIRONMENT_BRANCH,
-                row.path,
-            ]);
+            // a file the branch does not have: no row, nor a tombstone its rename or archive left (a deleted row with
+            // no base would stand for a file git never had)
+            await ctx.db.query(
+                `DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2
+                   AND (path = $3 OR (file_id = $4 AND deleted AND base IS NULL))`,
+                [ctx.workspaceId, branch?.branch ?? ENVIRONMENT_BRANCH, row.path, row.file_id],
+            );
             continue;
         }
         await ctx.db.query(
@@ -452,6 +461,11 @@ async function putBack(ctx: UseCaseContext, branch: WorkBranch | null, chosen: I
             ],
         );
     }
+    // a folder's .gitkeep, added then gone once something went in the folder: it stands for nothing either
+    await ctx.db.query(
+        'DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND deleted AND base IS NULL AND file_id IS NULL',
+        [ctx.workspaceId, branch?.branch ?? ENVIRONMENT_BRANCH],
+    );
 }
 
 /** a file's text as the branch has it now (a flow's version in the repo, a script in the deployed set), else its base */

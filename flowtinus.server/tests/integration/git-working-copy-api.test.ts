@@ -183,7 +183,7 @@ describe("the working copy of the environment's branch", () => {
         expect(await changes()).toEqual([]);
     });
 
-    test('discard: a rename goes back to its old path, an archive brings the flow back, a new connection keeps only its configuration', async () => {
+    test('discard: a rename goes back to its old path, an archive brings the flow back, a new connection is gone', async () => {
         const { call, orders, at, changes, relabel } = await workspace();
         expect((await call('PATCH', `/flows/${orders}`, { name: 'Renamed' })).status).toBe(200);
         expect((await call('POST', '/git/discard', { paths: [at('projects/Sales/flows/Renamed.flow.yaml')] })).status).toBe(200);
@@ -201,12 +201,7 @@ describe("the working copy of the environment's branch", () => {
         expect((await call('POST', '/git/discard', { mine: true })).status).toBe(200);
         expect(await changes()).toEqual([]);
         expect((await call('GET', '/connections')).body.items?.map((c: { id: string }) => c.id) ?? []).not.toContain(shop);
-        const [kept] = await db.query<{ config: Record<string, string>; deleted_at: Date | null }>(
-            'SELECT config, deleted_at FROM connections WHERE id = $1',
-            [shop],
-        );
-        expect(kept!.config).toMatchObject({ bootstrapServers: 'b:9092' });
-        expect(kept!.deleted_at).not.toBeNull();
+        expect(await db.query('SELECT id FROM connections WHERE id = $1', [shop])).toEqual([]);
         expect(
             (await call('GET', `/flows/${orders}/draft`)).body.flow.nodes.find((n: { id: string }) => n.id === 'start').label,
         ).toBeUndefined();
