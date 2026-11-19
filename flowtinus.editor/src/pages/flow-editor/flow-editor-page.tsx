@@ -454,6 +454,7 @@ export function FlowEditorPage() {
                                             <>
                                                 <DeployMenu
                                                     flowId={flowId}
+                                                    workspace={ws}
                                                     environment={connection.state === 'online' ? connection.environment : ''}
                                                     disabled={archived || gone || connection.state !== 'online'}
                                                     draftNow={draftNow}

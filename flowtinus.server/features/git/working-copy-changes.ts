@@ -34,7 +34,8 @@ export type WorkingChange = {
     requires: Requirement[];
 };
 
-type Item = WorkingChange & { rows: WorkingRow[] };
+/** a change with its rows: in a rename, the added row first, then the deleted one */
+export type Item = WorkingChange & { rows: WorkingRow[] };
 
 const pathsOf = (item: Pick<WorkingChange, 'path' | 'from'>) => (item.from ? [item.path, item.from] : [item.path]);
 
@@ -196,7 +197,7 @@ function withDependents(items: Item[], chosen: Item[]): Item[] {
     return [...all];
 }
 
-async function workingItems(
+export async function workingItems(
     ctx: UseCaseContext,
     branch: WorkBranch | null = null,
 ): Promise<{ items: Item[]; files: RepoFiles; ids: Record<string, string> }> {
@@ -225,7 +226,7 @@ export async function workingChanges(ctx: UseCaseContext): Promise<WorkingChange
     return (await workingItems(ctx, await workBranch(ctx))).items.map(({ rows: _rows, ...change }) => change);
 }
 
-const chosenBy = (items: Item[], paths: string[]) => items.filter(item => pathsOf(item).some(path => paths.includes(path)));
+export const chosenBy = (items: Item[], paths: string[]) => items.filter(item => pathsOf(item).some(path => paths.includes(path)));
 
 export type CommitRequest = {
     paths: string[];

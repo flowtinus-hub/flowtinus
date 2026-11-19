@@ -105,6 +105,11 @@ function readTip(ctx: UseCaseContext, branch: string, sha: string, slug: string)
     );
 }
 
+/** the workspace's files at a commit (fetched with `branch` when this server's clone lacks it), kept as a tip is */
+export async function filesAt(ctx: UseCaseContext, branch: string, sha: string): Promise<RepoFiles> {
+    return (await readTip(ctx, branch, sha, await slugOf(ctx))).files;
+}
+
 function readFlow(tip: Tip, path: string, text: string, name: string): RepoFlow | null {
     const parsed = tip.flows.get(path);
     if (parsed?.text === text) {

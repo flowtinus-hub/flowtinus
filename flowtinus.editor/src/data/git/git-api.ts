@@ -156,6 +156,7 @@ export type WorkingChange = {
     from?: string;
     change: 'added' | 'modified' | 'deleted' | 'renamed';
     kind: string;
+    fileId: string | null;
     editedBy: string | null;
     editedByName?: string;
     mine: boolean;
@@ -174,6 +175,39 @@ export const commitChanges = (ws: string, paths: string[], message: string) =>
 
 export const discardChanges = (ws: string, which: { paths: string[] } | { mine: true }) =>
     api<{ discarded: string[] }>(`/w/${ws}/git/discard`, { method: 'POST', body: which });
+
+export type ConflictHunk = { mine: string[]; base: string[]; theirs: string[] };
+
+/** a run of lines both sides agree on (merged already), or a conflicting hunk */
+export type ConflictSegment = { lines: string[] } | { hunk: ConflictHunk };
+
+export type ConflictCase =
+    | { type: 'content'; segments: ConflictSegment[]; names?: { mine: string; theirs: string } }
+    | { type: 'deleted'; deletedBy: 'mine' | 'theirs'; text: string }
+    | { type: 'added'; name: string; mine: string; theirs: string };
+
+/** a working copy file marked with the commit it conflicts with, as the conflict screen shows it */
+export type ConflictView = {
+    path: string;
+    from?: string;
+    kind: string;
+    fileId: string | null;
+    commit: string;
+    revision: number;
+    conflict: ConflictCase;
+    /** a flow's draft on the environment's branch: it may also be duplicated as a new flow */
+    duplicable: boolean;
+};
+
+export type HunkChoice = 'mine' | 'theirs' | 'both' | { edit: string };
+
+export type ConflictResolution = { hunks?: HunkChoice[]; name?: 'mine' | 'theirs'; keep?: boolean; rename?: string };
+
+export const getConflict = (ws: string, path: string) => api<ConflictView>(`/w/${ws}/git/conflict?path=${encodeURIComponent(path)}`);
+
+/** the file written as chosen and its mark cleared; refused with the errors per file when the result does not validate */
+export const resolveConflict = (ws: string, path: string, revision: number, resolution: ConflictResolution) =>
+    api<{ path: string }>(`/w/${ws}/git/conflict`, { method: 'POST', body: { path, revision, ...resolution } });
 
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
 
