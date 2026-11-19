@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { updateConnectionOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { insertSecret } from '#features/secrets/secret-store';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -23,6 +25,10 @@ export class UpdateConnectionHandler implements UseCaseHandler<ConnectionView> {
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return updateConnectionOnBranch(ctx, branch, parsed.value);
+        }
         const { id, newSecrets, ...fields } = parsed.value;
         const current = await new ConnectionRepository(ctx.db, ctx.workspaceId).findById(id);
         if (!current) {
@@ -34,25 +40,20 @@ export class UpdateConnectionHandler implements UseCaseHandler<ConnectionView> {
             return checked.failure;
         }
 
-        const updated = await changeTree(
-            ctx,
-            () => `Update connection ${checked.value.name}`,
-            async tx => {
-                for (const secret of usedSecrets(checked.value, newSecrets)) {
-                    await insertSecret(tx, ctx, secret.name, secret.value);
-                }
+        const updated = await changeTree(ctx, async tx => {
+            for (const secret of usedSecrets(checked.value, newSecrets)) {
+                await insertSecret(tx, ctx, secret.name, secret.value);
+            }
 
-                // another type or other fields may reach another server: what the last test found no longer holds
-                const moved =
-                    current.type !== checked.value.type || JSON.stringify(current.config) !== JSON.stringify(checked.value.config);
-                return new ConnectionRepository(tx, ctx.workspaceId).update(id, {
-                    ...checked.value,
-                    ...(moved ? { server: null } : {}),
-                    updatedAt: new Date(),
-                    updatedBy: ctx.userId,
-                });
-            },
-        );
+            // another type or other fields may reach another server: what the last test found no longer holds
+            const moved = current.type !== checked.value.type || JSON.stringify(current.config) !== JSON.stringify(checked.value.config);
+            return new ConnectionRepository(tx, ctx.workspaceId).update(id, {
+                ...checked.value,
+                ...(moved ? { server: null } : {}),
+                updatedAt: new Date(),
+                updatedBy: ctx.userId,
+            });
+        });
 
         return updated ? success(toConnectionView(updated)) : fail('not-found', 'Connection not found.');
     }

@@ -1,3 +1,5 @@
+import { branchFlow, workBranch } from '#features/git/branch-read';
+import { gitBranch } from '#features/git/git-config';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { FlowRepository, toFlowView, type FlowView } from '#features/folders/project-tree';
@@ -16,7 +18,24 @@ export class GetFlowHandler implements UseCaseHandler<FlowView> {
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const found = branchFlow(branch, parsed.value.id);
+            return found
+                ? success({
+                      ...toFlowView(found),
+                      workBranch: true as const,
+                      ...(branch.editable ? {} : { readOnly: true as const }),
+                      ...(branch.removed ? { removedBranch: true as const } : {}),
+                  })
+                : fail('not-found', 'Flow not found.');
+        }
+
         const [flow] = await new FlowRepository(ctx.db, ctx.workspaceId).findAll(eq(flows.id, parsed.value.id));
-        return flow ? success(toFlowView(flow)) : fail('not-found', 'Flow not found.');
+        if (!flow) {
+            return fail('not-found', 'Flow not found.');
+        }
+        const offers = (await gitBranch(ctx.db, ctx.workspaceId))?.mode === 'pull-request';
+        return success({ ...toFlowView(flow), ...(offers ? { offersBranch: true as const } : {}) });
     }
 }

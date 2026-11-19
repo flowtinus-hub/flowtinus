@@ -1,7 +1,9 @@
+import { workBranch } from '#features/git/branch-read';
+import { moveFlowOnBranch } from '#features/git/branch-edits';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
-import { FlowRepository, folderLabel, loadTree, location, nameInTree, toFlowView, type FlowView } from '#features/folders/project-tree';
+import { FlowRepository, loadTree, location, nameInTree, toFlowView, type FlowView } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -23,6 +25,10 @@ export class MoveFlowHandler implements UseCaseHandler<FlowView> {
         }
 
         const { id, folderId } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return moveFlowOnBranch(ctx, branch, { id, folderId });
+        }
         const repository = new FlowRepository(ctx.db, ctx.workspaceId);
         const flow = await repository.findById(id);
         const tree = flow ? await loadTree(ctx.db, ctx.workspaceId, flow.projectId) : null;
@@ -40,10 +46,8 @@ export class MoveFlowHandler implements UseCaseHandler<FlowView> {
             return named;
         }
 
-        const moved = await changeTree(
-            ctx,
-            () => `Move flow ${flow.name} to ${folderLabel(tree, folderId)}`,
-            db => new FlowRepository(db, ctx.workspaceId).update(id, { folderId, updatedAt: new Date(), updatedBy: ctx.userId }),
+        const moved = await changeTree(ctx, db =>
+            new FlowRepository(db, ctx.workspaceId).update(id, { folderId, updatedAt: new Date(), updatedBy: ctx.userId }),
         );
         return moved ? success(toFlowView(moved)) : fail('not-found', 'Flow not found.');
     }

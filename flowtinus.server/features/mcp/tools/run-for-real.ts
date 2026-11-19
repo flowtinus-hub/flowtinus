@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { runForRealCheck } from '#features/api-tokens/run-scope';
-import { FlowRepository, loadTree } from '#features/folders/project-tree';
+import { loadTree } from '#features/folders/project-tree';
+import { branchTree, currentFlow, workBranch } from '#features/git/branch-read';
 import { StartRunHandler } from '#features/runs/start-run/start-run-handler';
 import { draftRunNotice } from '#features/git/git-config';
 import { runAnswer } from '../run-result';
@@ -47,11 +48,16 @@ export const runForReal = defineTool({
     run: async ({ flowId, userApproval: approval, input, parameters, timeoutS, detail, sample }, t) => {
         // the token's run scope, or the user's words: checked before anything is queued
         const scope = t.options.runScope ?? null;
-        const row = await new FlowRepository(t.ctx.db, t.ctx.workspaceId).findById(flowId);
+        const row = await currentFlow(t.ctx, flowId);
         if (!row) {
             return failed({ code: 'not-found', message: 'Flow not found.' });
         }
-        const tree = scope ? await loadTree(t.ctx.db, t.ctx.workspaceId, row.projectId) : null;
+        const branch = scope ? await workBranch(t.ctx) : null;
+        const tree = !scope
+            ? null
+            : branch
+              ? branchTree(branch, row.projectId)
+              : await loadTree(t.ctx.db, t.ctx.workspaceId, row.projectId);
         const allowed = runForRealCheck(scope, row, tree?.folders ?? [], approval);
         if (!allowed.ok) {
             return failed({ code: allowed.code, message: allowed.message });

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { ANA, insertWorkspace, wsPath } from '../helpers/workspaces';
-import { createBranch, git } from '../helpers/git-repos';
+import { commitAll, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
@@ -61,6 +61,7 @@ describe.skipIf(!container)('turning git off waits for a running reconcile (Post
                 })
             ).status,
         ).toBe(201);
+        expect((await commitAll(call, 'Prices')).status).toBe(200);
         const deployed = async () =>
             (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM deployed_scripts WHERE workspace_id = $1', [id]))[0]!.n;
         expect(await deployed()).toBe(1);

@@ -80,6 +80,9 @@ export async function openDatabase(url?: string): Promise<Database> {
     const db = url === 'memory://' ? inMemory() : postgres(url);
     try {
         await migrate(db);
+        // imported here: the features it needs import this module
+        const { carryOverDrafts } = await import('#features/git/draft-carryover');
+        await carryOverDrafts(db);
     } catch (e) {
         await db.close().catch(() => undefined);
         const code = (e as { code?: string }).code ?? '';

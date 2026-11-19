@@ -1,4 +1,4 @@
-import type { TreeIssue } from '@flowtinus/core';
+import type { FlowFile, TreeIssue } from '@flowtinus/core';
 import { api } from '@/lib/api';
 
 /** pollSeconds: how often the server fetches the environment's branch (60 when absent) */
@@ -54,6 +54,64 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
+export type CurrentBranch = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: boolean };
+
+export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git/current-branch`);
+
+export const setCurrentBranch = (ws: string, branch: string) =>
+    api<CurrentBranch>(`/w/${ws}/git/current-branch`, { method: 'PUT', body: { branch } });
+
+export type BranchKind = 'environment' | 'user' | 'shared';
+
+export type BranchInfo = {
+    name: string;
+    kind: BranchKind;
+    owner?: string;
+    ownerName?: string;
+    mine: boolean;
+    editable: boolean;
+    merged: boolean;
+    changes: number;
+    removed?: true;
+    lostTip?: true;
+};
+
+export const REMOVED_BRANCH = 'Removed on the remote: create a branch with its changes, or discard them.';
+
+export const removedBranchText = (lostTip?: boolean) =>
+    lostTip
+        ? `${REMOVED_BRANCH} It was removed while git was off: its last commit is not known here, so a new branch starts from the environment's branch.`
+        : REMOVED_BRANCH;
+
+export const listBranches = (ws: string) =>
+    api<{ current: string | null; environment: string | null; mode: Mode; branches: BranchInfo[]; fetchedAt: string | null }>(
+        `/w/${ws}/git/branches`,
+    );
+
+export type PullRequest = {
+    branch: string;
+    target: string;
+    pushed: boolean;
+    commits: number;
+    borrowed: { branch: string; commits: number }[];
+    provider: 'gitlab' | 'github' | null;
+    url: string | null;
+};
+
+export const openPullRequest = (ws: string) => api<PullRequest>(`/w/${ws}/git/pull-request`, { method: 'POST' });
+
+export const createBranch = (ws: string, name: string, draft?: { flowId: string; flow: FlowFile }) =>
+    api<{ branch: string; taken: string[]; cutFrom?: string; draft?: { revision: number } | { error: string } }>(`/w/${ws}/git/branches`, {
+        method: 'POST',
+        body: draft ? { name, draft } : { name },
+    });
+
+export const branchNamePart = (name: string) =>
+    name
+        .trim()
+        .replace(/[\s~^:?*[\\\x00-\x1f\x7f]+|\.\.+|@\{/g, '-')
+        .replace(/^[-./]+|[-./]+$|\.lock$/g, '');
+
 /** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
 export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';
 
@@ -78,6 +136,80 @@ export const saveGitConfig = (ws: string, config: GitConfig) =>
     api<{ config: GitConfig; on: boolean }>(`/w/${ws}/git`, { method: 'PUT', body: config });
 
 export const removeGitConfig = (ws: string) => api<{ config: null }>(`/w/${ws}/git`, { method: 'DELETE' });
+
+export type WorkingChange = {
+    path: string;
+    from?: string;
+    change: 'added' | 'modified' | 'deleted' | 'renamed';
+    kind: string;
+    fileId: string | null;
+    editedBy: string | null;
+    editedByName?: string;
+    mine: boolean;
+    conflict?: string;
+    requires: { path: string; reason: string }[];
+};
+
+export const CHANGES_CHANGED = 'flowtinus:changes-changed';
+
+export type PendingMerge = { from: string; theirs: string; ours: string; conflicts: string[] };
+
+export const getChanges = (ws: string) =>
+    api<{ changes: WorkingChange[]; merge?: PendingMerge; removed?: true; lostTip?: true }>(`/w/${ws}/git/changes`);
+
+export type DiffLine = { kind: ' ' | '-' | '+'; text: string; old?: number; new?: number };
+
+export type DiffHunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: DiffLine[] };
+
+export type FileDiff = { path: string; from?: string; change: WorkingChange['change']; kind: string; hunks: DiffHunk[] };
+
+export const getFileDiff = (ws: string, path: string) => api<FileDiff>(`/w/${ws}/git/diff?path=${encodeURIComponent(path)}`);
+
+export type UpdateStatus = { branch: string; environment: string; behind: number; pending?: PendingMerge };
+
+export const getUpdateStatus = (ws: string) => api<UpdateStatus>(`/w/${ws}/git/update`);
+
+export type UpdateOutcome =
+    | { outcome: 'up-to-date' }
+    | { outcome: 'merged'; commit: string }
+    | { outcome: 'pending'; conflicts: string[]; errors?: Record<string, string> };
+
+export const updateBranch = (ws: string) => api<UpdateOutcome>(`/w/${ws}/git/update`, { method: 'POST' });
+
+export const commitChanges = (ws: string, paths: string[], message: string) =>
+    api<{ commit: string }>(`/w/${ws}/git/commit`, { method: 'POST', body: { paths, message } });
+
+export const discardChanges = (ws: string, which: { paths: string[] } | { mine: true }) =>
+    api<{ discarded: string[] }>(`/w/${ws}/git/discard`, { method: 'POST', body: which });
+
+export type ConflictHunk = { mine: string[]; base: string[]; theirs: string[] };
+
+export type ConflictSegment = { lines: string[] } | { hunk: ConflictHunk };
+
+export type ConflictCase =
+    | { type: 'content'; segments: ConflictSegment[]; names?: { mine: string; theirs: string } }
+    | { type: 'deleted'; deletedBy: 'mine' | 'theirs'; text: string }
+    | { type: 'added'; name: string; mine: string; theirs: string };
+
+export type ConflictView = {
+    path: string;
+    from?: string;
+    kind: string;
+    fileId: string | null;
+    commit: string;
+    revision: number;
+    conflict: ConflictCase;
+    duplicable: boolean;
+};
+
+export type HunkChoice = 'mine' | 'theirs' | 'both' | { edit: string };
+
+export type ConflictResolution = { hunks?: HunkChoice[]; name?: 'mine' | 'theirs'; keep?: boolean; rename?: string };
+
+export const getConflict = (ws: string, path: string) => api<ConflictView>(`/w/${ws}/git/conflict?path=${encodeURIComponent(path)}`);
+
+export const resolveConflict = (ws: string, path: string, revision: number, resolution: ConflictResolution) =>
+    api<{ path: string }>(`/w/${ws}/git/conflict`, { method: 'POST', body: { path, revision, ...resolution } });
 
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
 

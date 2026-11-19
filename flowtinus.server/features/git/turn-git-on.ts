@@ -10,6 +10,7 @@ import { applyCommit, lockReconcile } from './reconcile';
 import { exportWorkspace, repoChanges, type GitChanges, type RepoFiles } from './workspace-export';
 import { draftClashes, holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
+import { fetchAndReconcile } from './git-heads';
 
 export type FileChange = { path: string; change: 'added' | 'changed' | 'removed'; note?: string };
 
@@ -70,7 +71,7 @@ export async function turnOnPlan(ctx: UseCaseContext, remote: GitRemote, config:
     const { branch, tip } = target.value;
     const slug = await workspaceSlug(ctx);
     const onBranch = tip ? await readBranchWorkspace(remote, tip, slug) : {};
-    const exported = await exportWorkspace(ctx.db, ctx.workspaceId);
+    const exported = await exportWorkspace(ctx.db, ctx.workspaceId, 'committed');
     const holds = holdsWorkspace(onBranch, slug);
     const empty = await isWorkspaceEmpty(ctx.db, ctx.workspaceId);
     const serverSide = inFolder(exported, slug);
@@ -116,9 +117,13 @@ export async function turnGitOn(
     const slug = await workspaceSlug(ctx);
     const onBranch = await readBranchWorkspace(remote, tip, slug);
     try {
-        return await ctx.db.transaction(tx =>
+        const turned = await ctx.db.transaction(tx =>
             turnOnInTransaction({ ...ctx, db: tx }, remote, input, { branch, tip: tip!, slug, onBranch }),
         );
+        if (turned.ok) {
+            await showWorkBranches(ctx, remote, config);
+        }
+        return turned;
     } catch (e) {
         if (e instanceof ImportConflict) {
             return fail('conflict', e.message);
@@ -180,7 +185,7 @@ async function turnOnInTransaction(
     }
 
     await saveGitConfig(ctx, state.config, true);
-    const changes = branchChanges(onBranch, await exportWorkspace(ctx.db, ctx.workspaceId));
+    const changes = branchChanges(onBranch, await exportWorkspace(ctx.db, ctx.workspaceId, 'committed'));
     if (Object.keys(changes).length > 0) {
         await commitFirst(ctx, state.config, remote, message, changes);
     } else {
@@ -188,4 +193,15 @@ async function turnOnInTransaction(
     }
 
     return success({ outcome, branch, warnings });
+}
+
+async function showWorkBranches(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<void> {
+    try {
+        await fetchAndReconcile(ctx, remote, config);
+    } catch (e) {
+        // git is on already: the next poll records the heads (until then a work branch answers "pick another branch")
+        if (!(e instanceof GitError)) {
+            throw e;
+        }
+    }
 }

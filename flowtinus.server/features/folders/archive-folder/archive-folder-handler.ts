@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { archiveFolderOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { isFolderVisible, subtreeIds } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -29,6 +31,10 @@ export class ArchiveFolderHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return archiveFolderOnBranch(ctx, branch, id);
+        }
         const folder = await new FolderRepository(ctx.db, ctx.workspaceId).findById(id);
         const tree = folder ? await loadTree(ctx.db, ctx.workspaceId, folder.projectId) : null;
         if (!folder || !tree || !isFolderVisible(tree.folders, id)) {
@@ -37,28 +43,24 @@ export class ArchiveFolderHandler implements UseCaseHandler<{ id: string }> {
 
         const subtree = subtreeIds(tree.folders, id);
         const archive = { deletedAt: new Date(), deletedBy: ctx.userId };
-        await changeTree(
-            ctx,
-            () => `Archive folder ${folder.name}`,
-            async tx => {
-                const folderRepository = new FolderRepository(tx, ctx.workspaceId);
-                const flowRepository = new FlowRepository(tx, ctx.workspaceId);
-                for (const item of tree.folders.filter(f => subtree.has(f.id) && f.archivedAt === null)) {
-                    await folderRepository.update(item.id, archive);
-                }
+        await changeTree(ctx, async tx => {
+            const folderRepository = new FolderRepository(tx, ctx.workspaceId);
+            const flowRepository = new FlowRepository(tx, ctx.workspaceId);
+            for (const item of tree.folders.filter(f => subtree.has(f.id) && f.archivedAt === null)) {
+                await folderRepository.update(item.id, archive);
+            }
 
-                const flows = tree.flows.filter(f => f.folderId !== null && subtree.has(f.folderId) && f.archivedAt === null);
-                for (const item of flows) {
-                    await flowRepository.update(item.id, archive);
-                }
+            const flows = tree.flows.filter(f => f.folderId !== null && subtree.has(f.folderId) && f.archivedAt === null);
+            for (const item of flows) {
+                await flowRepository.update(item.id, archive);
+            }
 
-                await undeployArchived(
-                    tx,
-                    ctx,
-                    flows.map(f => f.id),
-                );
-            },
-        );
+            await undeployArchived(
+                tx,
+                ctx,
+                flows.map(f => f.id),
+            );
+        });
 
         return success({ id });
     }

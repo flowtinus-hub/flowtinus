@@ -1,6 +1,7 @@
-import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, projectToYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
+import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, newFlowFile, projectToYaml, repoFlowFromYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
 import { loadTree } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
+import { bestRows, scriptFileId, workingRows } from './working-copy';
 
 export type RepoFiles = Record<string, string>;
 
@@ -25,20 +26,18 @@ export const flowsInRepo = (db: Database, workspaceId: string, flowIds: string[]
         [workspaceId, flowIds],
     );
 
-export type FlowToCommit = { definition: FlowFile; deployed: boolean };
+function withDeployed(text: string, name: string, deployed: boolean): string {
+    const read = repoFlowFromYaml(text, name);
+    return read.ok ? repoFlowToYaml(read.value.flow, { deployed }) : text;
+}
 
-/** a project's script: its key in TreeOverrides */
-export const scriptKey = (projectId: string, path: string) => `${projectId}/${path}`;
+export const committedFlowText = (flowId: string, inRepo: Pick<FlowInRepo, 'definition' | 'deployed'>) =>
+    repoFlowToYaml({ ...inRepo.definition, id: flowId }, { deployed: inRepo.deployed });
 
-/**
- * What a commit is to change, against the tree as it is: these flows' files as they are to be (not as they are
- * deployed), these scripts' content (null: removed), by scriptKey.
- */
-export type TreeOverrides = { flows?: Map<string, FlowToCommit>; scripts?: Map<string, string | null> };
+export type Tree = { files: RepoFiles; ids: Record<string, string> };
 
-// with git on, a script is in the tree as it was committed (the deployed set), not as it is being edited
-export async function exportWorkspace(db: Database, workspaceId: string, overrides: TreeOverrides = {}): Promise<RepoFiles> {
-    const [[workspace], connections, projects, flowVersions, scripts, scriptFolders] = await Promise.all([
+export async function exportTree(db: Database, workspaceId: string, mode: 'working' | 'committed' = 'working'): Promise<Tree> {
+    const [[workspace], connections, projects, flowVersions, deployedScripts, scriptFolders, rows] = await Promise.all([
         db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]),
         db.query<{ id: string; name: string; type: ConnectionTypeName }>(
             'SELECT id, name, type FROM connections WHERE workspace_id = $1 AND deleted_at IS NULL',
@@ -50,46 +49,50 @@ export async function exportWorkspace(db: Database, workspaceId: string, overrid
         ),
         flowsInRepo(db, workspaceId),
         db.query<{ project_id: string; path: string; content: string }>(
-            `SELECT coalesce(d.project_id, s.project_id) AS project_id, coalesce(d.path, s.path) AS path, coalesce(b.content, s.content) AS content
-       FROM (SELECT * FROM scripts WHERE workspace_id = $1) s
-       FULL JOIN (deployed_scripts d JOIN script_blobs b ON b.workspace_id = d.workspace_id AND b.hash = d.hash AND d.workspace_id = $1)
-         ON d.project_id = s.project_id AND d.path = s.path`,
+            `SELECT d.project_id, d.path, b.content FROM deployed_scripts d
+       JOIN script_blobs b ON b.workspace_id = d.workspace_id AND b.hash = d.hash WHERE d.workspace_id = $1`,
             [workspaceId],
         ),
         db.query<{ project_id: string; path: string }>('SELECT project_id, path FROM script_folders WHERE workspace_id = $1', [
             workspaceId,
         ]),
+        workingRows(db, workspaceId),
     ]);
     const slug = workspace!.slug;
-    const versions = new Map<string, FlowToCommit>([...flowVersions.map(v => [v.flow_id, v] as const), ...(overrides.flows ?? [])]);
-    const contents = new Map(scripts.map(s => [scriptKey(s.project_id, s.path), s]));
-    for (const [key, content] of overrides.scripts ?? []) {
-        const at = key.indexOf('/');
-        if (content === null) {
-            contents.delete(key);
-        } else {
-            contents.set(key, { project_id: key.slice(0, at), path: key.slice(at + 1), content });
-        }
-    }
-    const scriptsNow = [...contents.values()];
+    const versions = new Map(flowVersions.map(v => [v.flow_id, v]));
+    const best = bestRows(rows);
     const files: RepoFiles = {
         [repoPath.gitattributes]: GITATTRIBUTES,
         [repoPath.workspace(slug)]: workspaceToYaml(),
     };
+    const ids: Record<string, string> = {};
+    const put = (path: string, text: string, id?: string) => {
+        files[path] = text;
+        if (id) {
+            ids[path] = id;
+        }
+    };
     for (const connection of connections) {
-        files[repoPath.connection(slug, connection.name)] = connectionToYaml(connection);
+        put(repoPath.connection(slug, connection.name), connectionToYaml(connection), connection.id);
     }
 
     for (const project of projects) {
-        files[repoPath.project(slug, project.name)] = projectToYaml(project);
+        put(repoPath.project(slug, project.name), projectToYaml(project), project.id);
         const tree = await loadTree(db, workspaceId, project.id);
         const names = (folderId: string | null) => folderPath(tree.folders, folderId).map(f => f.name);
         const flowPaths: string[] = [];
         for (const flow of tree.flows.filter(f => f.archivedAt === null && isFolderVisible(tree.folders, f.folderId))) {
             const version = versions.get(flow.id);
-            if (version) {
+            const row = best.get(flow.id);
+            // a draft kept by an archive: as deployed as the flow is now
+            const draft = row?.deleted && row.content && version ? withDeployed(row.content, flow.name, version.deployed) : row?.content;
+            const text =
+                mode === 'committed'
+                    ? version && committedFlowText(flow.id, version)
+                    : (draft ?? (version ? committedFlowText(flow.id, version) : repoFlowToYaml(newFlowFile(flow.name, flow.id))));
+            if (text !== undefined) {
                 const path = repoPath.flow(slug, project.name, names(flow.folderId), flow.name);
-                files[path] = repoFlowToYaml({ ...version.definition, id: flow.id }, { deployed: version.deployed });
+                put(path, text, flow.id);
                 flowPaths.push(path);
             }
         }
@@ -104,21 +107,35 @@ export async function exportWorkspace(db: Database, workspaceId: string, overrid
             }
         }
 
-        const projectScripts = scriptsNow.filter(s => s.project_id === project.id);
-        for (const script of projectScripts) {
-            files[repoPath.script(slug, project.name, script.path)] = script.content;
+        const scripts = new Map(deployedScripts.filter(s => s.project_id === project.id).map(s => [s.path, s.content]));
+        const prefix = scriptFileId(project.id, '');
+        for (const [fileId, row] of best) {
+            if (fileId.startsWith(prefix)) {
+                const path = fileId.slice(prefix.length);
+                if (row.deleted) {
+                    scripts.delete(path);
+                } else {
+                    scripts.set(path, row.content ?? '');
+                }
+            }
         }
-        const scriptPaths = projectScripts.map(s => s.path);
+        for (const [path, content] of scripts) {
+            put(repoPath.script(slug, project.name, path), content, scriptFileId(project.id, path));
+        }
         const folderPaths = scriptFolders.filter(f => f.project_id === project.id).map(f => f.path);
         for (const folder of folderPaths) {
-            if (![...scriptPaths, ...folderPaths].some(path => path.startsWith(`${folder}/`))) {
+            if (![...scripts.keys(), ...folderPaths].some(path => path.startsWith(`${folder}/`))) {
                 files[repoPath.scriptFolder(slug, project.name, folder)] = '';
             }
         }
     }
 
-    return Object.fromEntries(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    const sorted = Object.fromEntries(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+    return { files: sorted, ids };
 }
+
+export const exportWorkspace = async (db: Database, workspaceId: string, mode: 'working' | 'committed' = 'committed') =>
+    (await exportTree(db, workspaceId, mode)).files;
 
 export function repoChanges(before: RepoFiles, after: RepoFiles): GitChanges {
     const changes: GitChanges = {};

@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, nameKey, type FlowFile } from '@flowtinus/core';
-import { longRepoPath, workspaceSlug } from '#features/folders/project-tree';
+import { FlowRepository, longRepoPath } from '#features/folders/project-tree';
+import { loadDraft, writeDraft } from '#features/flows/flow-draft';
+import { scriptFileId } from '#features/git/working-copy';
+import { workingScripts, writeScript } from '#features/scripts/script-store';
 import { changeTree } from '#features/git/git-first';
+import { workBranch } from '#features/git/branch-read';
+import { gitBranch } from '#features/git/git-config';
 import { undeployArchived } from '#features/deployments/deployments';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -18,7 +23,7 @@ export const MoveProjectCommand = z.object({ id: z.uuid('Invalid'), toWorkspace:
 
 export type MoveProjectResponse = { id: string; workspace: string; undeployed: number };
 
-const BY_PROJECT = ['folders', 'flows', 'scripts', 'script_folders', 'flow_schedules', 'flow_webhooks', 'runs', 'test_runs'];
+const BY_PROJECT = ['folders', 'flows', 'script_folders', 'flow_schedules', 'flow_webhooks', 'runs', 'test_runs'];
 const BY_FLOW = ['flow_versions', 'deployments', 'deployment_history'];
 
 type Draft = { revision: number; flow: FlowFile };
@@ -47,6 +52,14 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
         }
 
         const { id, toWorkspace } = parsed.value;
+        // its runs, versions, deployments, schedules and webhooks move with it, and they are the environment's, not a branch's
+        if (await workBranch(ctx)) {
+            const environment = (await gitBranch(ctx.db, ctx.workspaceId))?.branch;
+            return fail(
+                'conflict',
+                `A project moves to another workspace on ${environment} only: its runs, deployments, schedules and webhooks go with it. Pick ${environment} to move it.`,
+            );
+        }
         const [project] = await ctx.db.orm
             .select({ name: projects.name })
             .from(projects)
@@ -87,14 +100,20 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
             return fail('validation', `${tooLong} in "${toWorkspace}".`, { toWorkspace: 'Path too long there' });
         }
 
-        const flows = await ctx.db.query<{ id: string; draft: Draft | null; deployed: FlowFile | null }>(
-            `SELECT f.id, f.draft_definition AS draft, v.definition AS deployed
+        const rows = await ctx.db.query<{ id: string; deployed: FlowFile | null }>(
+            `SELECT f.id, v.definition AS deployed
          FROM flows f
          LEFT JOIN deployments d ON d.flow_id = f.id
          LEFT JOIN flow_versions v ON v.id = d.flow_version_id
         WHERE f.project_id = $1 AND f.deleted_at IS NULL AND f.removed_at IS NULL`,
             [id],
         );
+        const flowRows = await new FlowRepository(ctx.db, ctx.workspaceId).findMany(eq(flowsTable.projectId, id));
+        const flows: { id: string; draft: Draft | null; deployed: FlowFile | null }[] = [];
+        for (const row of rows) {
+            const flow = flowRows.find(f => f.id === row.id);
+            flows.push({ ...row, draft: flow ? await loadDraft(ctx.db, ctx.workspaceId, flow) : null });
+        }
         const used = { connectionIds: new Set<string>(), secrets: new Set<string>(), variables: new Set<string>() };
         for (const flow of flows) {
             for (const file of [flow.draft?.flow, flow.deployed]) {
@@ -150,17 +169,17 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
 
         const flowIds = flows.map(f => f.id);
         const deployed = flows.filter(f => f.deployed).length;
-        const message = `Move project ${project.name} from ${await workspaceSlug(ctx)} to ${toWorkspace}`;
         await changeTree(
             ctx,
-            () => message,
             async tx => {
                 await undeployArchived(tx, ctx, flowIds);
 
+                const drafts = new Map<string, FlowFile>();
                 for (const flow of flows) {
                     if (!flow.draft?.flow?.nodes) {
                         continue;
                     }
+                    drafts.set(flow.id, flow.draft.flow);
                     let changed = false;
                     const nodes = flow.draft.flow.nodes.map(node => {
                         const config = { ...node.config };
@@ -180,8 +199,7 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                         return { ...node, config };
                     });
                     if (changed) {
-                        const draft = { ...flow.draft, flow: { ...flow.draft.flow, nodes } };
-                        await tx.orm.update(flowsTable).set({ draftDefinition: draft }).where(eq(flowsTable.id, flow.id));
+                        drafts.set(flow.id, { ...flow.draft.flow, nodes });
                     }
                 }
 
@@ -205,6 +223,22 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                         id,
                         target.id,
                     ]);
+                }
+
+                const scripts = await workingScripts(tx, ctx.workspaceId, id);
+                await tx.query(
+                    `DELETE FROM working_copy WHERE workspace_id = $1 AND (file_id = ANY($2::text[]) OR starts_with(file_id, $3))`,
+                    [ctx.workspaceId, [...drafts.keys()], scriptFileId(id, '')],
+                );
+                await tx.query(`DELETE FROM deployed_scripts WHERE project_id = $1`, [id]);
+                for (const moved of await new FlowRepository(tx, target.id).findMany(eq(flowsTable.projectId, id))) {
+                    const draft = drafts.get(moved.id);
+                    if (draft) {
+                        await writeDraft(tx, target.id, moved, draft, ctx.userId, undefined, { asNew: true });
+                    }
+                }
+                for (const script of scripts) {
+                    await writeScript(tx, target.id, id, script.path, script.content, ctx.userId);
                 }
             },
             [target.id],

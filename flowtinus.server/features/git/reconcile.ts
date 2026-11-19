@@ -1,12 +1,13 @@
-import type { TreeIssue } from '@flowtinus/core';
+import { repoEntry, type TreeIssue } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
 import { deleteWorkspaceSetting, readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspaces/workspace-settings';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
-import { isGitOn, POLL_SETTING, RECONCILE_SETTING, type GitConfig } from './git-config';
+import { HEADS_SETTING, isGitOn, POLL_SETTING, RECONCILE_SETTING, type GitConfig } from './git-config';
 import type { GitRemote } from './git-remote';
-import type { RepoFiles } from './workspace-export';
+import { exportTree, type RepoFiles } from './workspace-export';
+import { fileRow, writeFile } from './working-copy';
 import { importWorkspace, readBranchWorkspace, validateImport, type RenamedDraft } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
 import type { Mode } from './topology';
@@ -52,8 +53,17 @@ const markApplied = (ctx: UseCaseContext, { branch, commit, mode }: BranchCommit
     );
 
 export async function forgetReconcile(ctx: UseCaseContext) {
+    // the work branches' rows and the users' current branches stay, unread until git is on again
+    const tree = await exportTree(ctx.db, ctx.workspaceId);
+    for (const [path, content] of Object.entries(tree.files)) {
+        const fileId = tree.ids[path];
+        if (repoEntry(path).kind === 'script' && fileId && !(await fileRow(ctx.db, ctx.workspaceId, fileId))) {
+            await writeFile(ctx.db, ctx.workspaceId, { path, content, fileId, userId: ctx.userId, committed: content, revision: 0 });
+        }
+    }
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, POLL_SETTING);
+    await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, HEADS_SETTING);
     await ctx.db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1', [ctx.workspaceId]);
 }
 
@@ -86,8 +96,13 @@ async function recordCommit(ctx: UseCaseContext, remote: GitRemote, commit: stri
     return user?.id ?? null;
 }
 
-export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<UseCaseResult<ReconcileResult>> {
-    const target = await environmentBranch(remote, config.environment);
+export async function reconcile(
+    ctx: UseCaseContext,
+    remote: GitRemote,
+    config: GitConfig,
+    branches?: Map<string, string>,
+): Promise<UseCaseResult<ReconcileResult>> {
+    const target = await environmentBranch(remote, config.environment, branches);
     if (!target.ok) {
         return target;
     }

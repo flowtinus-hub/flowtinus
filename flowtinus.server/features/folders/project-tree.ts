@@ -117,6 +117,10 @@ export type FlowView = {
     updatedBy: string | null;
     archivedAt: Date | null;
     archivedByCommit: string | null;
+    readOnly?: true;
+    removedBranch?: true;
+    workBranch?: true;
+    offersBranch?: true;
 };
 
 export const toFolderView = (folder: Folder): FolderView => ({
@@ -184,6 +188,7 @@ export async function nameInTree(
     tree: TreeContents,
     item: TreeItem,
     after?: TreeContents,
+    onBranch?: { project: string; scripts: ProjectScripts },
 ): Promise<UseCaseResult<string>> {
     const { kind, id, parentId } = item;
     const { value: name, error } = validateName(item.name, siblingNames(tree, kind, parentId, id), kind);
@@ -193,7 +198,7 @@ export async function nameInTree(
 
     const placed =
         after ?? (kind === 'folder' ? withFolder(tree, { id, parentId, name }) : withFlow(tree, { id, folderId: parentId, name }));
-    return (await pathTooLong(ctx, projectId, { tree: placed })) ?? success(name);
+    return (await pathTooLong(ctx, projectId, { tree: placed, ...onBranch })) ?? success(name);
 }
 
 export const folderLabel = (tree: TreeContents, folderId: string | null) =>

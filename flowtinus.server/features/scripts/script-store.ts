@@ -1,29 +1,65 @@
-import { insideScriptFolder, movedScriptPath, normalizeScriptPath, pathCaseClash, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
-import { and, eq, isNull } from 'drizzle-orm';
-import { flows as flowsTable } from '#features/flows/flow';
+import { insideScriptFolder, repoPath, movedScriptPath, normalizeScriptPath, pathCaseClash, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type FlowFile, type ScriptExport } from '@flowtinus/core';
+import { eq } from 'drizzle-orm';
+import { flows as flowsTable, type Flow } from '#features/flows/flow';
+import { loadDraft } from '#features/flows/flow-draft';
+import { FlowRepository } from '#features/folders/project-tree';
+import { bestRows, ENVIRONMENT_BRANCH, fileRow, removeFile, scriptFileId, writeFile, type WorkingRow } from '#features/git/working-copy';
 import type { Database } from '#shared/database/database';
+import type { WorkBranch } from '#features/git/branch-read';
+import { refuseOffEditableBranch } from '#features/git/current-branch';
 
 export type ScriptEntry = { path: string; revision: number; exports: ScriptExport[]; updatedBy: string | null; updatedAt: Date };
+
+export async function workingScripts(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+): Promise<{ path: string; content: string; revision: number; updatedBy: string | null; updatedAt: Date }[]> {
+    const [rows, deployed] = await Promise.all([
+        db.query<WorkingRow>(
+            `SELECT path, content, deleted, file_id, base, edited_by, conflict, revision, updated_at FROM working_copy
+           WHERE workspace_id = $1 AND branch = $2 AND starts_with(file_id, $3)`,
+            [workspaceId, ENVIRONMENT_BRANCH, scriptFileId(projectId, '')],
+        ),
+        db.query<{ path: string; content: string; commit_sha: string }>(
+            `SELECT d.path, b.content, d.commit_sha FROM deployed_scripts d JOIN script_blobs b ON b.workspace_id = d.workspace_id AND b.hash = d.hash
+           WHERE d.workspace_id = $1 AND d.project_id = $2`,
+            [workspaceId, projectId],
+        ),
+    ]);
+    const scripts = new Map(
+        deployed.map(d => [
+            d.path,
+            { path: d.path, content: d.content, revision: 0, updatedBy: null as string | null, updatedAt: new Date(0) },
+        ]),
+    );
+    const prefix = scriptFileId(projectId, '');
+    for (const [fileId, row] of bestRows(rows)) {
+        const path = fileId.slice(prefix.length);
+        if (row.deleted) {
+            scripts.delete(path);
+        } else {
+            scripts.set(path, {
+                path,
+                content: row.content ?? '',
+                revision: row.revision,
+                updatedBy: row.edited_by,
+                updatedAt: new Date(row.updated_at),
+            });
+        }
+    }
+    return [...scripts.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
 
 export async function listScripts(
     db: Database,
     workspaceId: string,
     projectId: string,
 ): Promise<{ scripts: ScriptEntry[]; folders: string[] }> {
-    const scripts = await db.query<ScriptEntry>(
-        `SELECT path, revision, exports, updated_by AS "updatedBy", updated_at AS "updatedAt" FROM scripts WHERE workspace_id = $1 AND project_id = $2 ORDER BY path`,
-        [workspaceId, projectId],
-    );
-    // a script saved before the list kept what it exports the way it does now (exports null, a migration): read once more
-    for (const script of scripts.filter(s => s.exports === null)) {
-        const exports = exportsOf((await getScript(db, workspaceId, projectId, script.path))?.content ?? '');
-        await db.query(
-            'UPDATE scripts SET exports = $4::text::jsonb WHERE workspace_id = $1 AND project_id = $2 AND path = $3 AND exports IS NULL',
-            [workspaceId, projectId, script.path, exports],
-        );
-        script.exports = JSON.parse(exports) as ScriptExport[];
-    }
-
+    const scripts = (await workingScripts(db, workspaceId, projectId)).map(({ content, ...script }) => ({
+        ...script,
+        exports: scriptExports(content),
+    }));
     const folders = await db.query<{ path: string }>(
         'SELECT path FROM script_folders WHERE workspace_id = $1 AND project_id = $2 ORDER BY path',
         [workspaceId, projectId],
@@ -37,11 +73,63 @@ export async function getScript(
     projectId: string,
     path: string,
 ): Promise<{ path: string; content: string; revision: number } | null> {
-    const [row] = await db.query<{ path: string; content: string; revision: number }>(
-        'SELECT path, content, revision FROM scripts WHERE workspace_id = $1 AND project_id = $2 AND path = $3',
+    const script = (await workingScripts(db, workspaceId, projectId)).find(s => s.path === path);
+    return script ? { path: script.path, content: script.content, revision: script.revision } : null;
+}
+
+async function scriptRepoPath(db: Database, workspaceId: string, projectId: string, path: string): Promise<string> {
+    const [names] = await db.query<{ slug: string; project: string }>(
+        'SELECT w.slug, p.name AS project FROM workspaces w JOIN projects p ON p.workspace_id = w.id WHERE w.id = $1 AND p.id = $2',
+        [workspaceId, projectId],
+    );
+    return repoPath.script(names!.slug, names!.project, path);
+}
+
+export async function writeScript(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+    path: string,
+    content: string | null,
+    userId: string | null,
+    expected?: number,
+): Promise<number | null> {
+    await refuseOffEditableBranch(db, workspaceId, userId);
+    const fileId = scriptFileId(projectId, path);
+    const row = await fileRow(db, workspaceId, fileId);
+    const live = row && !row.deleted ? row : null;
+    if (expected !== undefined && expected !== (live?.revision ?? 0)) {
+        return null;
+    }
+    const [committed] = await db.query<{ content: string }>(
+        `SELECT b.content FROM deployed_scripts d JOIN script_blobs b ON b.workspace_id = d.workspace_id AND b.hash = d.hash
+       WHERE d.workspace_id = $1 AND d.project_id = $2 AND d.path = $3`,
         [workspaceId, projectId, path],
     );
-    return row ?? null;
+    const at = live?.path ?? (await scriptRepoPath(db, workspaceId, projectId, path));
+    if (content === null) {
+        if (live || committed) {
+            await removeFile(db, workspaceId, { path: at, fileId, userId, ...(committed ? { committed: committed.content } : {}) });
+        }
+        return live?.revision ?? 0;
+    }
+    if (live) {
+        const [saved] = await db.query<{ revision: number }>(
+            `UPDATE working_copy SET content = $4, edited_by = $5, revision = revision + 1, updated_at = now()
+           WHERE workspace_id = $1 AND branch = $2 AND path = $3 AND ($6::int IS NULL OR revision = $6) RETURNING revision`,
+            [workspaceId, ENVIRONMENT_BRANCH, at, content, userId, expected ?? null],
+        );
+        return saved?.revision ?? null;
+    }
+    // a script made (no revision named) starts at the revision its path had; a save grows it
+    return writeFile(db, workspaceId, {
+        path: at,
+        content,
+        fileId,
+        userId,
+        ...(expected === undefined ? { revision: row?.revision ?? 0 } : {}),
+        ...(committed ? { committed: committed.content } : {}),
+    });
 }
 
 export const exportsOf = (content: string) => JSON.stringify(scriptExports(content));
@@ -60,7 +148,7 @@ export const saveBlob = async (db: Database, workspaceId: string, content: strin
 
 export type ScriptUser = { label: string; code: string };
 
-export type ScriptSource = 'editing' | 'deployed';
+export type ScriptSource = 'editing' | 'deployed' | { branch: { path: string; content: string }[] };
 
 export async function scriptContents(
     db: Database,
@@ -69,12 +157,17 @@ export async function scriptContents(
     source: ScriptSource,
     paths?: string[],
 ): Promise<{ path: string; content: string }[]> {
+    if (typeof source === 'object') {
+        return source.branch.filter(s => !paths || paths.includes(s.path)).map(s => ({ path: s.path, content: s.content }));
+    }
+    if (source === 'editing') {
+        const scripts = await workingScripts(db, workspaceId, projectId);
+        return scripts.filter(s => !paths || paths.includes(s.path)).map(s => ({ path: s.path, content: s.content }));
+    }
     const only = paths ? 'AND s.path = ANY($3::text[])' : '';
     return db.query<{ path: string; content: string }>(
-        source === 'editing'
-            ? `SELECT s.path, s.content FROM scripts s WHERE s.workspace_id = $1 AND s.project_id = $2 ${only} ORDER BY s.path`
-            : `SELECT s.path, b.content FROM deployed_scripts s JOIN script_blobs b ON b.workspace_id = s.workspace_id AND b.hash = s.hash
-               WHERE s.workspace_id = $1 AND s.project_id = $2 ${only} ORDER BY s.path`,
+        `SELECT s.path, b.content FROM deployed_scripts s JOIN script_blobs b ON b.workspace_id = s.workspace_id AND b.hash = s.hash
+         WHERE s.workspace_id = $1 AND s.project_id = $2 ${only} ORDER BY s.path`,
         paths ? [workspaceId, projectId, paths] : [workspaceId, projectId],
     );
 }
@@ -140,12 +233,19 @@ export async function newPathIssue(
     text: string,
     from?: string,
 ): Promise<string | null> {
+    return pathIssueIn(await listScripts(db, workspaceId, projectId), text, from);
+}
+
+export function pathIssueIn(
+    { scripts, folders }: { scripts: { path: string }[]; folders: string[] },
+    text: string,
+    from?: string,
+): string | null {
     const path = normalizeScriptPath(text);
     const issue = scriptPathIssue(path);
     if (issue) {
         return issue;
     }
-    const { scripts, folders } = await listScripts(db, workspaceId, projectId);
     if (scripts.some(s => s.path === path)) {
         return 'A script with this path already exists.';
     }
@@ -165,75 +265,59 @@ export async function scriptUsage(
     workspaceId: string,
     projectId: string,
     path: string,
+    branch: WorkBranch | null = null,
 ): Promise<{ flows: { id: string; name: string }[]; scripts: string[] }> {
     const imports = (code: string) => scriptImports(code).some(p => insideScriptFolder(p, path));
-    const scripts = await db.query<{ path: string; content: string }>(
-        'SELECT path, content FROM scripts WHERE workspace_id = $1 AND project_id = $2',
-        [workspaceId, projectId],
-    );
-    const flows = await db.orm
-        .select({ id: flowsTable.id, name: flowsTable.name, draft: flowsTable.draftDefinition })
-        .from(flowsTable)
-        .where(and(eq(flowsTable.workspaceId, workspaceId), eq(flowsTable.projectId, projectId), isNull(flowsTable.deletedAt)));
-    const codeOf = (draft: unknown) =>
-        ((draft as { flow?: { nodes?: { type: string; config?: Record<string, unknown> }[] } } | null)?.flow?.nodes ?? [])
-            .map(n => scriptCodeOf(n.type, n.config ?? {}) ?? '')
-            .join('\n');
+    const scripts = branch ? (branch.scripts.get(projectId) ?? []) : await workingScripts(db, workspaceId, projectId);
+    const flows: (Flow & { file?: FlowFile })[] = branch
+        ? branch.flows.filter(f => f.projectId === projectId)
+        : await new FlowRepository(db, workspaceId).findMany(eq(flowsTable.projectId, projectId));
+    const users: { id: string; name: string }[] = [];
+    for (const flow of flows) {
+        const file = flow.file ?? (await loadDraft(db, workspaceId, flow)).flow;
+        if (imports(file.nodes.map(n => scriptCodeOf(n.type, n.config ?? {}) ?? '').join('\n'))) {
+            users.push({ id: flow.id, name: flow.name });
+        }
+    }
     return {
-        flows: flows.filter(f => imports(codeOf(f.draft))).map(f => ({ id: f.id, name: f.name })),
+        flows: users,
         scripts: scripts.filter(s => !insideScriptFolder(s.path, path) && imports(s.content)).map(s => s.path),
     };
 }
 
 export async function moveScriptPath(db: Database, workspaceId: string, projectId: string, from: string, to: string, userId: string) {
-    await db.transaction(async tx => {
-        const { scripts, folders } = await listScripts(tx, workspaceId, projectId);
-        for (const script of scripts.filter(s => insideScriptFolder(s.path, from))) {
-            await tx.query(
-                'UPDATE scripts SET path = $4, revision = revision + 1, updated_by = $5, updated_at = now() WHERE workspace_id = $1 AND project_id = $2 AND path = $3',
-                [workspaceId, projectId, script.path, movedScriptPath(script.path, from, to), userId],
-            );
-        }
-        const committed = await tx.query<{ path: string }>(
-            'SELECT path FROM deployed_scripts WHERE workspace_id = $1 AND project_id = $2',
-            [workspaceId, projectId],
-        );
-        for (const { path } of committed.filter(s => insideScriptFolder(s.path, from))) {
-            await tx.query('UPDATE deployed_scripts SET path = $4 WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
-                workspaceId,
-                projectId,
-                path,
-                movedScriptPath(path, from, to),
-            ]);
-        }
-        for (const folder of folders.filter(f => insideScriptFolder(f, from))) {
-            await tx.query('UPDATE script_folders SET path = $4 WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
-                workspaceId,
-                projectId,
-                folder,
-                movedScriptPath(folder, from, to),
-            ]);
-        }
-    });
+    const { folders } = await listScripts(db, workspaceId, projectId);
+    for (const script of (await workingScripts(db, workspaceId, projectId)).filter(s => insideScriptFolder(s.path, from))) {
+        await writeScript(db, workspaceId, projectId, script.path, null, userId);
+        await writeScript(db, workspaceId, projectId, movedScriptPath(script.path, from, to), script.content, userId);
+    }
+    for (const folder of folders.filter(f => insideScriptFolder(f, from))) {
+        await db.query('UPDATE script_folders SET path = $4 WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
+            workspaceId,
+            projectId,
+            folder,
+            movedScriptPath(folder, from, to),
+        ]);
+    }
 }
 
-export async function deleteScriptPath(db: Database, workspaceId: string, projectId: string, path: string) {
-    await db.query(
-        `DELETE FROM deployed_scripts WHERE workspace_id = $1 AND project_id = $2 AND (path = $3 OR starts_with(path, $3 || '/'))`,
-        [workspaceId, projectId, path],
-    );
-    await db.query(`DELETE FROM scripts WHERE workspace_id = $1 AND project_id = $2 AND (path = $3 OR starts_with(path, $3 || '/'))`, [
-        workspaceId,
-        projectId,
-        path,
-    ]);
+export async function deleteScriptPath(db: Database, workspaceId: string, projectId: string, path: string, userId: string) {
+    for (const script of (await workingScripts(db, workspaceId, projectId)).filter(s => insideScriptFolder(s.path, path))) {
+        await writeScript(db, workspaceId, projectId, script.path, null, userId);
+    }
     await db.query(
         `DELETE FROM script_folders WHERE workspace_id = $1 AND project_id = $2 AND (path = $3 OR starts_with(path, $3 || '/'))`,
         [workspaceId, projectId, path],
     );
 }
 
-export async function typeSources(db: Database, workspaceId: string, projectId: string, path: string): Promise<Record<string, string>> {
+export async function typeSources(
+    db: Database,
+    workspaceId: string,
+    projectId: string,
+    path: string,
+    source: ScriptSource = 'editing',
+): Promise<Record<string, string>> {
     const sources: Record<string, string> = {};
     const queue = [path];
     while (queue.length > 0 && Object.keys(sources).length < 200) {
@@ -242,7 +326,7 @@ export async function typeSources(db: Database, workspaceId: string, projectId: 
             continue;
         }
 
-        const script = await getScript(db, workspaceId, projectId, next);
+        const [script] = await scriptContents(db, workspaceId, projectId, source, [next]);
         if (!script) {
             continue;
         }

@@ -1,3 +1,5 @@
+import { workBranch } from '#features/git/branch-read';
+import { createFolderOnBranch } from '#features/git/branch-edits';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
@@ -27,6 +29,10 @@ export class CreateFolderHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { projectId, parentId } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return createFolderOnBranch(ctx, branch, parsed.value);
+        }
         const missing = await requireActiveProject(ctx, projectId);
         if (missing) {
             return missing;
@@ -44,11 +50,7 @@ export class CreateFolderHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const name = named.value;
-        const folder = await changeTree(
-            ctx,
-            () => `Create folder ${name}`,
-            db => new FolderRepository(db, ctx.workspaceId).insert({ id, projectId, parentId, name }),
-        );
+        const folder = await changeTree(ctx, db => new FolderRepository(db, ctx.workspaceId).insert({ id, projectId, parentId, name }));
         return success({ id: folder.id });
     }
 }

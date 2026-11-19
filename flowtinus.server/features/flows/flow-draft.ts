@@ -1,30 +1,97 @@
-import { dropDanglingEdges, newFlowFile, validateFlowFile, type FlowFile } from '@flowtinus/core';
+import { dropDanglingEdges, folderPath, newFlowFile, repoFlowFromYaml, repoFlowToYaml, repoPath, validateFlowFile, type FlowFile } from '@flowtinus/core';
+import { loadTree } from '#features/folders/project-tree';
+import { committedFlowText, flowsInRepo } from '#features/git/workspace-export';
+import { ENVIRONMENT_BRANCH, fileRow, writeFile } from '#features/git/working-copy';
+import { withoutPinned } from '#features/pins/pins';
+import { refuseOffEditableBranch } from '#features/git/current-branch';
+import type { Database } from '#shared/database/database';
 import type { Flow } from './flow';
 
 /*
- * A flow's draft (flows.draft_definition): the core's flow file as the editor saves it, with a revision that grows on
- * every save. A save names the revision it started from; when another save came in between, it is refused (409)
- * instead of overwriting it. A flow made before drafts existed (or by the create without one) opens as a new flow:
- * its Start and its End.
+ * A flow's draft: its file in the working copy of the environment's branch, else its file as committed (the version in
+ * the repo), else a new flow (its Start and its End). A save names the revision it started from; when another save
+ * came in between, it is refused (409) instead of overwriting it. The pinned outputs are no part of the file: they are
+ * the user's (features/pins).
  */
-
-export type StoredDraft = { revision: number; flow: FlowFile };
 
 /** conflict: with git on, the commit the draft could not be merged with (it cannot be committed until it is discarded) */
 export type FlowDraft = { flow: FlowFile; revision: number; conflict?: string };
 
-export function readDraft(row: Flow): FlowDraft {
-    const stored = row.draftDefinition as Partial<StoredDraft> | null;
-    // an edge left on a port its component no longer has (saved before they were taken out) is dropped, not the flow
-    const checked = stored?.flow ? validateFlowFile(dropDanglingEdges(stored.flow)) : null;
-    const flow = checked?.ok ? checked.value : newFlowFile(row.name, row.id);
+function readText(row: Flow, text: string): FlowFile | null {
+    const read = repoFlowFromYaml(text, row.name);
+    return read.ok ? read.value.flow : null;
+}
+
+export async function loadDraft(db: Database, workspaceId: string, row: Flow): Promise<FlowDraft> {
+    const draft = await fileRow(db, workspaceId, row.id);
+    let flow: FlowFile | null = draft?.content ? readText(row, draft.content) : null;
+    if (!flow) {
+        const [inRepo] = await flowsInRepo(db, workspaceId, [row.id]);
+        const checked = inRepo ? validateFlowFile(dropDanglingEdges(inRepo.definition)) : null;
+        flow = checked?.ok ? checked.value : null;
+    }
+    flow ??= newFlowFile(row.name, row.id);
     return {
-        flow: { ...flow, id: row.id, name: row.name },
-        revision: checked?.ok && typeof stored?.revision === 'number' ? stored.revision : 0,
+        flow: withoutPinned({ ...flow, id: row.id, name: row.name }),
+        revision: draft?.revision ?? 0,
+        ...(draft?.conflict ? { conflict: draft.conflict } : {}),
     };
 }
 
-export const revisionOf = (row: Flow) => {
-    const stored = row.draftDefinition as Partial<StoredDraft> | null;
-    return stored?.flow && typeof stored.revision === 'number' ? stored.revision : 0;
-};
+export async function flowRepoPath(db: Database, workspaceId: string, row: Flow): Promise<string> {
+    const [[names], tree] = await Promise.all([
+        db.query<{ slug: string; project: string }>(
+            'SELECT w.slug, p.name AS project FROM workspaces w JOIN projects p ON p.workspace_id = w.id WHERE w.id = $1 AND p.id = $2',
+            [workspaceId, row.projectId],
+        ),
+        loadTree(db, workspaceId, row.projectId),
+    ]);
+    return repoPath.flow(
+        names!.slug,
+        names!.project,
+        folderPath(tree.folders, row.folderId).map(f => f.name),
+        row.name,
+    );
+}
+
+export async function writeDraft(
+    db: Database,
+    workspaceId: string,
+    row: Flow,
+    flow: FlowFile,
+    userId: string | null,
+    expected?: number,
+    options: { asNew?: boolean } = {},
+): Promise<number | null> {
+    await refuseOffEditableBranch(db, workspaceId, userId);
+    await db.query('UPDATE flows SET updated_at = now(), updated_by = $3 WHERE workspace_id = $1 AND id = $2', [
+        workspaceId,
+        row.id,
+        userId,
+    ]);
+
+    const draft = await fileRow(db, workspaceId, row.id);
+    const [inRepo] = await flowsInRepo(db, workspaceId, [row.id]);
+    const live = draft && !draft.deleted ? draft : null;
+    const deployed = live?.content ? !/^deployed: false$/m.test(live.content) : (inRepo?.deployed ?? true);
+    const text = repoFlowToYaml({ ...flow, id: row.id, name: row.name }, { deployed });
+    if (live) {
+        const [saved] = await db.query<{ revision: number }>(
+            `UPDATE working_copy SET content = $4, edited_by = $5, revision = revision + 1, updated_at = now()
+           WHERE workspace_id = $1 AND branch = $2 AND path = $3 AND ($6::int IS NULL OR revision = $6) RETURNING revision`,
+            [workspaceId, ENVIRONMENT_BRANCH, live.path, text, userId, expected ?? null],
+        );
+        return saved?.revision ?? null;
+    }
+
+    if (expected !== undefined && expected !== (draft?.revision ?? 0)) {
+        return null;
+    }
+    return writeFile(db, workspaceId, {
+        path: await flowRepoPath(db, workspaceId, row),
+        content: text,
+        fileId: row.id,
+        userId,
+        ...(inRepo && !options.asNew ? { committed: committedFlowText(row.id, inRepo) } : {}),
+    });
+}

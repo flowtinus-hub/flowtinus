@@ -1,8 +1,6 @@
 import { z } from 'zod';
-import { and, eq, isNull } from 'drizzle-orm';
 import type { FlowFile } from '@flowtinus/core';
-import { flows } from '#features/flows/flow';
-import { revisionOf, type StoredDraft } from '#features/flows/flow-draft';
+import { writeDraft } from '#features/flows/flow-draft';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -41,11 +39,9 @@ export class RestoreDraftHandler implements UseCaseHandler<{ revision: number }>
             return fail('not-found', 'Version not found.');
         }
 
-        const draft: StoredDraft = { revision: revisionOf(row) + 1, flow: { ...version.definition, id: row.id, name: row.name } };
-        await ctx.db.orm
-            .update(flows)
-            .set({ draftDefinition: draft, updatedAt: new Date(), updatedBy: ctx.userId })
-            .where(and(eq(flows.workspaceId, ctx.workspaceId), eq(flows.id, row.id), isNull(flows.deletedAt)));
-        return success({ revision: draft.revision });
+        const revision = await ctx.db.transaction(db =>
+            writeDraft(db, ctx.workspaceId, row, { ...version.definition, id: row.id, name: row.name }, ctx.userId),
+        );
+        return success({ revision: revision ?? 0 });
     }
 }

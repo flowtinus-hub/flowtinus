@@ -13,6 +13,24 @@ export type TopologyView =
           branchExists: boolean;
       };
 
+const TOPOLOGIES_KEPT = 16;
+const topologies = new Map<string, string>();
+
+export async function topologyAt(remote: GitRemote, commit: string): Promise<string | null> {
+    const kept = topologies.get(commit);
+    if (kept !== undefined) {
+        return kept;
+    }
+    const text = await remote.readFile(commit, TOPOLOGY_FILE);
+    if (text !== null) {
+        topologies.set(commit, text);
+        while (topologies.size > TOPOLOGIES_KEPT) {
+            topologies.delete(topologies.keys().next().value!);
+        }
+    }
+    return text;
+}
+
 export async function readTopology(remote: GitRemote, environment: string, branches?: Map<string, string>): Promise<TopologyView> {
     const known = branches ?? (await remote.branches());
     const commit = await remote.fetch(CONFIG_BRANCH, known);
@@ -20,7 +38,7 @@ export async function readTopology(remote: GitRemote, environment: string, branc
         return { exists: false };
     }
 
-    const text = await remote.readFile(commit, TOPOLOGY_FILE);
+    const text = await topologyAt(remote, commit);
     const { environments, problems } =
         text === null ? { environments: [], problems: [`${CONFIG_BRANCH} has no ${TOPOLOGY_FILE}.`] } : parseTopology(text);
     const decl = environments.find(e => e.env === environment) ?? null;
@@ -34,8 +52,9 @@ export async function readTopology(remote: GitRemote, environment: string, branc
 export async function environmentBranch(
     remote: GitRemote,
     environment: string,
+    known?: Map<string, string>,
 ): Promise<UseCaseResult<{ branch: string; tip: string | null; mode: Mode }>> {
-    const branches = await remote.branches();
+    const branches = known ?? (await remote.branches());
     const topology = await readTopology(remote, environment, branches);
     if (!topology.exists) {
         return fail('conflict', `The repository has no ${CONFIG_BRANCH} branch.`);

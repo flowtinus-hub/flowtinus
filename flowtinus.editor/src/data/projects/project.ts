@@ -18,6 +18,8 @@ export type Project = {
     archivedAt: Date | null;
     /** what it holds (the projects' list has it) */
     summary?: ProjectSummary;
+    readOnly?: boolean;
+    removedBranch?: boolean;
 };
 
 /** a project's active flows (and how many are deployed) and scripts (connections, secrets and variables are the workspace's) */

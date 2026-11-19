@@ -1,8 +1,9 @@
 import { COMPONENT_TYPE, dynamicTargets, flowPath, inputTypeRef, isFolderVisible, MAX_FLOW_DEPTH, scriptTypeShape, START, startConfig, validateFlowFile, DYNAMIC_TARGET, type FlowFile, type TypeShape } from '@flowtinus/core';
 import { deployedDefinitions } from '#features/deployments/deployments';
-import { readDraft } from '#features/flows/flow-draft';
+import { loadDraft } from '#features/flows/flow-draft';
 import type { ProjectTree } from '#features/folders/project-tree';
-import { typeSources } from '#features/scripts/script-store';
+import { typeSources, type ScriptSource } from '#features/scripts/script-store';
+import { branchDraft, branchFlow, branchScripts, type WorkBranch } from '#features/git/branch-read';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 
 export type CalledFlow = {
@@ -34,6 +35,7 @@ async function inputTypeOf(
     ctx: UseCaseContext,
     projectId: string,
     file: FlowFile,
+    scripts: ScriptSource,
 ): Promise<{ type?: CalledFlow['inputType']; error?: string }> {
     const config = file.nodes.find(n => n.type === START)?.config ?? {};
     const ref = startConfig(config).acceptsInput ? inputTypeRef(config.inputType) : null;
@@ -41,7 +43,7 @@ async function inputTypeOf(
         return {};
     }
 
-    const shape = scriptTypeShape(await typeSources(ctx.db, ctx.workspaceId, projectId, ref.path), ref.path, ref.name);
+    const shape = scriptTypeShape(await typeSources(ctx.db, ctx.workspaceId, projectId, ref.path, scripts), ref.path, ref.name);
     return shape
         ? { type: { name: ref.name, shape } }
         : { error: `its input type ${ref.name} no longer exists in the script ${ref.path}.` };
@@ -53,7 +55,9 @@ export async function calledFlows(
     tree: ProjectTree,
     root: FlowFile,
     source: 'draft' | 'deployed',
+    branch: WorkBranch | null = null,
 ): Promise<CalledFlow[]> {
+    const scripts: ScriptSource = branch ? { branch: branchScripts(branch, projectId) } : 'editing';
     const found = new Map<string, CalledFlow>();
     const deployed =
         source === 'deployed'
@@ -85,13 +89,19 @@ export async function calledFlows(
             return [];
         }
 
-        const checked = validateFlowFile(version ? { ...version.definition, id: row.id, name: row.name } : readDraft(row).flow);
+        const checked = validateFlowFile(
+            version
+                ? { ...version.definition, id: row.id, name: row.name }
+                : branch
+                  ? branchDraft(branchFlow(branch, row.id)!).flow
+                  : (await loadDraft(ctx.db, ctx.workspaceId, row)).flow,
+        );
         if (!checked.ok) {
             found.set(id, { id, name: row.name, path, unavailable: checked.errors.join(' ') });
             return [];
         }
 
-        const { type, error } = await inputTypeOf(ctx, projectId, checked.value);
+        const { type, error } = await inputTypeOf(ctx, projectId, checked.value, scripts);
         found.set(id, {
             id,
             name: row.name,

@@ -1,6 +1,9 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, GitCommitHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { CHANGES_CHANGED, getChanges, getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { ChangesDialog } from './changes-dialog';
+import { BranchPicker } from './branch-picker';
+import { API_WRITE_DONE } from '@/lib/api';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -126,6 +129,46 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     );
 }
 
+function ChangesItem({ slug, pathname }: { slug: string; pathname: string }) {
+    const [count, setCount] = useState<{ slug: string; value: number; merging: boolean } | null>(null);
+    const [open, setOpen] = useState(false);
+    useEffect(() => {
+        let gone = false;
+        const read = () =>
+            void getChanges(slug).then(
+                result =>
+                    !gone &&
+                    setCount({ slug, value: result.ok ? result.value.changes.length : 0, merging: result.ok && !!result.value.merge }),
+            );
+        read();
+        const timer = setInterval(read, GIT_STATUS_MS);
+        window.addEventListener(CHANGES_CHANGED, read);
+        window.addEventListener(API_WRITE_DONE, read);
+        return () => {
+            gone = true;
+            clearInterval(timer);
+            window.removeEventListener(CHANGES_CHANGED, read);
+            window.removeEventListener(API_WRITE_DONE, read);
+        };
+    }, [slug, pathname]);
+
+    const value = count?.slug === slug ? count.value : 0;
+    const merging = count?.slug === slug && count.merging;
+    if (value === 0 && !merging && !open) {
+        return null;
+    }
+    const label = `Changes (${value})${merging ? ', merging' : ''}`;
+    return (
+        <SidebarMenuItem>
+            <SidebarMenuButton tooltip={label} onClick={() => setOpen(true)}>
+                <GitCommitHorizontal />
+                <span>{label}</span>
+            </SidebarMenuButton>
+            {open && <ChangesDialog slug={slug} onClose={() => setOpen(false)} />}
+        </SidebarMenuItem>
+    );
+}
+
 export function AppSidebar() {
     const { pathname } = useLocation();
     const { state } = useMe();
@@ -164,6 +207,20 @@ export function AppSidebar() {
                                 canCreate={state.status === 'ready' && state.me.isAdmin}
                             />
                         </SidebarMenuItem>
+                    </SidebarMenu>
+                </SidebarGroup>
+                {current && (
+                    // with git off every item renders nothing: the group and its lines go too
+                    <SidebarGroup className="mx-2 w-auto border-y border-sidebar-border px-0 has-[>ul:empty]:hidden">
+                        <SidebarMenu>
+                            <BranchPicker slug={current.slug} />
+                            <GitAheadItem slug={current.slug} pathname={pathname} />
+                            <ChangesItem slug={current.slug} pathname={pathname} />
+                        </SidebarMenu>
+                    </SidebarGroup>
+                )}
+                <SidebarGroup>
+                    <SidebarMenu>
                         {workspaceItems.map(item => (
                             <SidebarMenuItem key={item.to}>
                                 <SidebarMenuButton isActive={isActive(item.to, pathname)} tooltip={item.label} asChild>
@@ -174,7 +231,6 @@ export function AppSidebar() {
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))}
-                        {current && <GitAheadItem slug={current.slug} pathname={pathname} />}
                     </SidebarMenu>
                 </SidebarGroup>
                 {/* the environment's pages (not a workspace's), at the bottom */}

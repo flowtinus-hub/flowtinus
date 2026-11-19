@@ -8,6 +8,7 @@ import { MCP_TOOLS } from './tools';
 import { failed, toolContext, type McpOptions } from './tools/tool';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { workspaceOfCall } from './workspace-of-call';
+import { mcpCannotEdit } from '#features/git/current-branch';
 
 export { MAX_YAML_BYTES, type McpOptions } from './tools/tool';
 export { DEFAULT_TEST_RUN_WAIT_S, MAX_TEST_RUN_WAIT_S } from './tools/test-run';
@@ -45,6 +46,11 @@ export function createMcpServer(options: McpOptions): McpServer {
                     const t = await scoped(args as Record<string, unknown>);
                     if (!t.ok) {
                         return failed(t.error);
+                    }
+                    const { ctx } = t.value;
+                    const refused = tool.editsBranch && ctx.workspaceId ? await mcpCannotEdit(ctx.db, ctx.workspaceId, ctx.userId) : null;
+                    if (refused) {
+                        return failed({ code: 'conflict', message: refused });
                     }
                     return await tool.run(args, t.value);
                 } catch (error) {

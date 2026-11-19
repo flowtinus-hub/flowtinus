@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { useResource } from '@/data/use-resource';
 import { listSecrets } from '@/data/secrets/secrets-api';
 import type { ApiResult } from '@/lib/api';
-import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
+import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, GIT_STATUS_CHANGED, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
@@ -21,6 +21,16 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
     const { hash } = useLocation();
     const section = useRef<HTMLElement>(null);
     const ready = saved.state.status === 'ready';
+    const on = saved.state.status === 'ready' ? saved.state.value.on : null;
+    const wasOn = useRef(on);
+    useEffect(() => {
+        if (on !== null && wasOn.current !== null && on !== wasOn.current) {
+            window.dispatchEvent(new Event(GIT_STATUS_CHANGED));
+        }
+        if (on !== null) {
+            wasOn.current = on;
+        }
+    }, [on]);
     useEffect(() => {
         if (ready && hash === '#git') {
             section.current?.scrollIntoView({ block: 'start' });

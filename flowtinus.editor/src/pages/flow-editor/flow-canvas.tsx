@@ -152,6 +152,7 @@ export function FlowCanvas(props: {
     onCalls?: (calls: FlowCall[]) => void;
     /** an archived flow: shown to read (pan, zoom), nothing changes and nothing is saved */
     readOnly?: boolean;
+    onHeldEdit?: () => void;
     /** the first of the tools on the right (the flow's worker tag) */
     tools?: ReactNode;
     /** the tools on the right after it (Deploy, Schedules, Webhooks) */
@@ -168,6 +169,7 @@ export function FlowCanvas(props: {
         onToggleRunPanel,
         onCalls,
         readOnly = false,
+        onHeldEdit,
         tools,
         toolsAfter,
     } = props;
@@ -194,6 +196,7 @@ export function FlowCanvas(props: {
             setEdges(loaded.edges);
         },
         readOnly,
+        onHeldEdit,
     );
     // the flow on screen: every node of the opened draft drawn and measured, and the view set (the overlay goes then); kept
     // per flow, so opening another one veils the canvas again

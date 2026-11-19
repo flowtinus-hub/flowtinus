@@ -30,6 +30,7 @@ export async function checkProfile(
     fields: { name: string; type: string; config: Record<string, string> },
     newSecrets: { name: string; value: string }[],
     exceptId?: string,
+    declared?: { id: string; name: string }[],
 ): Promise<{ value: ProfileFields } | { failure: UseCaseResult<never> }> {
     const existing = (await workspaceSecrets(ctx.db, ctx.workspaceId)).map(s => s.name);
     const errors: Record<string, string | undefined> = {};
@@ -42,7 +43,7 @@ export async function checkProfile(
         }
     });
 
-    const others = (await new ConnectionRepository(ctx.db, ctx.workspaceId).all()).map(c => ({ id: c.id, name: c.name }));
+    const others = (declared ?? (await new ConnectionRepository(ctx.db, ctx.workspaceId).all())).map(c => ({ id: c.id, name: c.name }));
     const profile = validateProfile(fields as ProfileFields, others, [...existing, ...newSecrets.map(s => s.name)], exceptId);
     const failure = fieldErrors({ ...profile.errors, ...errors });
     return failure ? { failure } : { value: profile.value };

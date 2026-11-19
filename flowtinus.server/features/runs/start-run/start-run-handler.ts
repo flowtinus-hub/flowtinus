@@ -2,13 +2,16 @@ import { z } from 'zod';
 import { inputIssues, inputTypeRef, isFolderVisible, planRunFrom, scriptTypeShape, START, startConfig, toExecutableFlow, validateFlowFile, type FlowFile, type RunFromPlan, type RunRecord } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
-import { readDraft } from '#features/flows/flow-draft';
+import { loadDraft } from '#features/flows/flow-draft';
+import { pinsOf, withPins } from '#features/pins/pins';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { typeSources } from '#features/scripts/script-store';
+import { typeSources, type ScriptSource } from '#features/scripts/script-store';
+import { branchDraft, branchFlow, branchScripts, branchTree, workBranch } from '#features/git/branch-read';
+import { ProjectRepository } from '#features/projects/project-repository';
 import { CHANNELS, notifyRunEvent } from '../run-queue';
 import { runSnapshot } from './run-snapshot';
 import { hasLiveSupervisor, noSupervisorFor } from '#features/supervisors/supervisors';
@@ -29,6 +32,7 @@ export async function checkedInput(
     projectId: string,
     file: FlowFile,
     given: unknown,
+    scripts: ScriptSource = 'editing',
 ): Promise<{ ok: true; input: unknown } | { ok: false; error: string }> {
     const startNode = file.nodes.find(n => n.type === START);
     const { acceptsInput, testInput } = startConfig(startNode?.config ?? {});
@@ -50,7 +54,7 @@ export async function checkedInput(
         return { ok: true, input };
     }
 
-    const shape = scriptTypeShape(await typeSources(ctx.db, ctx.workspaceId, projectId, typeRef.path), typeRef.path, typeRef.name);
+    const shape = scriptTypeShape(await typeSources(ctx.db, ctx.workspaceId, projectId, typeRef.path, scripts), typeRef.path, typeRef.name);
     if (!shape) {
         return { ok: false, error: `The Start's input type ${typeRef.name} no longer exists in the script ${typeRef.path}.` };
     }
@@ -91,8 +95,9 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('validation', 'Run from here is a test run only: a run for real runs the whole flow.');
         }
 
-        const row = await new FlowRepository(ctx.db, ctx.workspaceId).findById(flowId);
-        const tree = row ? await loadTree(ctx.db, ctx.workspaceId, row.projectId) : null;
+        const branch = await workBranch(ctx);
+        const row = branch ? branchFlow(branch, flowId) : await new FlowRepository(ctx.db, ctx.workspaceId).findById(flowId);
+        const tree = row ? (branch ? branchTree(branch, row.projectId) : await loadTree(ctx.db, ctx.workspaceId, row.projectId)) : null;
         if (!row || !tree || !isFolderVisible(tree.folders, row.folderId)) {
             return fail('not-found', 'Flow not found.');
         }
@@ -107,15 +112,18 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('unavailable', noSupervisorFor(row.workerTag));
         }
 
-        const { flow: file } = readDraft(row);
-        const checked = validateFlowFile(file);
+        const draft = branch ? branchDraft(branchFlow(branch, flowId)!).flow : (await loadDraft(ctx.db, ctx.workspaceId, row)).flow;
+        const scriptSource: ScriptSource = branch ? { branch: branchScripts(branch, row.projectId) } : 'editing';
+        const checked = validateFlowFile(
+            mode === 'validation' ? withPins(draft, await pinsOf(ctx.db, ctx.workspaceId, ctx.userId, flowId)) : draft,
+        );
         if (!checked.ok) {
             return fail('validation', `The flow cannot run: ${checked.errors.join(' ')}`);
         }
 
         const runInput = fromNodeId
             ? { ok: true as const, input: undefined }
-            : await checkedInput(ctx, row.projectId, checked.value, given);
+            : await checkedInput(ctx, row.projectId, checked.value, given, scriptSource);
         if (!runInput.ok) {
             return fail('validation', runInput.error);
         }
@@ -135,7 +143,7 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             runFrom = { ...planned.plan, label: fromLabel ?? planned.plan.label };
         }
 
-        const snapshot = await runSnapshot(ctx, row.projectId, tree, checked.value, 'draft');
+        const snapshot = await runSnapshot(ctx, row.projectId, tree, checked.value, 'draft', branch);
         if (!snapshot.ok) {
             return fail('validation', `The flow cannot run: ${snapshot.error}`);
         }
@@ -148,7 +156,13 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
                       ? c
                       : { ...c, unavailable: 'it is outside what the token that started this run may run for real (its run scope).' };
               })
-            : snapshot.calledFlows;
+            : mode === 'validation'
+              ? await Promise.all(
+                    snapshot.calledFlows.map(async c =>
+                        c.flow ? { ...c, flow: withPins(c.flow, await pinsOf(ctx.db, ctx.workspaceId, ctx.userId, c.id)) } : c,
+                    ),
+                )
+              : snapshot.calledFlows;
         const id = crypto.randomUUID();
         const draftHash = new Bun.CryptoHasher('sha256').update(JSON.stringify(checked.value)).digest('hex');
         const values = {
@@ -157,7 +171,8 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             flowId,
             mode,
             draftHash,
-            projectId: row.projectId,
+            // a project only on a branch has no row for the run to name
+            projectId: branch && !(await new ProjectRepository(ctx.db, ctx.workspaceId).findById(row.projectId)) ? null : row.projectId,
             status: 'queued' as const,
             trigger: 'manual' as const,
             workerTag: row.workerTag,

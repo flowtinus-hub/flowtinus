@@ -1,5 +1,7 @@
+import { workBranch } from '#features/git/branch-read';
+import { saveDraftOnBranch } from '#features/git/branch-edits';
+import { refuseOffEditableBranch } from '#features/git/current-branch';
 import { z } from 'zod';
-import { and, eq, isNull, sql } from 'drizzle-orm';
 import { isFolderVisible, validateFlowFile } from '@flowtinus/core';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -7,8 +9,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { flows } from '../flow';
-import { revisionOf, type StoredDraft } from '../flow-draft';
+import { writeDraft } from '../flow-draft';
 
 export const SaveDraftCommand = z.object({
     id: z.uuid('Invalid'),
@@ -27,6 +28,15 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number }> {
         if (!parsed.ok) {
             return parsed;
         }
+        const branch = await workBranch(ctx);
+        if (branch) {
+            const checked = validateFlowFile(parsed.value.flow);
+            if (!checked.ok) {
+                return fail('validation', `The flow is not valid: ${checked.errors.join(' ')}`);
+            }
+            return saveDraftOnBranch(ctx, branch, { id: parsed.value.id, revision: parsed.value.revision, flow: checked.value });
+        }
+        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
 
         const { id, revision } = parsed.value;
         const row = await new FlowRepository(ctx.db, ctx.workspaceId).findById(id);
@@ -40,25 +50,10 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number }> {
             return fail('validation', `The flow is not valid: ${checked.errors.join(' ')}`);
         }
 
-        if (revisionOf(row) !== revision) {
-            return conflict();
-        }
-
-        const draft: StoredDraft = { revision: revision + 1, flow: { ...checked.value, id: row.id, name: row.name } };
-        // only if nobody saved since it was read (the check above and this write are one step for the database)
-        const saved = await ctx.db.orm
-            .update(flows)
-            .set({ draftDefinition: draft, updatedAt: new Date(), updatedBy: ctx.userId })
-            .where(
-                and(
-                    eq(flows.workspaceId, ctx.workspaceId),
-                    eq(flows.id, id),
-                    isNull(flows.deletedAt),
-                    sql`coalesce((${flows.draftDefinition}->>'revision')::int, 0) = ${revision}`,
-                ),
-            )
-            .returning({ id: flows.id });
-        return saved.length > 0 ? success({ revision: draft.revision }) : conflict();
+        const saved = await ctx.db.transaction(db =>
+            writeDraft(db, ctx.workspaceId, row, { ...checked.value, id: row.id, name: row.name }, ctx.userId, revision),
+        );
+        return saved === null ? conflict() : success({ revision: saved });
     }
 }
 

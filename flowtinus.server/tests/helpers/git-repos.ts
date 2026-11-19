@@ -1,4 +1,5 @@
-import { rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export function git(cwd: string, ...args: string[]): string {
@@ -29,11 +30,18 @@ function gitWith(cwd: string, args: string[], input: string, env: Record<string,
 
 export function commitFiles(repo: string, branch: string, files: Record<string, string>, message = 'files'): string {
     const index = { GIT_INDEX_FILE: join(repo, `index-${crypto.randomUUID()}`) };
+    const contents = mkdtempSync(join(tmpdir(), 'flowtinus-commit-files-'));
     try {
-        const entries = Object.entries(files).map(([path, content]) => {
-            const blob = gitWith(repo, ['hash-object', '-w', '--stdin'], content);
-            return `100644 ${blob}\t${path}\n`;
+        const paths = Object.keys(files);
+        const sources = paths.map((path, i) => {
+            const source = join(contents, String(i));
+            writeFileSync(source, files[path]!);
+            return source;
         });
+        const blobs = sources.length
+            ? gitWith(repo, ['hash-object', '-w', '--no-filters', '--stdin-paths'], sources.join('\n')).split('\n')
+            : [];
+        const entries = paths.map((path, i) => `100644 ${blobs[i]}\t${path}\n`);
         gitWith(repo, ['read-tree', '--empty'], '', index);
         gitWith(repo, ['update-index', '--index-info'], entries.join(''), index);
         const tree = gitWith(repo, ['write-tree'], '', index);
@@ -48,7 +56,15 @@ export function commitFiles(repo: string, branch: string, files: Record<string, 
         return commit;
     } finally {
         rmSync(index.GIT_INDEX_FILE, { force: true });
+        rmSync(contents, { recursive: true, force: true });
     }
+}
+
+type Call = (method: string, path: string, body?: unknown) => Promise<{ status: number; body: any }>;
+
+export async function commitAll(call: Call, message: string): Promise<{ status: number; body: any }> {
+    const changes = (await call('GET', '/git/changes')).body.changes as { path: string; from?: string }[];
+    return call('POST', '/git/commit', { paths: changes.flatMap(c => [c.path, ...(c.from ? [c.from] : [])]), message });
 }
 
 export function createBranch(repo: string, branch: string): void {

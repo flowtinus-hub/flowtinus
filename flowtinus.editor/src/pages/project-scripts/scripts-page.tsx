@@ -1,21 +1,30 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { ChevronRight, Copy, Ellipsis, FileCode2, Folder, FolderOpen, FolderPlus, GitCommitHorizontal, LoaderCircle, Pencil, Plus, Trash } from 'lucide-react';
-import { scriptImport } from '@flowtinus/core';
+import { normalizeScriptPath, scriptImport } from '@flowtinus/core';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { isReadOnly, useProject } from '@/data/projects/use-project';
 import { createScriptPath, deleteScriptPath, discardScript, flushScripts, newPathIssue, reloadAll, renameScriptPath, scriptFolders, scriptUsage, useProjectScripts, type SaveState } from '@/data/scripts/scripts-store';
 import { cn } from '@/lib/utils';
-import { getGitStatus, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
+import { getCurrentBranch, getGitStatus, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
 import { useResource } from '@/data/use-resource';
+import { useBranchOffer } from '@/layout/use-branch-offer';
+import type { ApiResult } from '@/lib/api';
 import { ProjectPage } from '@/pages/project/project-page';
 import { PathDialog, type PathDialogTarget } from './path-dialog';
 import { ScriptsCommitDialog } from './scripts-commit-dialog';
 
 // Monaco only when a script is open
 const ScriptEditor = lazy(() => import('./script-editor'));
+
+const asResult = async (failed: Promise<string | null>): Promise<ApiResult<null>> => {
+    const message = await failed;
+    return message ? { ok: false, error: { code: 'conflict', message } } : { ok: true, value: null };
+};
+
+const nameOf = (path: string) => normalizeScriptPath(path).split('/').at(-1) ?? path;
 
 /** a line of the tree: a folder or a script, at its depth */
 type Row = { kind: 'folder' | 'script'; path: string; name: string; depth: number };
@@ -57,7 +66,13 @@ function treeRows(folders: string[], scripts: string[], open: { has: (path: stri
 export function ScriptsPage() {
     const { projectId = '', ws = '' } = useParams();
     const gitStatus = useResource(`git-status:${ws}`, () => getGitStatus(ws));
-    const pullRequestsOnly = gitStatus.state.status === 'ready' && gitStatus.state.value.on && gitStatus.state.value.mode !== 'direct';
+    // on a pull-request server a branch the user may edit (a work branch) takes a Commit; its environment's branch does not
+    const branch = useResource(`current-branch:${ws}`, () => getCurrentBranch(ws));
+    const editable = branch.state.status === 'ready' && branch.state.value.editable;
+    const pullRequestsOnly =
+        gitStatus.state.status === 'ready' &&
+        gitStatus.state.value.on &&
+        (gitStatus.state.value.mode === 'protected' || (gitStatus.state.value.mode === 'pull-request' && !editable));
     const project = useProject(projectId);
     const archived = isReadOnly(project);
     const scripts = useProjectScripts(projectId);
@@ -75,6 +90,14 @@ export function ScriptsPage() {
     const [commitOpen, setCommitOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const script = scripts.scripts.find(s => s.path === selected) ?? null;
+    const branchOffer = useBranchOffer();
+    const offered = (path: string, change: () => Promise<string | null>) => {
+        if (!branchOffer.offers) {
+            return false;
+        }
+        branchOffer.offer({ name: nameOf(path), replay: () => asResult(change()) });
+        return true;
+    };
 
     const openAlong = (path: string) =>
         setClosed(current => {
@@ -101,6 +124,9 @@ export function ScriptsPage() {
             submitLabel: 'Create',
             issue: path => newPathIssue(projectId, path),
             onSave: async path => {
+                if (offered(path, () => createScriptPath(projectId, path, 'script'))) {
+                    return null;
+                }
                 const failed = await createScriptPath(projectId, path, 'script');
                 if (!failed) {
                     setSelected(path);
@@ -116,6 +142,9 @@ export function ScriptsPage() {
             submitLabel: 'Create',
             issue: path => newPathIssue(projectId, path),
             onSave: async path => {
+                if (offered(path, () => createScriptPath(projectId, path, 'folder'))) {
+                    return null;
+                }
                 const failed = await createScriptPath(projectId, path, 'folder');
                 if (!failed) {
                     openAlong(path);
@@ -132,6 +161,9 @@ export function ScriptsPage() {
             warning: usage && `Imported by ${usage}: their imports keep the old path.`,
             issue: path => (path.trim() === row.path ? null : newPathIssue(projectId, path, row.path)),
             onSave: async to => {
+                if (offered(row.path, () => renameScriptPath(projectId, row.path, to))) {
+                    return null;
+                }
                 const failed = await renameScriptPath(projectId, row.path, to);
                 if (!failed) {
                     if (selected && (selected === row.path || selected.startsWith(`${row.path}/`))) {
@@ -152,6 +184,9 @@ export function ScriptsPage() {
             busyLabel: 'Deleting…',
             destructive: true,
             onConfirm: async () => {
+                if (offered(row.path, () => deleteScriptPath(projectId, row.path))) {
+                    return { ok: true, value: null };
+                }
                 const failed = await deleteScriptPath(projectId, row.path);
                 if (failed) {
                     return { ok: false, error: { code: 'validation', message: failed } };
@@ -385,6 +420,7 @@ export function ScriptsPage() {
             <PathDialog target={dialog} onClose={() => setDialog(null)} />
             {commitOpen && <ScriptsCommitDialog projectId={projectId} scripts={scripts.scripts} onClose={() => setCommitOpen(false)} />}
             <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
+            {branchOffer.dialog}
         </ProjectPage>
     );
 }

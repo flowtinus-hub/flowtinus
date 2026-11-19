@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CircleCheck, CircleX, Ellipsis, LoaderCircle, Pencil, Plug, Plus, Trash, TriangleAlert, Zap } from 'lucide-react';
 import { connectionServerWarning } from '@flowtinus/core';
+import { API_WRITE_DONE } from '@/lib/api';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { FilterToolbar, NoMatch } from '@/components/filter-toolbar';
 import { useUrlFilter } from '@/components/use-url-filter';
@@ -28,7 +29,7 @@ type TestResult = { status: 'testing' } | { status: 'ok' | 'failed'; message: st
  */
 export function ConnectionsPage() {
     const { slug, canEdit } = useWorkspace();
-    const connections = useResource(`connections:${slug}`, () => listConnections());
+    const connections = useResource(`connections:${slug}`, () => listConnections(), { refreshOn: API_WRITE_DONE });
     const secrets = useResource(`secrets:${slug}`, () => listSecrets());
     const profiles = connections.state.status === 'ready' ? connections.state.value : [];
     const secretList = secrets.state.status === 'ready' ? secrets.state.value : [];

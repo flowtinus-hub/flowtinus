@@ -92,6 +92,20 @@ export function saveDraft(id: string, revision: number, flow: FlowFile, keepaliv
     return api<{ revision: number }>(`/flows/${id}/draft`, { method: 'PUT', body: { revision, flow }, keepalive });
 }
 
+export type Pinned = Record<string, Record<string, unknown>[]>;
+
+export function getPins(flowId: string): Promise<ApiResult<{ pins: Record<string, Pinned> }>> {
+    return api<{ pins: Record<string, Pinned> }>(`/flows/${flowId}/pins`);
+}
+
+export function setPin(flowId: string, nodeId: string, pinned: Pinned, keepalive = false): Promise<ApiResult<{ nodeId: string }>> {
+    return api<{ nodeId: string }>(`/flows/${flowId}/pins/${encodeURIComponent(nodeId)}`, { method: 'PUT', body: { pinned }, keepalive });
+}
+
+export function unpin(flowId: string, nodeId: string, keepalive = false): Promise<ApiResult<{ unpinned: string[] }>> {
+    return api<{ unpinned: string[] }>(`/flows/${flowId}/pins/${encodeURIComponent(nodeId)}`, { method: 'DELETE', keepalive });
+}
+
 export function createFlow(projectId: string, fields: { name: string; folderId: string | null }): Promise<ApiResult<{ id: string }>> {
     return api<{ id: string }>(`/projects/${projectId}/flows`, { method: 'POST', body: fields });
 }

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { restoreProjectOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { eq } from 'drizzle-orm';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -30,6 +32,10 @@ export class RestoreProjectHandler implements UseCaseHandler<ProjectView> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return restoreProjectOnBranch(ctx, branch, id);
+        }
         const repository = new ProjectRepository(ctx.db, ctx.workspaceId);
         const [archived] = await repository.findDeleted(eq(projects.id, id), { limit: 1 });
         if (!archived?.deletedAt) {
@@ -42,24 +48,20 @@ export class RestoreProjectHandler implements UseCaseHandler<ProjectView> {
 
         const archivedAt = archived.deletedAt.getTime();
         const together = (item: { deletedAt: Date | null }) => item.deletedAt?.getTime() === archivedAt;
-        const restored = await changeTree(
-            ctx,
-            () => `Restore project ${archived.name}`,
-            async tx => {
-                const tree = await loadTree(tx, ctx.workspaceId, id);
-                const folderRepository = new FolderRepository(tx, ctx.workspaceId);
-                const flowRepository = new FlowRepository(tx, ctx.workspaceId);
-                for (const folder of tree.folders.filter(together)) {
-                    await folderRepository.restore(folder.id);
-                }
+        const restored = await changeTree(ctx, async tx => {
+            const tree = await loadTree(tx, ctx.workspaceId, id);
+            const folderRepository = new FolderRepository(tx, ctx.workspaceId);
+            const flowRepository = new FlowRepository(tx, ctx.workspaceId);
+            for (const folder of tree.folders.filter(together)) {
+                await folderRepository.restore(folder.id);
+            }
 
-                for (const flow of tree.flows.filter(together)) {
-                    await flowRepository.restore(flow.id);
-                }
+            for (const flow of tree.flows.filter(together)) {
+                await flowRepository.restore(flow.id);
+            }
 
-                return new ProjectRepository(tx, ctx.workspaceId).restore(id);
-            },
-        );
+            return new ProjectRepository(tx, ctx.workspaceId).restore(id);
+        });
         return restored ? success(toProjectView(restored)) : fail('not-found', 'Archived project not found.');
     }
 }

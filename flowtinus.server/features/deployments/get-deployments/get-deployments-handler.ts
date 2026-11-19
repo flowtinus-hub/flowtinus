@@ -7,7 +7,7 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { isFolderVisible } from '@flowtinus/core';
-import { readDraft } from '#features/flows/flow-draft';
+import { loadDraft } from '#features/flows/flow-draft';
 import { callsOf } from '#features/runs/start-run/called-flows';
 import { deployedDefinitions, loadDeployments, type FlowDeploymentsView } from '../deployments';
 
@@ -31,7 +31,7 @@ export class GetDeploymentsHandler implements UseCaseHandler<DeploymentsWithWarn
 
         const tree = await loadTree(ctx.db, ctx.workspaceId, row.projectId);
         // the flows its Flow Invokers name (one named by expression cannot be known before it runs)
-        const called = [...new Set(callsOf(readDraft(row).flow))].filter(id => id !== row.id);
+        const called = [...new Set(callsOf((await loadDraft(ctx.db, ctx.workspaceId, row)).flow))].filter(id => id !== row.id);
         const deployed = await deployedDefinitions(ctx.db, ctx.workspaceId, called);
         const warnings = called.flatMap(id => {
             const flow = tree.flows.find(f => f.id === id);

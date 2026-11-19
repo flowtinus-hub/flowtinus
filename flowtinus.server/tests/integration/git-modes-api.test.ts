@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
-import { commitFiles, createBranch, git } from '../helpers/git-repos';
+import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -79,7 +79,7 @@ describe("an environment's mode decides whether its server changes the tree", ()
 
     const REFUSED = 'DEV only takes pull requests: edit in git.';
 
-    for (const mode of ['pull-request', 'protected'] as const) {
+    for (const mode of ['protected'] as const) {
         test(`${mode}: the Commit and the tree's actions are refused; drafts, test runs and the reconcile work`, async () => {
             const { call, repo, projectId, orders, show, tip } = await newWorkspace(mode);
             const before = tip();
@@ -131,7 +131,7 @@ describe("an environment's mode decides whether its server changes the tree", ()
         });
     }
 
-    test('pull-request: the MCP refuses a tree change with the same words; run_for_real of a draft runs, with the notice', async () => {
+    test('pull-request: the MCP refuses a change, saying to pick or create a branch; run_for_real of a draft runs, with the notice', async () => {
         const { id, projectId, orders } = await newWorkspace('pull-request');
         const { token } = newApiToken();
         await insertApiToken(db, { userId: ANA, name: 'test', token, scopes: API_SCOPES });
@@ -150,7 +150,7 @@ describe("an environment's mode decides whether its server changes the tree", ()
 
         const folder = await tool('create_folder', { projectId, name: 'Imports' });
         expect(folder.isError).toBe(true);
-        expect(folder.content[0]!.text).toContain(REFUSED);
+        expect(folder.content[0]!.text).toContain('pick or create a branch of your own in the editor');
 
         const real = await tool('run_for_real', { flowId: orders, userApproval: 'run Orders for real', timeoutS: 0 });
         expect(real.isError).toBeFalsy();
@@ -160,10 +160,12 @@ describe("an environment's mode decides whether its server changes the tree", ()
         await client.close();
     });
 
-    test('direct: unchanged, a tree change is a commit', async () => {
+    test('direct: a tree change waits in the working copy, a Commit takes it', async () => {
         const { call, projectId, tip } = await newWorkspace('direct');
         const before = tip();
         expect((await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' })).status).toBe(201);
+        expect(tip()).toBe(before);
+        expect((await commitAll(call, 'Create folder Imports')).status).toBe(200);
         expect(tip()).not.toBe(before);
         expect((await call('GET', '/git/status')).body.mode).toBe('direct');
     });

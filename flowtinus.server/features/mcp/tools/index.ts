@@ -74,7 +74,6 @@ export const MCP_TOOLS: McpTool[] = [
     getRunOutput,
     listRuns,
     cancelRun,
-    // a pinned output from a run, and taking one off (both change the draft)
     pinFromRun,
     unpin,
     // run for real (scope runs:execute; only after the user's explicit approval)

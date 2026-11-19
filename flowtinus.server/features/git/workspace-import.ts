@@ -1,16 +1,16 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
+import { inArray } from 'drizzle-orm';
+import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
 import { ConnectionRepository } from '#features/connections/connection-store';
 import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, undeployArchived, type Actor } from '#features/deployments/deployments';
 import { flows as flowsTable } from '#features/flows/flow';
-import type { StoredDraft } from '#features/flows/flow-draft';
+import { flowRepoPath } from '#features/flows/flow-draft';
 import { FlowRepository, FolderRepository, loadTree } from '#features/folders/project-tree';
 import { archiveProject } from '#features/projects/archive-project/archive-project-handler';
 import { ProjectRepository } from '#features/projects/project-repository';
-import { exportsOf, saveBlob } from '#features/scripts/script-store';
+import { saveBlob } from '#features/scripts/script-store';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { draftFollowsGit, scriptFollowsGit } from './draft-merge';
+import { ENVIRONMENT_BRANCH, followGit, overlay, scriptFileId, writeFile, type RenamedDraft } from './working-copy';
 import type { GitRemote } from './git-remote';
 import { flowsInRepo, type RepoFiles } from './workspace-export';
 
@@ -164,11 +164,10 @@ export function issueFields(issues: TreeIssue[]): Record<string, string> {
     }
     return fields;
 }
+export type { RenamedDraft };
 
-export type RenamedDraft = { id: string; from: string; to: string };
-
-// a reconcile (with its commit) archives what git removed and renames a draft-only flow whose name git takes;
-// turning git on deletes the connections and refuses the clash instead, as its preview said
+// a reconcile (with its commit) archives what git removed and renames a new flow whose path git takes; turning git on
+// deletes the connections and refuses the clash instead, as its preview said
 export type ImportOptions = { commit?: string; by?: string | null };
 
 export async function importWorkspace(
@@ -177,22 +176,73 @@ export async function importWorkspace(
     files: RepoFiles,
     options: ImportOptions = {},
 ): Promise<{ renamedDrafts: RenamedDraft[] }> {
-    const clashes = await clashingDrafts(ctx.db, ctx.workspaceId, slug, files);
-    if (!options.commit && clashes[0]) {
-        throw new ImportConflict(clashMessage(clashes[0]));
+    if (!options.commit) {
+        const clashes = await clashingDrafts(ctx.db, ctx.workspaceId, slug, files);
+        if (clashes[0]) {
+            throw new ImportConflict(clashMessage(clashes[0]));
+        }
     }
 
-    const entries = entriesOf(files, slug);
-    const renamedDrafts = await renameDrafts(ctx, clashes, entries.flows);
-    await importConnections(ctx, entries.connections, options);
+    const renamedDrafts = options.commit ? await followGit(ctx.db, ctx.workspaceId, files, options.commit) : [];
+    const working = options.commit ? await overlay(ctx.db, ctx.workspaceId, files) : files;
+    await importStructure(ctx, slug, working, { keep: Boolean(options.commit), tip: files, commit: options.commit ?? null });
+    if (!options.commit) {
+        await keepOnlyDrafts(ctx);
+    }
+    await importDeployed(ctx, slug, files, options);
+    return { renamedDrafts };
+}
+
+async function keepOnlyDrafts(ctx: UseCaseContext): Promise<void> {
+    const { db, workspaceId } = ctx;
+    const live = new Map((await new FlowRepository(db, workspaceId).findMany()).map(f => [f.id, f]));
+    const rows = await db.query<{ path: string; file_id: string | null; deleted: boolean; content: string | null; revision: number }>(
+        'SELECT path, file_id, deleted, content, revision FROM working_copy WHERE workspace_id = $1 AND branch = $2',
+        [workspaceId, ENVIRONMENT_BRANCH],
+    );
+    const drafts = rows.filter(r => r.file_id && live.has(r.file_id) && !r.deleted && r.content !== null);
+    await db.query("DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND NOT (coalesce(position('/' in file_id), 0) > 0)", [
+        workspaceId,
+        ENVIRONMENT_BRANCH,
+    ]);
+    for (const draft of drafts) {
+        const flow = live.get(draft.file_id!)!;
+        await writeFile(db, workspaceId, {
+            path: await flowRepoPath(db, workspaceId, flow),
+            content: draft.content!,
+            fileId: flow.id,
+            userId: ctx.userId,
+            revision: draft.revision,
+        });
+    }
+}
+
+export async function importStructure(
+    ctx: UseCaseContext,
+    slug: string,
+    working: RepoFiles,
+    options: { keep: boolean; tip?: RepoFiles; commit?: string | null },
+): Promise<void> {
+    const entries = entriesOf(working, slug);
+    await importConnections(ctx, entries.connections, { keep: options.keep });
     const projectIds = await importProjects(ctx, entries.projects);
     const folders = new ProjectFolders(ctx, projectIds);
     for (const { entry } of entries.folders) {
         await folders.folderOf(entry.project, entry.folders);
     }
-    await importFlows(ctx, entries.flows, projectIds, folders, options);
+    const inTip = options.tip ? new Set(flowIdsOf(entriesOf(options.tip, slug).flows)) : null;
+    await importFlowPlaces(ctx, entries.flows, projectIds, folders, { keep: options.keep, inTip, commit: options.commit ?? null });
     await folders.archiveUnused();
-    await importScripts(ctx, entries.scripts, entries.scriptFolders, projectIds, options.commit);
+
+    const projects = [...projectIds.values()];
+    await ctx.db.query('DELETE FROM script_folders WHERE workspace_id = $1 AND project_id = ANY($2::uuid[])', [ctx.workspaceId, projects]);
+    for (const { entry } of entries.scriptFolders) {
+        await ctx.db.query('INSERT INTO script_folders (workspace_id, project_id, path) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [
+            ctx.workspaceId,
+            projectIds.get(entry.project),
+            nfc(entry.path),
+        ]);
+    }
 
     const kept = new Set(projectIds.values());
     for (const { id } of await new ProjectRepository(ctx.db, ctx.workspaceId).findMany()) {
@@ -200,48 +250,28 @@ export async function importWorkspace(
             await archiveProject(ctx.db, ctx, id);
         }
     }
-    return { renamedDrafts };
 }
 
-async function renameDrafts(ctx: UseCaseContext, clashes: DraftClash[], inTree: Entry<'flow'>[]): Promise<RenamedDraft[]> {
-    const repository = new FlowRepository(ctx.db, ctx.workspaceId);
-    const renamed: RenamedDraft[] = [];
-    for (const { draft } of clashes) {
-        const siblings = await repository.findMany(
-            and(
-                eq(flowsTable.projectId, draft.project_id),
-                draft.folder_id ? eq(flowsTable.folderId, draft.folder_id) : isNull(flowsTable.folderId),
-            ),
-        );
-        const taken = new Set([...siblings.map(f => f.name), ...inTree.map(f => nfc(f.entry.name))].map(name => name.toLowerCase()));
-        let name = `${draft.name} (draft)`;
-        for (let n = 2; taken.has(name.toLowerCase()); n++) {
-            name = `${draft.name} (draft ${n})`;
-        }
-        await repository.update(draft.id, { name, updatedBy: ctx.userId, updatedAt: new Date() });
-        renamed.push({ id: draft.id, from: draft.name, to: name });
-    }
-    return renamed;
-}
+const flowIdsOf = (entries: Entry<'flow'>[]) => entries.map(({ text, entry }) => read(repoFlowFromYaml(text, nfc(entry.name))).flow.id!);
 
 // two of them trading names would collide on the way: each one renamed takes its id as a name first
 const renameToIds = (db: Database, table: 'connections' | 'flows', workspaceId: string, ids: string[]) =>
     db.query(`UPDATE ${table} SET name = id::text WHERE workspace_id = $1 AND id = ANY($2::uuid[])`, [workspaceId, ids]);
 
-async function importConnections(ctx: UseCaseContext, entries: Entry<'connection'>[], options: ImportOptions): Promise<void> {
+async function importConnections(ctx: UseCaseContext, entries: Entry<'connection'>[], options: { keep: boolean }): Promise<void> {
     const { db, workspaceId, userId } = ctx;
     const repository = new ConnectionRepository(db, workspaceId);
     const declared = entries.map(({ text, entry }) => ({ ...read(connectionFromYaml(text)), name: nfc(entry.name) }));
     const ids = new Set(declared.map(c => c.id));
     const existing = new Map<string, { name: string; type: string; config: Record<string, string> }>();
     const archived: string[] = [];
-    for (const connection of options.commit ? await repository.findAll() : await repository.findMany()) {
+    for (const connection of options.keep ? await repository.findAll() : await repository.findMany()) {
         if (ids.has(connection.id)) {
             existing.set(connection.id, connection.deletedAt ? { ...connection, name: connection.id } : connection);
             if (connection.deletedAt) {
                 archived.push(connection.id);
             }
-        } else if (!options.commit) {
+        } else if (!options.keep) {
             await repository.remove(connection.id);
         } else if (!connection.deletedAt) {
             await repository.softDelete(connection.id, userId);
@@ -286,7 +316,9 @@ async function importProjects(ctx: UseCaseContext, entries: Entry<'project'>[]):
         if (was.deletedAt) {
             await repository.restore(project.id);
         }
-        await repository.update(project.id, { name, description: project.description, icon: project.icon, color: project.color });
+        if (was.name !== name || was.description !== project.description || was.icon !== project.icon || was.color !== project.color) {
+            await repository.update(project.id, { name, description: project.description, icon: project.icon, color: project.color });
+        }
     }
     return projectIds;
 }
@@ -350,36 +382,38 @@ class ProjectFolders {
     }
 }
 
-async function importFlows(
+async function importFlowPlaces(
     ctx: UseCaseContext,
     entries: Entry<'flow'>[],
     projectIds: Map<string, string>,
     folders: ProjectFolders,
-    options: ImportOptions,
+    options: { keep: boolean; inTip: Set<string> | null; commit: string | null },
 ): Promise<void> {
     const { db, workspaceId, userId } = ctx;
-    const commit = options.commit ?? null;
-    const by = { workspaceId, userId: commit ? (options.by ?? null) : userId };
     const inTree = entries.map(({ text, entry }) => ({ entry, ...read(repoFlowFromYaml(text, nfc(entry.name))) }));
     const ids = inTree.map(f => f.flow.id!);
+    // a flow leaves when it was a file: committed (a version), or in the working copy (kept: a new one discarded); one
+    // that never was either (none should be) stays as it is rather than be archived unseen
     const leaving = await db.query<{ id: string }>(
         `SELECT f.id FROM flows f WHERE f.workspace_id = $1 AND f.deleted_at IS NULL AND NOT (f.id = ANY($2::uuid[]))
-       AND EXISTS (SELECT 1 FROM flow_versions v WHERE v.flow_id = f.id)`,
-        [workspaceId, ids],
+       AND (EXISTS (SELECT 1 FROM flow_versions v WHERE v.flow_id = f.id)
+         OR ($3 AND EXISTS (SELECT 1 FROM working_copy w WHERE w.workspace_id = f.workspace_id AND w.branch = '' AND w.file_id = f.id::text)))`,
+        [workspaceId, ids, options.keep],
     );
     const repository = new FlowRepository(db, workspaceId);
     for (const { id } of leaving) {
-        await repository.update(id, { deletedAt: new Date(), deletedBy: userId, deletedByCommit: commit });
+        const byCommit = options.commit && options.inTip && !options.inTip.has(id) ? options.commit : null;
+        await repository.update(id, { deletedAt: new Date(), deletedBy: userId, deletedByCommit: byCommit });
     }
-    await undeployArchived(
-        db,
-        by,
-        leaving.map(f => f.id),
-        commit,
-    );
+    if (!options.keep) {
+        await undeployArchived(
+            db,
+            { workspaceId, userId },
+            leaving.map(f => f.id),
+        );
+    }
 
     // removed ones included: a flow git brings back comes back with its history
-    const before = new Map((await flowsInRepo(db, workspaceId, ids)).map(f => [f.flow_id, f.content_hash]));
     const existing = new Set(
         (await db.query<{ id: string }>('SELECT id FROM flows WHERE workspace_id = $1 AND id = ANY($2::uuid[])', [workspaceId, ids])).map(
             f => f.id,
@@ -387,7 +421,7 @@ async function importFlows(
     );
     await renameToIds(db, 'flows', workspaceId, [...existing]);
 
-    for (const { entry, flow, deployed } of inTree) {
+    for (const { entry, flow } of inTree) {
         const id = flow.id!;
         const projectId = projectIds.get(entry.project)!;
         const folderId = await folders.folderOf(entry.project, entry.folders);
@@ -405,24 +439,43 @@ async function importFlows(
                 ]);
             }
         } else {
-            const draft: StoredDraft = { revision: 0, flow };
-            await repository.insert({
-                id,
-                projectId,
-                folderId,
-                name: flow.name,
-                draftDefinition: draft,
-                draftBase: contentHash(flow),
-                updatedBy: userId,
-            });
-        }
-
-        await deployAsInTree(db, by, id, flow, deployed, commit);
-        const hash = contentHash(flow);
-        if (commit && existing.has(id) && before.get(id) !== hash) {
-            await draftFollowsGit(db, workspaceId, id, { definition: flow, hash }, before.get(id) ?? null, commit);
+            await repository.insert({ id, projectId, folderId, name: flow.name, updatedBy: userId });
         }
     }
+}
+
+async function importDeployed(ctx: UseCaseContext, slug: string, files: RepoFiles, options: ImportOptions): Promise<void> {
+    const { db, workspaceId, userId } = ctx;
+    const commit = options.commit ?? null;
+    const by = { workspaceId, userId: commit ? (options.by ?? null) : userId };
+    const entries = entriesOf(files, slug);
+    const inTree = entries.flows.map(({ text, entry }) => read(repoFlowFromYaml(text, nfc(entry.name))));
+    const ids = inTree.map(f => f.flow.id!);
+    if (commit) {
+        const gone = await db.query<{ flow_id: string }>(
+            'SELECT flow_id FROM deployments WHERE workspace_id = $1 AND NOT (flow_id = ANY($2::uuid[]))',
+            [workspaceId, ids],
+        );
+        await undeployArchived(
+            db,
+            by,
+            gone.map(f => f.flow_id),
+            commit,
+        );
+    }
+    const known = new Set(
+        (await db.query<{ id: string }>('SELECT id FROM flows WHERE workspace_id = $1 AND id = ANY($2::uuid[])', [workspaceId, ids])).map(
+            f => f.id,
+        ),
+    );
+    for (const { flow, deployed } of inTree) {
+        if (known.has(flow.id!)) {
+            await deployAsInTree(db, by, flow.id!, flow, deployed, commit);
+        }
+    }
+
+    const projectIds = new Map(entries.projects.map(({ text, entry }) => [entry.project, read(projectFromYaml(text)).id]));
+    await importScripts(ctx, entries.scripts, projectIds, commit);
 }
 
 async function deployAsInTree(
@@ -456,92 +509,59 @@ async function deployAsInTree(
 async function importScripts(
     ctx: UseCaseContext,
     scripts: Entry<'script'>[],
-    scriptFolders: Entry<'scriptFolder'>[],
     projectIds: Map<string, string>,
-    commit: string | undefined,
+    commit: string | null,
 ): Promise<void> {
     const { db, workspaceId, userId } = ctx;
-    const projects = [...projectIds.values()];
-    const key = (projectId: string, path: string) => `${projectId}/${path}`;
-    const existing = new Map(
-        (
-            await db.query<{ project_id: string; path: string; content: string }>(
-                'SELECT project_id, path, content FROM scripts WHERE workspace_id = $1 AND project_id = ANY($2::uuid[])',
-                [workspaceId, projects],
-            )
-        ).map(s => [key(s.project_id, s.path), s]),
-    );
-    const deployed = new Map(
-        (
-            await db.query<{ project_id: string; path: string; hash: string }>(
-                'SELECT project_id, path, hash FROM deployed_scripts WHERE workspace_id = $1',
-                [workspaceId],
-            )
-        ).map(s => [key(s.project_id, s.path), s]),
-    );
-    const inTree = new Set<string>();
+    const inTree = new Map<string, { projectId: string; path: string; text: string }>();
     for (const { text, entry } of scripts) {
         const projectId = projectIds.get(entry.project)!;
         const path = nfc(entry.path);
-        const was = existing.get(key(projectId, path));
-        inTree.add(key(projectId, path));
-        // with a commit, an editing copy git did not change since the last reconcile keeps its edits; one git changed
-        // follows git, or is merged with it, as a flow's draft is
-        const hash = commit ? await saveBlob(db, workspaceId, text) : null;
-        if (commit && hash) {
-            const previous = deployed.get(key(projectId, path))?.hash ?? null;
-            if (previous === hash && was) {
-                continue;
-            }
+        inTree.set(scriptFileId(projectId, path), { projectId, path, text });
+    }
+
+    if (!commit) {
+        const projects = [...projectIds.values()];
+        const rows = await db.query<{ file_id: string; path: string }>(
+            `SELECT file_id, path FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND file_id IS NOT NULL
+         AND position('/' in file_id) > 0 AND split_part(file_id, '/', 1) = ANY($3::text[])`,
+            [workspaceId, ENVIRONMENT_BRANCH, projects],
+        );
+        for (const row of rows.filter(r => !inTree.has(r.file_id))) {
+            await db.query('DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND path = $3', [
+                workspaceId,
+                ENVIRONMENT_BRANCH,
+                row.path,
+            ]);
+        }
+        const slug = (await db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]))[0]!.slug;
+        const names = new Map([...projectIds].map(([name, id]) => [id, name]));
+        for (const [fileId, script] of inTree) {
+            const path = repoPath.script(slug, names.get(script.projectId)!, script.path);
+            await writeFile(db, workspaceId, { path, content: script.text, fileId, userId });
+        }
+        return;
+    }
+
+    const deployed = await db.query<{ project_id: string; path: string; hash: string }>(
+        'SELECT project_id, path, hash FROM deployed_scripts WHERE workspace_id = $1',
+        [workspaceId],
+    );
+    for (const [, { projectId, path, text }] of inTree) {
+        const hash = await saveBlob(db, workspaceId, text);
+        if (deployed.find(d => d.project_id === projectId && d.path === path)?.hash !== hash) {
             await db.query(
                 `INSERT INTO deployed_scripts (workspace_id, project_id, path, hash, commit_sha) VALUES ($1, $2, $3, $4, $5)
                  ON CONFLICT (project_id, path) DO UPDATE SET workspace_id = $1, hash = $4, commit_sha = $5`,
                 [workspaceId, projectId, path, hash, commit],
             );
-            if (was) {
-                await scriptFollowsGit(ctx, projectId, path, { text, hash }, previous, commit);
-                continue;
-            }
-        }
-        if (!was) {
-            await db.query(
-                'INSERT INTO scripts (id, workspace_id, project_id, path, content, exports, updated_by, draft_base) VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7, $8)',
-                [crypto.randomUUID(), workspaceId, projectId, path, text, exportsOf(text), userId, hash],
-            );
-        } else if (was.content !== text) {
-            await db.query(
-                `UPDATE scripts SET content = $4, exports = $5::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
-         WHERE workspace_id = $1 AND project_id = $2 AND path = $3`,
-                [workspaceId, projectId, path, text, exportsOf(text), userId],
-            );
         }
     }
-    for (const [at, script] of deployed) {
-        if (commit && !inTree.has(at)) {
-            await db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
-                workspaceId,
-                script.project_id,
-                script.path,
-            ]);
-        }
-    }
-    for (const [at, script] of existing) {
-        // with a commit, only what git removed goes: a script never committed is not git's to remove
-        if (!inTree.has(at) && (!commit || deployed.has(at))) {
-            await db.query('DELETE FROM scripts WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
-                workspaceId,
-                script.project_id,
-                script.path,
-            ]);
-        }
-    }
-
-    await db.query('DELETE FROM script_folders WHERE workspace_id = $1 AND project_id = ANY($2::uuid[])', [workspaceId, projects]);
-    for (const { entry } of scriptFolders) {
-        await db.query('INSERT INTO script_folders (workspace_id, project_id, path) VALUES ($1, $2, $3)', [
+    for (const script of deployed.filter(d => !inTree.has(scriptFileId(d.project_id, d.path)))) {
+        await db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
             workspaceId,
-            projectIds.get(entry.project),
-            nfc(entry.path),
+            script.project_id,
+            script.path,
         ]);
     }
 }

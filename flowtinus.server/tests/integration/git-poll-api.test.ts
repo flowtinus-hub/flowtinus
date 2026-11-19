@@ -122,7 +122,7 @@ describe('a commit made with git arrives by polling and the webhook', () => {
         expect(await description()).toBe('From the webhook');
 
         expect(await hook(path)).toEqual({ status: 202, body: { status: 'absorbed' } });
-        expect((await hook(`${path.slice(0, -1)}x`)).status).toBe(401);
+        expect((await hook(`${path.slice(0, -1)}${path.endsWith('x') ? 'y' : 'x'}`)).status).toBe(401);
         expect((await hook(path.replace(/\/hook\/[^/]+\//, '/hook/nowhere/'))).status).toBe(401);
     });
 

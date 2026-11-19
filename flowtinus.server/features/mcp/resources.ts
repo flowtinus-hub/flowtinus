@@ -72,7 +72,7 @@ export function registerResources(
     server.registerResource(
         'flow-draft',
         new ResourceTemplate('flowtinus://flows/{flowId}', { list: undefined }),
-        { description: "A flow's draft as a flow file (YAML), pinned outputs left out.", mimeType: 'text/yaml' },
+        { description: "A flow's draft as a flow file (YAML).", mimeType: 'text/yaml' },
         async (uri, { flowId }) =>
             guarded('flows:read', uri, async () => {
                 const call = await scoped({ flowId: String(flowId) });
@@ -84,7 +84,7 @@ export function registerResources(
                     return json(uri, { error: found.error });
                 }
                 const { draft } = found.value;
-                const yaml = flowToYaml({ ...draft.flow, nodes: draft.flow.nodes.map(({ pinned: _pinned, ...n }) => n) });
+                const yaml = flowToYaml(draft.flow);
                 return { contents: [{ uri: uri.href, mimeType: 'text/yaml', text: `# revision: ${draft.revision}\n${yaml}` }] };
             }),
     );

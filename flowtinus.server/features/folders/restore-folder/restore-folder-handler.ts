@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { restoreFolderOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { eq } from 'drizzle-orm';
 import { isFolderVisible, subtreeIds } from '@flowtinus/core';
@@ -30,6 +32,10 @@ export class RestoreFolderHandler implements UseCaseHandler<FolderView> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return restoreFolderOnBranch(ctx, branch, id);
+        }
         const [folder] = await new FolderRepository(ctx.db, ctx.workspaceId).findAll(eq(folders.id, id));
         if (!folder?.deletedAt) {
             return fail('not-found', 'Archived folder not found.');
@@ -56,26 +62,22 @@ export class RestoreFolderHandler implements UseCaseHandler<FolderView> {
             return named;
         }
 
-        await changeTree(
-            ctx,
-            () => `Restore folder ${folder.name}`,
-            async tx => {
-                const folderRepository = new FolderRepository(tx, ctx.workspaceId);
-                const flowRepository = new FlowRepository(tx, ctx.workspaceId);
-                for (const item of tree.folders.filter(f => subtree.has(f.id) && f.id !== id && together(f))) {
-                    await folderRepository.restore(item.id);
-                }
+        await changeTree(ctx, async tx => {
+            const folderRepository = new FolderRepository(tx, ctx.workspaceId);
+            const flowRepository = new FlowRepository(tx, ctx.workspaceId);
+            for (const item of tree.folders.filter(f => subtree.has(f.id) && f.id !== id && together(f))) {
+                await folderRepository.restore(item.id);
+            }
 
-                for (const item of tree.flows.filter(f => f.folderId !== null && subtree.has(f.folderId) && together(f))) {
-                    await flowRepository.restore(item.id);
-                }
+            for (const item of tree.flows.filter(f => f.folderId !== null && subtree.has(f.folderId) && together(f))) {
+                await flowRepository.restore(item.id);
+            }
 
-                await folderRepository.restore(id);
-                if (parentId !== folder.parentId) {
-                    await folderRepository.update(id, { parentId });
-                }
-            },
-        );
+            await folderRepository.restore(id);
+            if (parentId !== folder.parentId) {
+                await folderRepository.update(id, { parentId });
+            }
+        });
 
         const restored = await new FolderRepository(ctx.db, ctx.workspaceId).findById(id);
         return success(toFolderView(restored!));

@@ -1,60 +1,43 @@
 import { z } from 'zod';
-import { withoutPins, type FlowFile } from '@flowtinus/core';
-import { SaveDraftHandler } from '#features/flows/save-draft/save-draft-handler';
+import { withoutPins } from '@flowtinus/core';
+import { pinsOf, removePins, withPins } from '#features/pins/pins';
+import { requireRole } from '#shared/use-cases/require-role';
 import { defineTool, failed, id, ok } from './tool';
 
-/* save_draft keeps the pins of the nodes that come without one, so taking one off needs a tool of its own. */
 export const unpin = defineTool({
     name: 'unpin',
     scope: 'flows:write',
     description:
-        "CHANGES THE FLOW'S DRAFT (a new revision): takes the pinned output off one component (or several), as the editor's Unpin output does: test runs run it again instead of replaying the pin. (save_draft cannot take a pin off: it keeps the pins of nodes that come without one.) A node without a pin is reported in notPinned, one not in the draft in notFound; when none had a pin nothing is saved. get_flow lists the pinned nodes (pinnedNodes). expectedRevision, when given, refuses it if the draft changed since.",
+        "Takes your user's pinned output off one component (or several), as the editor's Unpin output does: your user's test runs run it again instead of replaying the pin. The draft does not change (a pin is the user's, not the draft's). A node without a pin is reported in notPinned, one not in the draft in notFound. get_flow lists the pinned nodes (pinnedNodes).",
     input: {
-        flowId: id('the flow whose draft loses the pin'),
+        flowId: id('the flow'),
         nodeId: z
             .union([z.string().min(1), z.array(z.string().min(1)).min(1).max(200)])
             .describe("the component's id in the draft, or a list of them"),
-        expectedRevision: z
-            .number()
-            .int()
-            .min(0)
-            .optional()
-            .describe("the draft's revision it is based on (get_flow); refused if it changed"),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-    run: async ({ flowId, nodeId, expectedRevision }, t) => {
+    run: async ({ flowId, nodeId }, t) => {
+        const denied = requireRole(t.ctx, 'editor');
+        if (denied && !denied.ok) {
+            return failed(denied.error);
+        }
         const found = await t.flowAndDraft(flowId);
         if (!found.ok) {
             return failed(found.error);
         }
         const { flow, draft } = found.value;
-        if (expectedRevision !== undefined && draft.revision !== expectedRevision) {
-            return failed({
-                code: 'conflict',
-                message: 'The draft changed since it was read: read it again with get_flow.',
-                currentRevision: draft.revision,
-            });
-        }
 
-        const result = withoutPins(draft.flow.nodes, Array.isArray(nodeId) ? nodeId : [nodeId]);
+        const pins = await pinsOf(t.ctx.db, t.ctx.workspaceId, t.ctx.userId, flowId);
+        const result = withoutPins(withPins(draft.flow, pins).nodes, Array.isArray(nodeId) ? nodeId : [nodeId]);
         const said = {
             ...(result.notPinned.length ? { notPinned: result.notPinned } : {}),
             ...(result.notFound.length ? { notFound: result.notFound } : {}),
         };
         if (result.unpinned.length === 0) {
-            return ok({
-                revision: draft.revision,
-                unpinned: [],
-                ...said,
-                message: 'Nothing was pinned there: the draft was not changed.',
-            });
+            return ok({ unpinned: [], ...said, message: 'Nothing was pinned there.' });
         }
 
-        const file: FlowFile = { ...draft.flow, nodes: result.nodes };
-        const saved = await new SaveDraftHandler().handle({ id: flowId, revision: draft.revision, flow: file }, t.ctx);
-        if (!saved.ok) {
-            return failed(saved.error);
-        }
-        return ok({ revision: saved.value.revision, unpinned: result.unpinned, ...said, ...t.flowLink(flow.projectId, flowId) });
+        await removePins(t.ctx, flowId, result.unpinned);
+        return ok({ unpinned: result.unpinned, ...said, ...t.flowLink(flow.projectId, flowId) });
     },
 });

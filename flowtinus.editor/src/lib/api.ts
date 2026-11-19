@@ -37,6 +37,8 @@ const UNAVAILABLE: ApiError = { code: 'unavailable', message: 'Server unavailabl
 export const apiHeaders = (): Record<string, string> => ({ 'x-user-id': mockUser.id });
 
 /** a request to the api: the value, or the error the server answered ({ error: { code, message, fields } }) */
+export const API_WRITE_DONE = 'flowtinus:api-write-done';
+
 export async function api<T>(path: string, init: { method?: string; body?: unknown; keepalive?: boolean } = {}): Promise<ApiResult<T>> {
     let response: Response;
     try {
@@ -58,6 +60,9 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     const body: unknown = await response.json().catch(() => undefined);
     if (response.ok) {
         reportReachable();
+        if ((init.method ?? 'GET') !== 'GET') {
+            window.dispatchEvent(new Event(API_WRITE_DONE));
+        }
         return { ok: true, value: body as T };
     }
 

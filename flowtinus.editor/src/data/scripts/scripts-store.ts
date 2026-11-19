@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { insideScriptFolder, normalizeScriptPath, pathCaseClash, scriptContentIssue, scriptExports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
-import { api, type ApiResult } from '@/lib/api';
+import { api, API_WRITE_DONE, type ApiResult } from '@/lib/api';
+import { CHANGES_CHANGED } from '@/data/git/git-api';
 
 /*
  * A project's scripts from the server (/projects/:id/scripts), kept for every editor of the page: the Scripts tab, and
@@ -94,6 +95,19 @@ export function useProjectScripts(projectId: string): ProjectScripts {
         if (projectId && !loading.has(projectId)) {
             void reloadScripts(projectId);
         }
+    }, [projectId]);
+    useEffect(() => {
+        if (!projectId) {
+            return;
+        }
+        const list = () => void reloadScripts(projectId);
+        const all = () => void flushScripts(projectId).then(() => reloadAll(projectId));
+        window.addEventListener(API_WRITE_DONE, list);
+        window.addEventListener(CHANGES_CHANGED, all);
+        return () => {
+            window.removeEventListener(API_WRITE_DONE, list);
+            window.removeEventListener(CHANGES_CHANGED, all);
+        };
     }, [projectId]);
     // the same on the server (a form rendered to text: tests)
     return useSyncExternalStore(
@@ -233,6 +247,17 @@ export function saveScript(projectId: string, path: string, code: string) {
         key(projectId, path),
         setTimeout(() => void saveNow(projectId, path), SAVE_DELAY_MS),
     );
+}
+
+export async function replaceScript(projectId: string, path: string, code: string): Promise<ApiResult<{ revision: number }>> {
+    const read = await api<{ revision: number }>(`/projects/${projectId}/scripts/content?path=${encodeURIComponent(path)}`);
+    if (!read.ok) {
+        return read;
+    }
+    return api<{ revision: number }>(`/projects/${projectId}/scripts/content`, {
+        method: 'PUT',
+        body: { path, content: code, revision: read.value.revision },
+    });
 }
 
 /** saves what waits now (Ctrl+S, or before a move) */

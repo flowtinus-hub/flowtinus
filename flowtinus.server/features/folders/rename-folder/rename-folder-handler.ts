@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { renameFolderOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { isFolderVisible } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -22,6 +24,10 @@ export class RenameFolderHandler implements UseCaseHandler<FolderView> {
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return renameFolderOnBranch(ctx, branch, parsed.value);
+        }
         const repository = new FolderRepository(ctx.db, ctx.workspaceId);
         const folder = await repository.findById(parsed.value.id);
         const tree = folder ? await loadTree(ctx.db, ctx.workspaceId, folder.projectId) : null;
@@ -36,11 +42,7 @@ export class RenameFolderHandler implements UseCaseHandler<FolderView> {
         }
 
         const name = named.value;
-        const renamed = await changeTree(
-            ctx,
-            () => `Rename folder ${folder.name} to ${name}`,
-            db => new FolderRepository(db, ctx.workspaceId).update(folder.id, { name }),
-        );
+        const renamed = await changeTree(ctx, db => new FolderRepository(db, ctx.workspaceId).update(folder.id, { name }));
         return renamed ? success(toFolderView(renamed)) : fail('not-found', 'Folder not found.');
     }
 }

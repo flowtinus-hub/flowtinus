@@ -1,6 +1,8 @@
+import { branchDraft, branchFlow, branchScripts, branchTree, workBranch } from '#features/git/branch-read';
 import { z } from 'zod';
 import { COMPONENT_TYPE, callCycles, flowCalls, flowScriptUses, folderPath, isFolderVisible, scriptLinks, toExecutableFlow, type FlowCall, type ScriptUse } from '@flowtinus/core';
-import { readDraft } from '#features/flows/flow-draft';
+import { loadDraft } from '#features/flows/flow-draft';
+import { workingScripts } from '#features/scripts/script-store';
 import { loadTree } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -33,7 +35,8 @@ export class GetFlowCallsHandler implements UseCaseHandler<FlowCallsResponse> {
             return project;
         }
 
-        const tree = await loadTree(ctx.db, ctx.workspaceId, parsed.value.projectId);
+        const branch = await workBranch(ctx);
+        const tree = branch ? branchTree(branch, parsed.value.projectId) : await loadTree(ctx.db, ctx.workspaceId, parsed.value.projectId);
         const available = (row: (typeof tree.flows)[number]) => !row.archivedAt && isFolderVisible(tree.folders, row.folderId);
         const flows = tree.flows.map(row => ({
             id: row.id,
@@ -51,11 +54,14 @@ export class GetFlowCallsHandler implements UseCaseHandler<FlowCallsResponse> {
             [COMPONENT_TYPE.typescript]: 'TypeScript',
         };
         const named = (label: string | undefined) => (label !== undefined && DEFAULT_NAMES[label]) || label;
-        const active = tree.flows.filter(available).map(row => toExecutableFlow(readDraft(row).flow, project.value.name));
-        const scripts = await ctx.db.query<{ path: string; content: string }>(
-            'SELECT path, content FROM scripts WHERE workspace_id = $1 AND project_id = $2 ORDER BY path',
-            [ctx.workspaceId, parsed.value.projectId],
-        );
+        const active: ReturnType<typeof toExecutableFlow>[] = [];
+        for (const row of tree.flows.filter(available)) {
+            const draft = branch ? branchDraft(branchFlow(branch, row.id)!).flow : (await loadDraft(ctx.db, ctx.workspaceId, row)).flow;
+            active.push(toExecutableFlow(draft, project.value.name));
+        }
+        const scripts = branch
+            ? branchScripts(branch, parsed.value.projectId)
+            : await workingScripts(ctx.db, ctx.workspaceId, parsed.value.projectId);
         const calls = flowCalls(active).map(c => ({
             ...c,
             nodeLabel: named(c.nodeLabel)!,

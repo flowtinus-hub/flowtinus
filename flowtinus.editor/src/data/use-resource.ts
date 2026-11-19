@@ -10,7 +10,7 @@ const toState = <T>(result: ApiResult<T>): ResourceState<T> =>
  * Something loaded from the api for a key (e.g. a workspace's secrets): loads when the key changes, `reload` after a
  * failure, and `run` makes a change and reloads when it succeeds, returning the answer (field errors for dialogs).
  */
-export function useResource<T>(key: string, load: () => Promise<ApiResult<T>>) {
+export function useResource<T>(key: string, load: () => Promise<ApiResult<T>>, options: { refreshOn?: string } = {}) {
     const [loaded, setLoaded] = useState<{ for: string; state: ResourceState<T> } | null>(null);
     const state: ResourceState<T> = loaded?.for === key ? loaded.state : { status: 'loading' };
     // the latest `load` (it is a new function every render; the key says when to load again)
@@ -32,6 +32,21 @@ export function useResource<T>(key: string, load: () => Promise<ApiResult<T>>) {
             request.active = false;
         };
     }, [key]);
+
+    useEffect(() => {
+        if (!options.refreshOn) {
+            return;
+        }
+        const event = options.refreshOn;
+        const refresh = () =>
+            void loader.current().then(result => {
+                if (result.ok) {
+                    setLoaded({ for: key, state: toState(result) });
+                }
+            });
+        window.addEventListener(event, refresh);
+        return () => window.removeEventListener(event, refresh);
+    }, [key, options.refreshOn]);
 
     const reload = async () => {
         setLoaded({ for: key, state: { status: 'loading' } });

@@ -8,7 +8,8 @@ import { ArchiveDialog } from '@/components/archive-dialog';
 import { StatusFilter } from '@/components/status-filter';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { NewProject, Project } from '@/data/projects/project';
-import type { ProjectStatus } from '@/data/projects/projects-api';
+import { createProject, type ProjectStatus } from '@/data/projects/projects-api';
+import { useBranchOffer } from '@/layout/use-branch-offer';
 import { useProjects } from '@/data/projects/use-projects';
 import { ProjectCard } from './project-card';
 import { MoveProjectDialog } from './move-project-dialog';
@@ -42,8 +43,15 @@ export function FlowsPage() {
         setParams(value === 'archived' ? { status: 'archived' } : {});
     };
 
+    const branchOffer = useBranchOffer();
     const save = (fields: NewProject) =>
-        dialog?.mode === 'edit' ? update(dialog.project.id, changedFields(dialog.project, fields)) : create(fields);
+        dialog?.mode === 'edit'
+            ? update(dialog.project.id, changedFields(dialog.project, fields))
+            : branchOffer.orOffer(
+                  fields.name,
+                  () => create(fields),
+                  () => createProject(fields),
+              );
 
     const restoreProject = async (project: Project) => {
         setNotice('');
@@ -116,6 +124,7 @@ export function FlowsPage() {
             <ProjectDialog target={dialog} onClose={() => setDialog(null)} existing={projects} onSave={save} />
             <ArchiveDialog name={archiving?.name ?? null} onClose={() => setArchiving(null)} onArchive={() => archive(archiving!.id)} />
             <MoveProjectDialog project={moving} onClose={() => setMoving(null)} />
+            {branchOffer.dialog}
         </div>
     );
 }

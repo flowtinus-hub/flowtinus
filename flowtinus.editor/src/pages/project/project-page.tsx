@@ -5,6 +5,7 @@ import { projectsPath, projectTabPath, type ProjectTab } from '@/app/paths';
 import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { Button } from '@/components/ui/button';
 import type { Folder } from '@/data/flows/flow';
+import { REMOVED_BRANCH } from '@/data/git/git-api';
 import { isReadOnly, type ProjectState } from '@/data/projects/use-project';
 import { cn } from '@/lib/utils';
 import { ProjectBreadcrumb } from '@/pages/project-flows/project-breadcrumb';
@@ -95,7 +96,15 @@ export function ProjectPage({ projectId, project, tab, folders, actions, childre
                 )}
             </nav>
 
-            {archived && <p className="text-sm text-muted-foreground">This project is archived: restore it to make changes.</p>}
+            {archived && (
+                <p className="text-sm text-muted-foreground">
+                    {project.status === 'ready' && !project.project.archivedAt
+                        ? project.project.removedBranch
+                            ? REMOVED_BRANCH
+                            : "This branch is read only here: pick the environment's branch in the sidebar to make changes."
+                        : 'This project is archived: restore it to make changes.'}
+                </p>
+            )}
 
             {children}
         </div>

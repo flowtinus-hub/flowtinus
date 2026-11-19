@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
-import { commitFiles, createBranch, git } from '../helpers/git-repos';
+import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -86,7 +86,6 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect(file).not.toContain('deployed:');
         expect(commits(repo)).toEqual([
             `Ana <${ANA}@example.com>|Update Orders`,
-            `Ana <${ANA}@example.com>|Create folder Imports`,
             `Ana <${ANA}@example.com>|${firstExport}`,
             'Someone <someone@example.com>|start',
         ]);
@@ -218,6 +217,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         );
 
         expect((await call('PATCH', `/flows/${orders}`, { name: 'Sales orders' })).status).toBe(200);
+        expect((await commitAll(call, 'Rename flow Orders to Sales orders')).status).toBe(200);
         expect(show(repo, flowPath('Sales orders'))).toContain('deployed: false');
         expect(
             commits(repo)
@@ -227,7 +227,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect((await call('GET', `/flows/${orders}/deployments`)).body.deployed).toBeNull();
     });
 
-    test('when the branch moved with a change to the same file, the change is refused and nothing changes', async () => {
+    test('when the branch moved with a change to the same file, the Commit is refused and nothing changes', async () => {
         const { call, repo, newFlow, flowPath } = await newWorkspace();
         const orders = await newFlow('Orders');
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
@@ -244,22 +244,23 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         );
         await chmod(hook, 0o755);
 
-        const refused = await call('PATCH', `/flows/${orders}`, { name: 'Sales orders' });
+        expect((await call('PATCH', `/flows/${orders}`, { name: 'Sales orders' })).status).toBe(200);
+        const refused = await commitAll(call, 'Rename flow Orders to Sales orders');
         expect(refused.status).toBe(409);
         expect(refused.body.error.message).toBe(`${path} changed in git meanwhile: nothing was changed, try again.`);
         expect(git(repo, 'rev-parse', 'dev')).toBe(moved);
-        expect((await call('GET', `/flows/${orders}`)).body.name).toBe('Orders');
+        expect((await call('GET', '/git/changes')).body.changes.map((c: { from?: string }) => c.from)).toEqual([path]);
     });
 
-    test('when git cannot be reached the change fails, saying why, and nothing changes; drafts still save', async () => {
+    test('when git cannot be reached a Commit fails, saying why, and nothing changes; drafts and tree changes still save', async () => {
         const { id, call, repo, projectId, newFlow } = await newWorkspace();
         const orders = await newFlow('Orders');
         await rename(repo, `${repo}.away`);
 
-        const unreachable = await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' });
+        expect((await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' })).status).toBe(201);
+        const unreachable = await commitAll(call, 'Create folder Imports');
         expect(unreachable.status).toBe(502);
         expect(unreachable.body.error.message).toStartWith('Git could not be reached, nothing was changed:');
-        expect((await call('GET', `/projects/${projectId}/contents`)).body.folders).toEqual([]);
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(502);
         expect((await call('GET', `/flows/${orders}/deployments`)).body.deployed).toBeNull();
         const { flow, revision } = (await call('GET', `/flows/${orders}/draft`)).body;
@@ -298,17 +299,17 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
     });
 
-    test('the app never pushes an invalid tree: a change on top of a refused commit fails with its errors', async () => {
+    test('the app never pushes an invalid tree: a Commit on top of a refused commit fails with its errors', async () => {
         const { call, repo, projectId, slug } = await newWorkspace();
         const bad = `${slug}/connections/Bad.yaml`;
         commitFiles(repo, 'dev', { ...onBranch(repo), [bad]: `id: ${crypto.randomUUID()}\ntype: oracle\n` });
         const tip = git(repo, 'rev-parse', 'dev');
 
-        const refused = await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' });
+        expect((await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' })).status).toBe(201);
+        const refused = await commitAll(call, 'Create folder Imports');
         expect(refused.status).toBe(400);
         expect(refused.body.error.fields).toEqual({ [bad]: 'Unknown connection type "oracle".' });
         expect(git(repo, 'rev-parse', 'dev')).toBe(tip);
-        expect((await call('GET', `/projects/${projectId}/contents`)).body.folders).toEqual([]);
     });
 
     test('a commit made by the app has the user as author and Flowtinus as committer', async () => {
@@ -320,8 +321,8 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         );
     });
 
-    test('an MCP tool that changes the tree takes the same path: committed, or failing with why while git is away', async () => {
-        const { slug, repo, projectId } = await newWorkspace();
+    test('an MCP tool that changes the tree takes the same path: into the working copy, git or not, until a Commit', async () => {
+        const { slug, call, repo, projectId, firstExport } = await newWorkspace();
         const { token } = newApiToken();
         await insertApiToken(db, { userId: ANA, name: 'test', token, scopes: API_SCOPES });
         const client = new Client({ name: 'test', version: '1.0.0' });
@@ -338,14 +339,15 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
             };
 
         expect((await createFolder('Imports')).isError).toBeFalsy();
-        expect(commits(repo)[0]).toBe(`Ana <${ANA}@example.com>|Create folder Imports`);
+        expect(commits(repo)[0]).toBe(`Ana <${ANA}@example.com>|${firstExport}`);
 
         await rename(repo, `${repo}.away`);
         const away = await createFolder('Exports');
         await rename(`${repo}.away`, repo);
-        expect(away.isError).toBe(true);
-        expect(away.content[0]!.text).toContain('Git could not be reached, nothing was changed:');
+        expect(away.isError).toBeFalsy();
         expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev')).not.toContain('Exports');
+        expect((await commitAll(call, 'Create folders')).status).toBe(200);
+        expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev')).toContain(`${slug}/projects/Sales/flows/Exports/.gitkeep`);
         await client.close();
     });
 

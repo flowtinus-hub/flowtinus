@@ -1,12 +1,14 @@
+import { workBranch } from '#features/git/branch-read';
+import { createFlowOnBranch } from '#features/git/branch-edits';
 import { z } from 'zod';
-import { isFolderVisible, newFlowFile } from '@flowtinus/core';
+import { isFolderVisible } from '@flowtinus/core';
+import { changeTree } from '#features/git/git-first';
 import { FlowRepository, loadTree, location, nameInTree, requireActiveProject } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import type { StoredDraft } from '../flow-draft';
 
 export const CreateFlowCommand = z.object({
     projectId: z.uuid('Invalid'),
@@ -27,6 +29,10 @@ export class CreateFlowHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { projectId, folderId } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return createFlowOnBranch(ctx, branch, parsed.value);
+        }
         const missing = await requireActiveProject(ctx, projectId);
         if (missing) {
             return missing;
@@ -44,15 +50,9 @@ export class CreateFlowHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const name = named.value;
-        const draft: StoredDraft = { revision: 0, flow: newFlowFile(name, id) };
-        const flow = await new FlowRepository(ctx.db, ctx.workspaceId).insert({
-            id,
-            projectId,
-            folderId,
-            name,
-            draftDefinition: draft,
-            updatedBy: ctx.userId,
-        });
+        const flow = await changeTree(ctx, db =>
+            new FlowRepository(db, ctx.workspaceId).insert({ id, projectId, folderId, name, updatedBy: ctx.userId }),
+        );
         return success({ id: flow.id });
     }
 }

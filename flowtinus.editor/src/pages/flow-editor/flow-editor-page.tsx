@@ -25,7 +25,9 @@ import { FlowCanvas, type CanvasHandle } from './flow-canvas';
 import { RunPanel } from './run-panel';
 import { portLabel } from '@/editor/run/port-label';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
-import { getGitStatus } from '@/data/git/git-api';
+import { getCurrentBranch, getGitStatus, REMOVED_BRANCH } from '@/data/git/git-api';
+import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
+import { CreateBranchDialog } from '@/layout/create-branch-dialog';
 import { cancelRun, getLastRun, getRun, startRun, type RunUsage } from '@/data/flows/flows-api';
 import { followRun } from '@/data/flows/run-events';
 import { knownVariablesAfter, writingComponents, type KnownVariables } from '@flowtinus/core';
@@ -71,6 +73,20 @@ export function FlowEditorPage() {
     const flowName = current ? (current.flow?.name ?? 'Flow not found') : '';
     // an archived flow opens read-only (nothing saved, nothing run), with Restore
     const archived = Boolean(current?.flow?.archivedAt);
+    const onBranch = Boolean(current?.flow?.readOnly) && !archived;
+    const onWorkBranch = Boolean(current?.flow?.workBranch);
+    const { state: me } = useMe();
+    const { canEdit } = useWorkspace();
+    const handle = me.status === 'ready' ? me.me.handle : null;
+    const offersBranch = Boolean(current?.flow?.offersBranch) && !archived && canEdit && handle !== null;
+    const [offering, setOffering] = useState(false);
+    const [environmentBranch, setEnvironmentBranch] = useState('');
+    useEffect(() => {
+        if (offersBranch) {
+            void getCurrentBranch(ws).then(result => result.ok && setEnvironmentBranch(result.value.branch ?? ''));
+        }
+    }, [offersBranch, ws]);
+    const holdEdit = useCallback(() => setOffering(true), []);
     const [restoring, setRestoring] = useState<{ busy: boolean; error?: string }>({ busy: false });
     // Download: the canvas as it is now, as the core's YAML flow file
     const canvas = useRef<CanvasHandle | null>(null);
@@ -181,7 +197,7 @@ export function FlowEditorPage() {
             return { ok: true, value: null };
         };
         const flushed = save ? await save.flush() : 'saved';
-        if (flushed !== 'saved') {
+        if (flushed !== 'saved' && !(flushed === 'read-only' && onBranch)) {
             return fail(
                 flushed === 'not-saved'
                     ? 'The flow could not be saved, so it did not run.'
@@ -361,6 +377,24 @@ export function FlowEditorPage() {
                     flowName={flowName}
                 />
                 <div className="ml-auto flex shrink-0 items-center gap-1">
+                    {onBranch &&
+                        (current?.flow?.removedBranch ? (
+                            <span
+                                role="status"
+                                className="shrink-0 text-xs whitespace-nowrap text-destructive"
+                                title={`${REMOVED_BRANCH} Run runs what the branch has.`}
+                            >
+                                Branch removed
+                            </span>
+                        ) : (
+                            <span
+                                role="status"
+                                className="shrink-0 text-xs whitespace-nowrap text-muted-foreground"
+                                title="This branch is read only here: pick the environment's branch in the sidebar to make changes. Run runs what the branch has."
+                            >
+                                Read only
+                            </span>
+                        ))}
                     <SaveStatus
                         save={save}
                         archived={
@@ -400,7 +434,8 @@ export function FlowEditorPage() {
                             <div className="relative min-h-0 flex-1">
                                 <FlowCanvas
                                     exportRef={canvas}
-                                    readOnly={archived}
+                                    readOnly={archived || onBranch}
+                                    onHeldEdit={offersBranch ? holdEdit : undefined}
                                     onSave={setSave}
                                     onRunFrom={runFrom}
                                     onToggleRunPanel={() => setPanelOpen(open => !open || running !== null)}
@@ -411,7 +446,7 @@ export function FlowEditorPage() {
                                             // which workers run it, before Arrange
                                             <WorkerTagMenu
                                                 flow={current.flow}
-                                                readOnly={archived}
+                                                readOnly={archived || onBranch || onWorkBranch}
                                                 onChanged={flow =>
                                                     setLoaded(previous => (previous?.flow ? { ...previous, flow } : previous))
                                                 }
@@ -419,11 +454,13 @@ export function FlowEditorPage() {
                                         )
                                     }
                                     toolsAfter={
-                                        current?.flow && (
+                                        current?.flow &&
+                                        !onWorkBranch && (
                                             // after Group: Deploy, and the schedules of the deployed version
                                             <>
                                                 <DeployMenu
                                                     flowId={flowId}
+                                                    workspace={ws}
                                                     environment={connection.state === 'online' ? connection.environment : ''}
                                                     disabled={archived || gone || connection.state !== 'online'}
                                                     draftNow={draftNow}
@@ -498,6 +535,24 @@ export function FlowEditorPage() {
                 )}
             </main>
             <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
+            {offering && handle && current?.flow && (
+                <CreateBranchDialog
+                    slug={ws}
+                    from={environmentBranch}
+                    handle={handle}
+                    edit={{
+                        name: current.flow.name,
+                        draft: () => {
+                            const flow = draftNow();
+                            return flow ? { flowId, flow } : null;
+                        },
+                    }}
+                    onClose={() => {
+                        setOffering(false);
+                        save?.reload();
+                    }}
+                />
+            )}
         </div>
     );
 }

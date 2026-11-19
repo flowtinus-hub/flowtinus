@@ -1,4 +1,6 @@
+import { branchArchive, branchScripts, branchTree, workBranch, type WorkBranch } from '#features/git/branch-read';
 import { z } from 'zod';
+import { workingScripts } from '#features/scripts/script-store';
 import { desc } from 'drizzle-orm';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -26,17 +28,27 @@ async function summaries(ctx: UseCaseContext, ids: string[]): Promise<Map<string
     const rows = await ctx.db.query<{ id: string } & Record<keyof ProjectSummary, number | string>>(
         `SELECT p.id,
        (SELECT count(*) FROM flows f WHERE f.project_id = p.id AND f.deleted_at IS NULL) AS flows,
-       (SELECT count(*) FROM deployments d JOIN flows f ON f.id = d.flow_id WHERE f.project_id = p.id AND f.deleted_at IS NULL) AS deployed,
-       (SELECT count(*) FROM scripts s WHERE s.project_id = p.id) AS scripts
+       (SELECT count(*) FROM deployments d JOIN flows f ON f.id = d.flow_id WHERE f.project_id = p.id AND f.deleted_at IS NULL) AS deployed
      FROM projects p WHERE p.workspace_id = $1 AND p.id = ANY($2::uuid[])`,
         [ctx.workspaceId, ids],
     );
-    return new Map(
-        rows.map(({ id, ...counts }) => [
-            id,
-            Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, Number(value)])) as ProjectSummary,
-        ]),
-    );
+    const summaries = new Map<string, ProjectSummary>();
+    for (const { id, ...counts } of rows) {
+        const scripts = (await workingScripts(ctx.db, ctx.workspaceId, id)).length;
+        summaries.set(id, { flows: Number(counts.flows), deployed: Number(counts.deployed), scripts });
+    }
+    return summaries;
+}
+
+async function archivedOnBranch(ctx: UseCaseContext, branch: WorkBranch): Promise<ListProjectsResponse['items']> {
+    const archive = await branchArchive(ctx, branch);
+    return archive.projects
+        .sort((a, b) => b.deletedAt.getTime() - a.deletedAt.getTime())
+        .map(project => ({
+            ...toProjectView(project),
+            ...(branch.editable ? {} : { readOnly: true as const }),
+            summary: { ...EMPTY, flows: archive.flows.filter(f => f.projectId === project.id).length },
+        }));
 }
 
 export class ListProjectsHandler implements UseCaseHandler<ListProjectsResponse> {
@@ -44,6 +56,33 @@ export class ListProjectsHandler implements UseCaseHandler<ListProjectsResponse>
         const parsed = validate(ListProjectsQuery, input ?? {});
         if (!parsed.ok) {
             return parsed;
+        }
+
+        const branch = await workBranch(ctx);
+        if (branch) {
+            // deployed means the same as on the environment's branch: deployed in this environment (a branch is never deployed)
+            const deployed = new Set(
+                (
+                    await ctx.db.query<{ flow_id: string }>(
+                        `SELECT d.flow_id FROM deployments d JOIN flows f ON f.id = d.flow_id
+                       WHERE f.workspace_id = $1 AND f.deleted_at IS NULL AND d.flow_id = ANY($2::uuid[])`,
+                        [ctx.workspaceId, branch.flows.map(f => f.id)],
+                    )
+                ).map(row => row.flow_id),
+            );
+            const items =
+                parsed.value.status === 'active'
+                    ? branch.projects.map(project => {
+                          const flows = branchTree(branch, project.id).flows;
+                          const summary = {
+                              flows: flows.length,
+                              deployed: flows.filter(f => deployed.has(f.id)).length,
+                              scripts: branchScripts(branch, project.id).length,
+                          };
+                          return { ...toProjectView(project), ...(branch.editable ? {} : { readOnly: true as const }), summary };
+                      })
+                    : await archivedOnBranch(ctx, branch);
+            return success({ items });
         }
 
         const repository = new ProjectRepository(ctx.db, ctx.workspaceId);

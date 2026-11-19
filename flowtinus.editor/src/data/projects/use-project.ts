@@ -28,5 +28,5 @@ export function useProject(id: string): ProjectState {
     return loaded?.for === id ? loaded.state : { status: 'loading' };
 }
 
-/** a project's tabs are read-only while it is archived */
-export const isReadOnly = (project: ProjectState) => project.status === 'ready' && project.project.archivedAt !== null;
+export const isReadOnly = (project: ProjectState) =>
+    project.status === 'ready' && (project.project.archivedAt !== null || Boolean(project.project.readOnly));

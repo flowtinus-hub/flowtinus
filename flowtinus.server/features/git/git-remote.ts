@@ -24,12 +24,16 @@ function gitEnv(access: GitAccess | null, extra: Record<string, string> = {}): R
     const config: [string, string][] = [
         ['credential.helper', ''],
         ['core.autocrlf', 'false'],
+        // a flow added to a folder the other side renamed follows the folder instead of conflicting
+        ['merge.directoryRenames', 'true'],
     ];
     if (access && /^https?:/i.test(access.repository)) {
         // GitLab takes any username but a blank one with a token; GitHub ignores it
         config.push(['http.extraHeader', `Authorization: Basic ${Buffer.from(`oauth2:${access.token}`).toString('base64')}`]);
     }
 
+    // after the environment's own config entries (the tests'), which later ones override
+    const inherited = Number(process.env.GIT_CONFIG_COUNT) || 0;
     return {
         ...(process.env as Record<string, string>),
         GIT_TERMINAL_PROMPT: '0',
@@ -37,18 +41,18 @@ function gitEnv(access: GitAccess | null, extra: Record<string, string> = {}): R
         SSH_ASKPASS: '',
         GIT_CONFIG_NOSYSTEM: '1',
         GIT_ALLOW_PROTOCOL: 'http:https:file',
-        GIT_CONFIG_COUNT: String(config.length),
+        GIT_CONFIG_COUNT: String(inherited + config.length),
         ...Object.fromEntries(
             config.flatMap(([key, value], i) => [
-                [`GIT_CONFIG_KEY_${i}`, key],
-                [`GIT_CONFIG_VALUE_${i}`, value],
+                [`GIT_CONFIG_KEY_${inherited + i}`, key],
+                [`GIT_CONFIG_VALUE_${inherited + i}`, value],
             ]),
         ),
         ...extra,
     };
 }
 
-type RunOptions = { access?: GitAccess | null; input?: string; env?: Record<string, string> };
+type RunOptions = { access?: GitAccess | null; input?: string; env?: Record<string, string>; exitCodes?: number[] };
 
 async function runGitBytes(cwd: string, args: string[], options: RunOptions = {}): Promise<Uint8Array> {
     const child = Bun.spawn(['git', ...args], {
@@ -60,7 +64,7 @@ async function runGitBytes(cwd: string, args: string[], options: RunOptions = {}
         timeout: TIMEOUT_MS,
     });
     const [out, err, code] = await Promise.all([new Response(child.stdout).bytes(), new Response(child.stderr).text(), child.exited]);
-    if (code !== 0) {
+    if (!(options.exitCodes ?? [0]).includes(code)) {
         throw new GitError(args, child.signalCode ? `git ${args[0]} took longer than ${TIMEOUT_MS / 1000} s.` : err);
     }
 
@@ -87,14 +91,16 @@ export class GitRemote {
             await mkdir(dir, { recursive: true });
             await runGit(dir, ['init', '--bare', '--quiet']);
             await runGit(dir, ['remote', 'add', 'origin', access.repository]);
-        } else {
+            clones.set(dir, { origin: access.repository });
+        } else if (clones.get(dir)?.origin !== access.repository) {
             await runGit(dir, ['remote', 'set-url', 'origin', access.repository]);
+            clones.set(dir, { ...clones.get(dir), origin: access.repository });
         }
 
         return new GitRemote(dir, access);
     }
 
-    run(args: string[], options: { input?: string; env?: Record<string, string> } = {}): Promise<string> {
+    run(args: string[], options: { input?: string; env?: Record<string, string>; exitCodes?: number[] } = {}): Promise<string> {
         return runGit(this.dir, args, { ...options, access: this.access });
     }
 
@@ -115,8 +121,87 @@ export class GitRemote {
             return null;
         }
 
-        await this.run(['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+        const tracking = await this.trackingRefs();
+        if (tracking.get(branch) !== sha) {
+            await this.run(['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+            tracking.set(branch, sha);
+        }
         return sha;
+    }
+
+    async fetchHeads(): Promise<Map<string, string>> {
+        await this.run(['fetch', '--quiet', '--prune', '--no-tags', 'origin', '+refs/heads/*:refs/remotes/origin/*']);
+        const heads = await this.readTracking();
+        this.clone.tracking = new Map(heads);
+        return heads;
+    }
+
+    private get clone(): Clone {
+        return clones.get(this.dir)!;
+    }
+
+    private async trackingRefs(): Promise<Map<string, string>> {
+        this.clone.tracking ??= await this.readTracking();
+        return this.clone.tracking;
+    }
+
+    private async readTracking(): Promise<Map<string, string>> {
+        const out = await this.run(['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin/']);
+        const heads = new Map<string, string>();
+        for (const line of out.split('\n').filter(Boolean)) {
+            const [sha, ref] = line.split(' ') as [string, string];
+            const name = ref.slice('refs/remotes/origin/'.length);
+            if (name !== 'HEAD') {
+                heads.set(name, sha);
+            }
+        }
+        return heads;
+    }
+
+    async isAncestor(commit: string, of: string): Promise<boolean> {
+        try {
+            await this.run(['merge-base', '--is-ancestor', commit, of]);
+            return true;
+        } catch (e) {
+            if (e instanceof GitError) {
+                return false;
+            }
+            throw e;
+        }
+    }
+
+    async mergeBase(a: string, b: string): Promise<string | null> {
+        const out = (await this.run(['merge-base', a, b], { exitCodes: [0, 1] })).trim();
+        return out || null;
+    }
+
+    async countBetween(from: string, to: string): Promise<number> {
+        return Number((await this.run(['rev-list', '--count', `${from}..${to}`])).trim());
+    }
+
+    async changedPaths(from: string, to: string, paths: string[]): Promise<string[]> {
+        const out = await this.run(['diff-tree', '-r', '--no-renames', '--name-only', '-z', from, to, '--', ...paths]);
+        return out.split('\0').filter(Boolean);
+    }
+
+    async mergeTree(ours: string, theirs: string): Promise<{ tree: string; conflicts: string[] }> {
+        const out = await this.run(['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', ours, theirs], {
+            exitCodes: [0, 1],
+        });
+        const [tree, ...conflicts] = out.split('\0').filter(Boolean);
+        return { tree: tree!, conflicts: [...new Set(conflicts)] };
+    }
+
+    async hasCommit(commit: string): Promise<boolean> {
+        try {
+            await this.run(['cat-file', '-e', `${commit}^{commit}`]);
+            return true;
+        } catch (e) {
+            if (e instanceof GitError) {
+                return false;
+            }
+            throw e;
+        }
     }
 
     async readFile(commit: string, path: string): Promise<string | null> {
@@ -132,6 +217,20 @@ export class GitRemote {
     }
 
     async files(commit: string, paths: string[]): Promise<Record<string, string>> {
+        if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+            return this.readFiles(commit, paths);
+        }
+        const key = JSON.stringify([commit, paths]);
+        const kept = trees.get(key) ?? (await this.readFiles(commit, paths));
+        trees.delete(key);
+        trees.set(key, kept);
+        while (trees.size > TREES_KEPT) {
+            trees.delete(trees.keys().next().value!);
+        }
+        return { ...kept };
+    }
+
+    private async readFiles(commit: string, paths: string[]): Promise<Record<string, string>> {
         const listed = (await this.run(['ls-tree', '-r', '-z', commit, '--', ...paths]))
             .split('\0')
             .filter(Boolean)
@@ -164,11 +263,13 @@ export class GitRemote {
         changes: Record<string, string | null>;
         message: string;
         author?: GitAuthor;
+        merge?: { tree: string; theirs: string };
     }): Promise<string> {
         const temp = await mkdtemp(join(this.dir, 'index-'));
         const index = { GIT_INDEX_FILE: join(temp, 'index') };
         try {
-            await this.run(options.parent ? ['read-tree', options.parent] : ['read-tree', '--empty'], { env: index });
+            const start = options.merge?.tree ?? options.parent;
+            await this.run(start ? ['read-tree', start] : ['read-tree', '--empty'], { env: index });
             const entries: string[] = [];
             for (const [path, content] of Object.entries(options.changes)) {
                 // mode 0 takes the path out of the index: update-index --force-remove wants a work tree, which a bare clone has not
@@ -181,7 +282,7 @@ export class GitRemote {
             }
 
             const tree = (await this.run(['write-tree'], { env: index })).trim();
-            if (options.parent && tree === (await this.run(['rev-parse', `${options.parent}^{tree}`])).trim()) {
+            if (!options.merge && options.parent && tree === (await this.run(['rev-parse', `${options.parent}^{tree}`])).trim()) {
                 return options.parent;
             }
 
@@ -192,7 +293,7 @@ export class GitRemote {
                 GIT_COMMITTER_NAME: FLOWTINUS.name,
                 GIT_COMMITTER_EMAIL: FLOWTINUS.email,
             };
-            const parent = options.parent ? ['-p', options.parent] : [];
+            const parent = [...(options.parent ? ['-p', options.parent] : []), ...(options.merge ? ['-p', options.merge.theirs] : [])];
             return (await this.run(['commit-tree', tree, ...parent, '-F', '-'], { input: options.message, env: who })).trim();
         } finally {
             await rm(temp, { recursive: true, force: true });
@@ -208,6 +309,7 @@ export class GitRemote {
             'origin',
             `${commit}:refs/heads/${branch}`,
         ]);
+        this.clone.tracking?.set(branch, commit);
     }
 
     async pushDryRun(commit: string, branch: string): Promise<void> {
@@ -216,8 +318,21 @@ export class GitRemote {
 
     async deleteBranch(branch: string): Promise<void> {
         await this.run(['push', '--quiet', '--porcelain', 'origin', '--delete', `refs/heads/${branch}`]);
+        this.clone.tracking?.delete(branch);
     }
 }
+
+// the files of the commits read last (a commit's files never change), most recent last
+const TREES_KEPT = 8;
+const trees = new Map<string, Record<string, string>>();
+
+/**
+ * What this server knows of each clone, which only the operations queued on it change: the origin it was last opened
+ * on (set in git again only when it changes), and its refs/remotes/origin/* (a fetch of a branch already there is skipped)
+ */
+type Clone = { origin: string; tracking?: Map<string, string> };
+
+const clones = new Map<string, Clone>();
 
 const queues = new Map<string, Promise<unknown>>();
 
@@ -247,6 +362,7 @@ export async function withThrowawayClone<T>(clonesDir: string, access: GitAccess
     try {
         return await work(await GitRemote.open(dir, access));
     } finally {
+        clones.delete(dir);
         await rm(dir, { recursive: true, force: true });
     }
 }

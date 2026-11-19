@@ -23,6 +23,8 @@ export type ProjectView = {
     color: string;
     createdAt: Date;
     archivedAt: Date | null;
+    readOnly?: true;
+    removedBranch?: true;
 };
 
 export const toProjectView = (project: Project): ProjectView => ({

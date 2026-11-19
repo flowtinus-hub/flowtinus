@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { ANA, insertWorkspace, wsPath } from '../helpers/workspaces';
 import { openDatabase, type Database } from '#shared/database/database';
-import { readDraft } from '#features/flows/flow-draft';
+import { loadDraft } from '#features/flows/flow-draft';
 import { loadTree } from '#features/folders/project-tree';
 import { calledFlows } from '#features/runs/start-run/called-flows';
 import { createApp } from '../../api/app';
@@ -212,7 +212,9 @@ describe('deploys in its own environment', () => {
         const calledOf = async () => {
             const row = (await loadTree(db, workspaceId, projectId)).flows.find(f => f.id === parent)!;
             const tree = await loadTree(db, workspaceId, projectId);
-            return (await calledFlows(ctx, projectId, tree, readDraft(row).flow, 'deployed')).find(c => c.id === child)!;
+            return (await calledFlows(ctx, projectId, tree, (await loadDraft(db, workspaceId, row)).flow, 'deployed')).find(
+                c => c.id === child,
+            )!;
         };
 
         expect(await calledOf()).toMatchObject({ unavailable: 'it is not deployed.' });

@@ -4,6 +4,7 @@ export const users = pgTable('users', {
     id: uuid('id').primaryKey(),
     name: text('name').notNull(),
     email: text('email').notNull(),
+    handle: text('handle').notNull(),
     isAdmin: boolean('is_admin').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

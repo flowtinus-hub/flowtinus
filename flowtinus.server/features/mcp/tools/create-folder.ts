@@ -12,6 +12,7 @@ export const createFolder = defineTool({
         parentFolderId: id('the folder it goes in; omit for the root').optional(),
     },
     annotations: { destructiveHint: false },
+    editsBranch: true,
     run: async ({ projectId, name, parentFolderId }, t) =>
         answer(await new CreateFolderHandler().handle({ projectId, name, parentId: parentFolderId ?? null }, t.ctx), v => ({
             folderId: v.id,
