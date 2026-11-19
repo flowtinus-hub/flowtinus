@@ -10,6 +10,7 @@ import { applyCommit, lockReconcile } from './reconcile';
 import { exportWorkspace, repoChanges, type GitChanges, type RepoFiles } from './workspace-export';
 import { draftClashes, holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
+import { fetchAndReconcile } from './git-heads';
 
 export type FileChange = { path: string; change: 'added' | 'changed' | 'removed'; note?: string };
 
@@ -116,9 +117,13 @@ export async function turnGitOn(
     const slug = await workspaceSlug(ctx);
     const onBranch = await readBranchWorkspace(remote, tip, slug);
     try {
-        return await ctx.db.transaction(tx =>
+        const turned = await ctx.db.transaction(tx =>
             turnOnInTransaction({ ...ctx, db: tx }, remote, input, { branch, tip: tip!, slug, onBranch }),
         );
+        if (turned.ok) {
+            await showWorkBranches(ctx, remote, config);
+        }
+        return turned;
     } catch (e) {
         if (e instanceof ImportConflict) {
             return fail('conflict', e.message);
@@ -188,4 +193,19 @@ async function turnOnInTransaction(
     }
 
     return success({ outcome, branch, warnings });
+}
+
+/**
+ * The work branches' working copies, kept in Postgres while git was off, show again: every head is fetched and the
+ * environment's branch reconciled, as a poll does, so a user whose current branch is a work branch reads it at once.
+ */
+async function showWorkBranches(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<void> {
+    try {
+        await fetchAndReconcile(ctx, remote, config);
+    } catch (e) {
+        // git is on already: the next poll records the heads (until then a work branch answers "pick another branch")
+        if (!(e instanceof GitError)) {
+            throw e;
+        }
+    }
 }
