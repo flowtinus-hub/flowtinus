@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
-import { commitFiles, createBranch, git } from '../helpers/git-repos';
+import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
@@ -41,8 +41,13 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
             expect((await call('POST', '/git/on', { createBranch: true })).status).toBe(200);
         }
 
-        const script = async (path: string, content: string) =>
+        // a script made, and with git on committed at once (a new script waits in the working copy until a Commit)
+        const script = async (path: string, content: string) => {
             expect((await call('POST', `/projects/${projectId}/scripts`, { kind: 'script', path, content })).status).toBe(201);
+            if (options.git !== false) {
+                expect((await commitAll(call, `Create script ${path}`)).status).toBe(200);
+            }
+        };
         const save = async (path: string, content: string) => {
             const { revision } = (await call('GET', `/projects/${projectId}/scripts/content?path=${encodeURIComponent(path)}`)).body;
             expect((await call('PUT', `/projects/${projectId}/scripts/content`, { path, content, revision })).status).toBe(200);
@@ -195,7 +200,8 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
             'lib/prices': "import { two } from '@myproject/scripts/lib/math';\nexport const value = two;",
             'lib/fees': 'export const value = 5;',
         });
-    });
+        // several commits, each pushed and reconciled: beside the other suites it outlasts 30 s
+    }, 90_000);
 
     test('with git off, a deployed run takes the scripts as saved, as before', async () => {
         const { script, save, flow, deploy, testRun, webhookOf } = await newWorkspace({ git: false });

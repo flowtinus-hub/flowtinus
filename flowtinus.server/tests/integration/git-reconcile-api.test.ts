@@ -215,6 +215,7 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         expect(created.status).toBe(201);
         const path = p('connections/Events.yaml');
         const declared = connectionToYaml({ id: created.body.id, type: 'kafka' });
+        expect((await call('POST', '/git/commit', { paths: [path], message: 'Create connection Events' })).status).toBe(200);
         expect((await reconcile()).body.outcome).toBe('up-to-date');
 
         commit(files => {
@@ -233,7 +234,9 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         });
 
         expect((await reconcile()).body.outcome).toBe('applied');
+        // the other connection, made here and not committed, stays a change of the working copy
         expect((await call('GET', '/connections')).body.items).toEqual([
+            expect.objectContaining({ id: other.body.id, name: 'Events' }),
             expect.objectContaining({ id: created.body.id, name: 'Stream', type: 'kafka', config: expect.objectContaining(fields.config) }),
         ]);
     });

@@ -70,7 +70,7 @@ export async function turnOnPlan(ctx: UseCaseContext, remote: GitRemote, config:
     const { branch, tip } = target.value;
     const slug = await workspaceSlug(ctx);
     const onBranch = tip ? await readBranchWorkspace(remote, tip, slug) : {};
-    const exported = await exportWorkspace(ctx.db, ctx.workspaceId);
+    const exported = await exportWorkspace(ctx.db, ctx.workspaceId, 'committed');
     const holds = holdsWorkspace(onBranch, slug);
     const empty = await isWorkspaceEmpty(ctx.db, ctx.workspaceId);
     const serverSide = inFolder(exported, slug);
@@ -180,7 +180,7 @@ async function turnOnInTransaction(
     }
 
     await saveGitConfig(ctx, state.config, true);
-    const changes = branchChanges(onBranch, await exportWorkspace(ctx.db, ctx.workspaceId));
+    const changes = branchChanges(onBranch, await exportWorkspace(ctx.db, ctx.workspaceId, 'committed'));
     if (Object.keys(changes).length > 0) {
         await commitFirst(ctx, state.config, remote, message, changes);
     } else {

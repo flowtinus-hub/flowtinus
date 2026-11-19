@@ -47,15 +47,11 @@ export class RestoreFlowHandler implements UseCaseHandler<FlowView> {
             return named;
         }
 
-        const restored = await changeTree(
-            ctx,
-            () => `Restore flow ${flow.name}`,
-            async tx => {
-                const inTx = new FlowRepository(tx, ctx.workspaceId);
-                await inTx.restore(id);
-                return inTx.update(id, { folderId, deletedByCommit: null });
-            },
-        );
+        const restored = await changeTree(ctx, async tx => {
+            const inTx = new FlowRepository(tx, ctx.workspaceId);
+            await inTx.restore(id);
+            return inTx.update(id, { folderId, deletedByCommit: null });
+        });
 
         return restored ? success(toFlowView(restored)) : fail('not-found', 'Archived flow not found.');
     }

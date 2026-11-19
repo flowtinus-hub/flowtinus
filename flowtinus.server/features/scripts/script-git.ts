@@ -1,53 +1,49 @@
 import { z } from 'zod';
+import { and, eq, isNull } from 'drizzle-orm';
 import { flowWithScriptsMoved, movedScriptImports, normalizeScriptPath, scriptCodeOf, scriptImports, type FlowFile } from '@flowtinus/core';
-import { readDraft, type StoredDraft } from '#features/flows/flow-draft';
-import { FlowRepository, requireActiveProject } from '#features/folders/project-tree';
+import { loadDraft, writeDraft } from '#features/flows/flow-draft';
 import { flows as flowsTable } from '#features/flows/flow';
+import { FlowRepository, requireActiveProject } from '#features/folders/project-tree';
 import { isGitOn } from '#features/git/git-config';
-import { commitTree } from '#features/git/git-first';
-import { flowsInRepo, scriptKey, type TreeOverrides } from '#features/git/workspace-export';
+import { bestRows, ENVIRONMENT_BRANCH, isChange, scriptFileId, type WorkingRow } from '#features/git/working-copy';
+import { commitWorkingCopy, discardWorkingCopy } from '#features/git/working-copy-changes';
 import type { Database } from '#shared/database/database';
-import { pgJson } from '#shared/database/jsonb';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
-import { fail, success, type UseCaseError, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { and, eq, isNull } from 'drizzle-orm';
-import { exportsOf, scriptHash } from './script-store';
+import { workingScripts, writeScript } from './script-store';
 
 export type ScriptState = { changed: boolean; conflict?: string };
 
-/** with git on, each editing copy against the script as committed: changed (or never committed), in conflict */
+/** a project's scripts' rows in the working copy of the environment's branch, by script path */
+async function scriptRows(db: Database, workspaceId: string, projectId: string): Promise<Map<string, WorkingRow>> {
+    const prefix = scriptFileId(projectId, '');
+    const rows = await db.query<WorkingRow>(
+        `SELECT path, content, deleted, file_id, base, edited_by, conflict, revision, updated_at FROM working_copy
+       WHERE workspace_id = $1 AND branch = $2 AND starts_with(file_id, $3)`,
+        [workspaceId, ENVIRONMENT_BRANCH, prefix],
+    );
+    return new Map([...bestRows(rows)].map(([fileId, row]) => [fileId.slice(prefix.length), row]));
+}
+
+/** with git on, each script against the script as committed: changed (or never committed), in conflict */
 export async function scriptStates(db: Database, workspaceId: string, projectId: string): Promise<Map<string, ScriptState> | null> {
     if (!(await isGitOn(db, workspaceId))) {
         return null;
     }
-    const rows = await db.query<{ path: string; content: string; draft_conflict: string | null; hash: string | null }>(
-        `SELECT s.path, s.content, s.draft_conflict, d.hash FROM scripts s
-       LEFT JOIN deployed_scripts d ON d.project_id = s.project_id AND d.path = s.path
-       WHERE s.workspace_id = $1 AND s.project_id = $2`,
-        [workspaceId, projectId],
-    );
-    return new Map(
-        rows.map(r => [r.path, { changed: r.hash !== scriptHash(r.content), ...(r.draft_conflict ? { conflict: r.draft_conflict } : {}) }]),
-    );
+    const rows = await scriptRows(db, workspaceId, projectId);
+    return new Map([...rows].map(([path, row]) => [path, { changed: isChange(row), ...(row.conflict ? { conflict: row.conflict } : {}) }]));
 }
 
-/** the changed scripts a flow imports, directly or through another script (editing copies) */
+/** the changed scripts a flow imports, directly or through another script */
 export async function changedImports(db: Database, workspaceId: string, projectId: string, flow: FlowFile): Promise<string[]> {
     const states = await scriptStates(db, workspaceId, projectId);
     if (!states) {
         return [];
     }
-    const contents = new Map(
-        (
-            await db.query<{ path: string; content: string }>(
-                'SELECT path, content FROM scripts WHERE workspace_id = $1 AND project_id = $2',
-                [workspaceId, projectId],
-            )
-        ).map(s => [s.path, s.content]),
-    );
+    const contents = new Map((await workingScripts(db, workspaceId, projectId)).map(s => [s.path, s.content]));
     const seen = new Set<string>();
     const queue = flow.nodes.flatMap(n => scriptImports(scriptCodeOf(n.type, n.config) ?? ''));
     while (queue.length > 0) {
@@ -60,93 +56,34 @@ export async function changedImports(db: Database, workspaceId: string, projectI
     return [...seen].filter(path => states.get(path)?.changed).sort();
 }
 
-/** the editing copies of these scripts, to commit; refused for one that is missing or in conflict */
-export async function scriptsToCommit(
-    db: Database,
-    workspaceId: string,
-    projectId: string,
-    paths: string[],
-): Promise<Map<string, string> | UseCaseError> {
-    const scripts = new Map<string, string>();
-    for (const path of paths) {
-        const [row] = await db.query<{ content: string; draft_conflict: string | null }>(
-            'SELECT content, draft_conflict FROM scripts WHERE workspace_id = $1 AND project_id = $2 AND path = $3',
-            [workspaceId, projectId, path],
-        );
-        if (!row) {
-            return { code: 'not-found', message: `The script ${path} does not exist.` };
-        }
-        if (row.draft_conflict) {
-            return {
-                code: 'conflict',
-                message: `The script ${path} conflicts with git's commit ${row.draft_conflict.slice(0, 7)}: discard its changes first.`,
-            };
-        }
-        scripts.set(scriptKey(projectId, path), row.content);
-    }
-    return scripts;
-}
-
-/**
- * A script (or a folder) moved: the scripts that import it and the flows' drafts are rewritten; with git on, the
- * files of the flows that call it and the scripts that import it, as committed, are rewritten too (the overrides of
- * the commit). After moveScriptPath.
- */
-export async function rewriteMovedScript(ctx: UseCaseContext, projectId: string, from: string, to: string): Promise<TreeOverrides> {
+/** a script (or a folder) moved: the scripts that import it and the flows' drafts are rewritten. After moveScriptPath. */
+export async function rewriteMovedScript(ctx: UseCaseContext, projectId: string, from: string, to: string): Promise<void> {
     const { db, workspaceId } = ctx;
-    for (const script of await db.query<{ path: string; content: string }>(
-        'SELECT path, content FROM scripts WHERE workspace_id = $1 AND project_id = $2',
-        [workspaceId, projectId],
-    )) {
+    for (const script of await workingScripts(db, workspaceId, projectId)) {
         const content = movedScriptImports(script.content, from, to);
         if (content !== script.content) {
-            await db.query(
-                `UPDATE scripts SET content = $4, exports = $5::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
-         WHERE workspace_id = $1 AND project_id = $2 AND path = $3`,
-                [workspaceId, projectId, script.path, content, exportsOf(content), ctx.userId],
-            );
+            await writeScript(db, workspaceId, projectId, script.path, content, ctx.userId);
         }
     }
 
     const live = await new FlowRepository(db, workspaceId).findMany(and(eq(flowsTable.projectId, projectId), isNull(flowsTable.deletedAt)));
     for (const flow of live) {
-        const draft = readDraft(flow);
-        const moved = flowWithScriptsMoved(draft.flow, from, to);
+        const moved = flowWithScriptsMoved((await loadDraft(db, workspaceId, flow)).flow, from, to);
         if (moved) {
-            const stored: StoredDraft = { revision: draft.revision + 1, flow: moved };
-            await db.query('UPDATE flows SET draft_definition = $2::text::jsonb, updated_at = now() WHERE id = $1', [
-                flow.id,
-                pgJson(stored),
-            ]);
+            await writeDraft(db, workspaceId, flow, moved, ctx.userId);
         }
     }
-
-    const flows = new Map<string, { definition: FlowFile; deployed: boolean }>();
-    for (const inRepo of await flowsInRepo(
-        db,
-        workspaceId,
-        live.map(f => f.id),
-    )) {
-        const moved = flowWithScriptsMoved(inRepo.definition, from, to);
-        if (moved) {
-            flows.set(inRepo.flow_id, { definition: moved, deployed: inRepo.deployed });
-        }
-    }
-    const scripts = new Map<string, string>();
-    for (const committed of await db.query<{ path: string; content: string }>(
-        `SELECT d.path, b.content FROM deployed_scripts d JOIN script_blobs b ON b.workspace_id = d.workspace_id AND b.hash = d.hash
-       WHERE d.workspace_id = $1 AND d.project_id = $2`,
-        [workspaceId, projectId],
-    )) {
-        const content = movedScriptImports(committed.content, from, to);
-        if (content !== committed.content) {
-            scripts.set(scriptKey(projectId, committed.path), content);
-        }
-    }
-    return { flows, scripts };
 }
 
 const projectId = z.uuid('Invalid');
+
+export async function workingScriptPaths(db: Database, workspaceId: string, projectId: string, paths: string[]): Promise<string[]> {
+    const rows = await scriptRows(db, workspaceId, projectId);
+    return paths.flatMap(path => {
+        const row = rows.get(path);
+        return row ? [row.path] : [];
+    });
+}
 
 export class CommitScriptsHandler implements UseCaseHandler<{ commit: string }> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ commit: string }>> {
@@ -173,16 +110,21 @@ export class CommitScriptsHandler implements UseCaseHandler<{ commit: string }> 
             return missing;
         }
 
-        const committed = await commitTree(ctx, message ?? `Update ${paths.join(', ')}`, async db => {
-            const scripts = await scriptsToCommit(db, ctx.workspaceId, id, paths);
-            return scripts instanceof Map ? { scripts } : scripts;
-        });
-        if (!committed.ok) {
-            return committed;
+        const files = await workingScriptPaths(ctx.db, ctx.workspaceId, id, paths);
+        if (files.length === 0) {
+            return fail('validation', 'Nothing to commit: the scripts are as committed.');
         }
-        return committed.value
-            ? success({ commit: committed.value })
-            : fail('validation', 'Nothing to commit: the scripts are as committed.');
+        const rows = await scriptRows(ctx.db, ctx.workspaceId, id);
+        const conflicted = paths.find(path => rows.get(path)?.conflict);
+        if (conflicted) {
+            const commit = rows.get(conflicted)!.conflict!.slice(0, 7);
+            return fail('conflict', `The script ${conflicted} conflicts with git's commit ${commit}: discard its changes first.`);
+        }
+        if (!paths.some(path => rows.get(path) && isChange(rows.get(path)!))) {
+            return fail('validation', 'Nothing to commit: the scripts are as committed.');
+        }
+        const committed = await commitWorkingCopy(ctx, { paths: files, message: message ?? `Update ${paths.join(', ')}` });
+        return committed.ok ? success({ commit: committed.value }) : committed;
     }
 }
 
@@ -199,20 +141,17 @@ export class DiscardScriptHandler implements UseCaseHandler<{ revision: number }
         }
 
         const { projectId: id, path } = parsed.value;
-        const [committed] = await ctx.db.query<{ hash: string; content: string }>(
-            `SELECT d.hash, b.content FROM deployed_scripts d JOIN script_blobs b ON b.workspace_id = d.workspace_id AND b.hash = d.hash
-       WHERE d.workspace_id = $1 AND d.project_id = $2 AND d.path = $3`,
-            [ctx.workspaceId, id, path],
-        );
-        if (!committed) {
+        const row = (await scriptRows(ctx.db, ctx.workspaceId, id)).get(path);
+        if (!row) {
+            return fail('not-found', 'Script not found.');
+        }
+        if (!row.base) {
             return fail('conflict', 'The script has no file in git: there is nothing to take.');
         }
-
-        const [row] = await ctx.db.query<{ revision: number }>(
-            `UPDATE scripts SET content = $4, exports = $5::text::jsonb, revision = revision + 1, draft_base = $6, draft_conflict = NULL,
-         updated_by = $7, updated_at = now() WHERE workspace_id = $1 AND project_id = $2 AND path = $3 RETURNING revision`,
-            [ctx.workspaceId, id, path, committed.content, exportsOf(committed.content), committed.hash, ctx.userId],
-        );
-        return row ? success({ revision: row.revision }) : fail('not-found', 'Script not found.');
+        const discarded = await discardWorkingCopy(ctx, { paths: [row.path] });
+        if (!discarded.ok) {
+            return discarded;
+        }
+        return success({ revision: (await scriptRows(ctx.db, ctx.workspaceId, id)).get(path)?.revision ?? 0 });
     }
 }

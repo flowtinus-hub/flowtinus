@@ -6,7 +6,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { folderLabel, FolderRepository, loadTree, location, nameInTree, toFolderView, type FolderView } from '../project-tree';
+import { FolderRepository, loadTree, location, nameInTree, toFolderView, type FolderView } from '../project-tree';
 
 export const MoveFolderCommand = z.object({ id: z.uuid('Invalid'), parentId: location });
 
@@ -44,11 +44,7 @@ export class MoveFolderHandler implements UseCaseHandler<FolderView> {
             return named;
         }
 
-        const moved = await changeTree(
-            ctx,
-            () => `Move folder ${folder.name} to ${folderLabel(tree, parentId)}`,
-            db => new FolderRepository(db, ctx.workspaceId).update(id, { parentId }),
-        );
+        const moved = await changeTree(ctx, db => new FolderRepository(db, ctx.workspaceId).update(id, { parentId }));
         return moved ? success(toFolderView(moved)) : fail('not-found', 'Folder not found.');
     }
 }

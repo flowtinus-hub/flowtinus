@@ -6,7 +6,7 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { flows } from '../flow';
-import { readDraft, type FlowDraft } from '../flow-draft';
+import { loadDraft, type FlowDraft } from '../flow-draft';
 
 export const GetDraftQuery = z.object({ id: z.uuid('Invalid') });
 
@@ -18,8 +18,6 @@ export class GetDraftHandler implements UseCaseHandler<FlowDraft> {
         }
 
         const [flow] = await new FlowRepository(ctx.db, ctx.workspaceId).findAll(eq(flows.id, parsed.value.id));
-        return flow
-            ? success({ ...readDraft(flow), ...(flow.draftConflict ? { conflict: flow.draftConflict } : {}) })
-            : fail('not-found', 'Flow not found.');
+        return flow ? success(await loadDraft(ctx.db, ctx.workspaceId, flow)) : fail('not-found', 'Flow not found.');
     }
 }

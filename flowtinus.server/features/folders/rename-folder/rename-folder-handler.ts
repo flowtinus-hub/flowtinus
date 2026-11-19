@@ -36,11 +36,7 @@ export class RenameFolderHandler implements UseCaseHandler<FolderView> {
         }
 
         const name = named.value;
-        const renamed = await changeTree(
-            ctx,
-            () => `Rename folder ${folder.name} to ${name}`,
-            db => new FolderRepository(db, ctx.workspaceId).update(folder.id, { name }),
-        );
+        const renamed = await changeTree(ctx, db => new FolderRepository(db, ctx.workspaceId).update(folder.id, { name }));
         return renamed ? success(toFolderView(renamed)) : fail('not-found', 'Folder not found.');
     }
 }

@@ -230,15 +230,11 @@ async function process($input: IItem) {
             path: 'pricing/total',
             content: `export const VAT = 0.2;\nexport function withVat(net: number, rate = VAT): number { return net * (1 + rate); }\n`,
         });
-        // saved before the list said which names are functions (the migration empties it): read again once, and kept
-        await db.query(`UPDATE scripts SET exports = NULL WHERE path = 'pricing/total'`);
         const listed = (await scripts()).scripts.find(s => s.path === 'pricing/total')!;
         expect(listed.exports).toEqual([
             { name: 'VAT', typeOnly: false },
             { name: 'withVat', typeOnly: false, function: true },
         ]);
-        const [kept] = await db.query<{ exports: unknown }>(`SELECT exports FROM scripts WHERE path = 'pricing/total'`);
-        expect(kept!.exports).toEqual(listed.exports);
 
         const flowId = (await call('POST', `/projects/${projectId}/flows`, { name: 'Calls a function', folderId: null })).body.id as string;
         const draft = (await call('GET', `/flows/${flowId}/draft`)).body as { flow: Record<string, unknown> };

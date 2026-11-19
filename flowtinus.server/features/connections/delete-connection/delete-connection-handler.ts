@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isGitOn } from '#features/git/git-config';
 import { changeTree } from '#features/git/git-first';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -23,11 +24,13 @@ export class DeleteConnectionHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
-        const name = (await new ConnectionRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
         return (await changeTree(
             ctx,
-            () => `Delete connection ${name}`,
-            db => new ConnectionRepository(db, ctx.workspaceId).remove(id),
+            // with git on, until its Commit: archived, its configuration kept for a discard to bring back
+            async db =>
+                (await isGitOn(db, ctx.workspaceId))
+                    ? new ConnectionRepository(db, ctx.workspaceId).softDelete(id, ctx.userId)
+                    : new ConnectionRepository(db, ctx.workspaceId).remove(id),
         ))
             ? success({ id })
             : fail('not-found', 'Connection not found.');

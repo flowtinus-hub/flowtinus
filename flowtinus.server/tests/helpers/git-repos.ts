@@ -51,6 +51,14 @@ export function commitFiles(repo: string, branch: string, files: Record<string, 
     }
 }
 
+type Call = (method: string, path: string, body?: unknown) => Promise<{ status: number; body: any }>;
+
+/** a Commit of every change of the working copy (POST /git/commit): its answer */
+export async function commitAll(call: Call, message: string): Promise<{ status: number; body: any }> {
+    const changes = (await call('GET', '/git/changes')).body.changes as { path: string; from?: string }[];
+    return call('POST', '/git/commit', { paths: changes.flatMap(c => [c.path, ...(c.from ? [c.from] : [])]), message });
+}
+
 export function createBranch(repo: string, branch: string): void {
     const commit = git(repo, '-c', 'user.name=Someone', '-c', 'user.email=someone@example.com', 'commit-tree', EMPTY_TREE, '-m', 'start');
     git(repo, 'update-ref', `refs/heads/${branch}`, commit);

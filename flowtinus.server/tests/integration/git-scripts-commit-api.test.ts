@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
-import { commitFiles, createBranch, git } from '../helpers/git-repos';
+import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -43,8 +43,11 @@ describe('scripts reach the branch through a Commit', () => {
         expect((await call('POST', '/git/on', { createBranch: true })).status).toBe(200);
 
         const scripts = `/projects/${projectId}/scripts`;
-        const create = async (path: string, content: string) =>
+        // a script made and committed (a new script waits in the working copy until a Commit)
+        const create = async (path: string, content: string) => {
             expect((await call('POST', scripts, { kind: 'script', path, content })).status).toBe(201);
+            expect((await commitAll(call, `Create script ${path}`)).status).toBe(200);
+        };
         const editing = async (path: string) => (await call('GET', `${scripts}/content?path=${encodeURIComponent(path)}`)).body;
         const save = async (path: string, content: string) => {
             const { revision } = await editing(path);
@@ -158,7 +161,7 @@ describe('scripts reach the branch through a Commit', () => {
         expect(again.body.error.message).toBe('Nothing to commit: the scripts are as committed.');
     });
 
-    test("a flow's Commit offers the changed scripts it imports, and commits the checked ones with it", async () => {
+    test("a flow's Commit takes the changed scripts it imports, directly or through another script, with it", async () => {
         const { call, create, save, flow, show, scriptFile, flowFile } = await newWorkspace();
         await create('lib/math', 'export const two = 2;');
         await create('lib/prices', "import { two } from '@myproject/scripts/lib/math';\nexport const value = two;");
@@ -173,15 +176,12 @@ describe('scripts reach the branch through a Commit', () => {
         expect(committed.status).toBe(200);
         expect(show(flowFile('Orders'))).toContain('@myproject/scripts/lib/prices');
         expect(show(scriptFile('lib/prices'))).toContain('two + 1');
-        expect(show(scriptFile('lib/math'))).toBe('export const two = 2;');
-        expect(committed.body.changedScripts).toEqual(['lib/math']);
-
-        // a changed script alone is enough to commit
-        expect((await call('POST', `/flows/${orders}/deploy`, { scripts: ['lib/math'] })).status).toBe(200);
         expect(show(scriptFile('lib/math'))).toBe('export const two = 3;');
+        expect(show(scriptFile('lib/other'))).toBe('export const value = 10;');
+        expect(committed.body.changedScripts).toEqual([]);
     });
 
-    test('renaming a script is one commit of the script and its callers, and rewrites their drafts', async () => {
+    test('renaming a script rewrites its callers and their drafts; one Commit takes them all', async () => {
         const { call, scripts, create, save, editing, flow, show, scriptFile, flowFile, tree, lastMessage } = await newWorkspace();
         await create('lib/prices', 'export const value = 1;');
         await create('lib/total', "import { value } from '@myproject/scripts/lib/prices';\nexport const total = value;");
@@ -191,10 +191,12 @@ describe('scripts reach the branch through a Commit', () => {
         const commits = tree().length;
 
         expect((await call('POST', `${scripts}/move`, { from: 'lib/prices', to: 'shared/prices' })).status).toBe(200);
+        expect(tree()).toContain(scriptFile('lib/prices'));
+        expect((await commitAll(call, 'Move script lib/prices to shared/prices')).status).toBe(200);
         expect(lastMessage()).toBe('Move script lib/prices to shared/prices');
         expect(tree()).toHaveLength(commits);
         expect(tree()).not.toContain(scriptFile('lib/prices'));
-        expect(show(scriptFile('shared/prices'))).toBe('export const value = 1;');
+        expect(show(scriptFile('shared/prices'))).toBe('export const value = 2;');
         expect(show(scriptFile('lib/total'))).toContain("from '@myproject/scripts/shared/prices'");
         expect(show(flowFile('Orders'))).toContain('@myproject/scripts/shared/prices');
 
@@ -205,7 +207,8 @@ describe('scripts reach the branch through a Commit', () => {
         const deployments = (await call('GET', `/flows/${orders}/deployments`)).body;
         expect(deployments.versions.map((v: { number: number }) => v.number)).toEqual([2, 1]);
         expect(deployments.deployed.versionId).toBe(deployments.versions[0].id);
-    });
+        // several commits, each pushed and reconciled: beside the other suites it outlasts 30 s
+    }, 90_000);
 
     test("a script's editing copy is merged three ways when a commit changes the script; a conflict is marked until discarded", async () => {
         const { call, repo, scripts, create, save, editing, listed, scriptFile, onBranch } = await newWorkspace();

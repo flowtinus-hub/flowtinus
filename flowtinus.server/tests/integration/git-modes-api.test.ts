@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
-import { commitFiles, createBranch, git } from '../helpers/git-repos';
+import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -160,10 +160,12 @@ describe("an environment's mode decides whether its server changes the tree", ()
         await client.close();
     });
 
-    test('direct: unchanged, a tree change is a commit', async () => {
+    test('direct: a tree change waits in the working copy, a Commit takes it', async () => {
         const { call, projectId, tip } = await newWorkspace('direct');
         const before = tip();
         expect((await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' })).status).toBe(201);
+        expect(tip()).toBe(before);
+        expect((await commitAll(call, 'Create folder Imports')).status).toBe(200);
         expect(tip()).not.toBe(before);
         expect((await call('GET', '/git/status')).body.mode).toBe('direct');
     });

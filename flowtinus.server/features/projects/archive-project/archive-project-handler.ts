@@ -25,12 +25,7 @@ export class ArchiveProjectHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
-        const name = (await new ProjectRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
-        const archived = await changeTree(
-            ctx,
-            () => `Archive project ${name}`,
-            tx => archiveProject(tx, ctx, id),
-        );
+        const archived = await changeTree(ctx, tx => archiveProject(tx, ctx, id));
         if (!archived) {
             return fail('not-found', 'Project not found.');
         }

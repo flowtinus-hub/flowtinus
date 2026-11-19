@@ -37,7 +37,7 @@ describe('database', () => {
                     'schema_migrations',
                     'script_blobs',
                     'script_folders',
-                    'scripts',
+                    'working_copy',
                     'secrets',
                     'supervisors',
                     'test_runs',

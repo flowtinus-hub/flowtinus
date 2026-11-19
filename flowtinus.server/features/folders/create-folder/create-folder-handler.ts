@@ -44,11 +44,7 @@ export class CreateFolderHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const name = named.value;
-        const folder = await changeTree(
-            ctx,
-            () => `Create folder ${name}`,
-            db => new FolderRepository(db, ctx.workspaceId).insert({ id, projectId, parentId, name }),
-        );
+        const folder = await changeTree(ctx, db => new FolderRepository(db, ctx.workspaceId).insert({ id, projectId, parentId, name }));
         return success({ id: folder.id });
     }
 }

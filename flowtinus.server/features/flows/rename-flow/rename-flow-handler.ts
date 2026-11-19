@@ -40,10 +40,8 @@ export class RenameFlowHandler implements UseCaseHandler<FlowView> {
         }
 
         const name = named.value;
-        const renamed = await changeTree(
-            ctx,
-            () => `Rename flow ${flow.name} to ${name}`,
-            db => new FlowRepository(db, ctx.workspaceId).update(flow.id, { name, updatedAt: new Date(), updatedBy: ctx.userId }),
+        const renamed = await changeTree(ctx, db =>
+            new FlowRepository(db, ctx.workspaceId).update(flow.id, { name, updatedAt: new Date(), updatedBy: ctx.userId }),
         );
         return renamed ? success(toFlowView(renamed)) : fail('not-found', 'Flow not found.');
     }

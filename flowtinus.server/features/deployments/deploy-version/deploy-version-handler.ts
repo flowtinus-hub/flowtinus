@@ -55,21 +55,17 @@ export class DeployVersionHandler implements UseCaseHandler<CommittedDeployments
             });
         }
 
-        const action = await changeTree(
-            ctx,
-            done => (done === 'rollback' ? `Roll back ${row.name} to v${version.number}` : `Deploy ${row.name} v${version.number}`),
-            async tx => {
-                await lockFlowDeployments(tx, row.id);
-                const current = await currentDeployment(tx, ctx.workspaceId, row.id);
-                if (current?.id === version.id) {
-                    return null;
-                }
+        const action = await changeTree(ctx, async tx => {
+            await lockFlowDeployments(tx, row.id);
+            const current = await currentDeployment(tx, ctx.workspaceId, row.id);
+            if (current?.id === version.id) {
+                return null;
+            }
 
-                const action = current && version.number < current.number ? 'rollback' : 'deploy';
-                await setDeployed(tx, ctx, row.id, action, current?.id ?? null, version.id);
-                return action;
-            },
-        );
+            const action = current && version.number < current.number ? 'rollback' : 'deploy';
+            await setDeployed(tx, ctx, row.id, action, current?.id ?? null, version.id);
+            return action;
+        });
         if (!action) {
             return fail('validation', `v${version.number} is already deployed.`);
         }

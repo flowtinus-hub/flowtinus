@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { inputIssues, inputTypeRef, isFolderVisible, planRunFrom, scriptTypeShape, START, startConfig, toExecutableFlow, validateFlowFile, type FlowFile, type RunFromPlan, type RunRecord } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
-import { readDraft } from '#features/flows/flow-draft';
+import { loadDraft } from '#features/flows/flow-draft';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -107,7 +107,7 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('unavailable', noSupervisorFor(row.workerTag));
         }
 
-        const { flow: file } = readDraft(row);
+        const { flow: file } = await loadDraft(ctx.db, ctx.workspaceId, row);
         const checked = validateFlowFile(file);
         if (!checked.ok) {
             return fail('validation', `The flow cannot run: ${checked.errors.join(' ')}`);

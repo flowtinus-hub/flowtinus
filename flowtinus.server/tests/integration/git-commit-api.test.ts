@@ -157,13 +157,13 @@ describe("with git on, a deploy is a Commit to the environment's branch", () => 
         expect((await call('GET', `/flows/${orders}/deployments`)).body.versions).toEqual([]);
     });
 
-    test('a new flow has no file until its first Commit: renaming or moving it before is not a commit', async () => {
+    test("a new flow, a folder, a rename and a move wait in the working copy: the flow's Commit takes them", async () => {
         const { call, projectId, newFlow, flowPath, onBranch, tip } = await newWorkspace();
         const before = tip();
         const orders = await newFlow('Orders');
         const folder = (await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' })).body.id as string;
         const afterFolder = tip();
-        expect(afterFolder).not.toBe(before);
+        expect(afterFolder).toBe(before);
 
         expect((await call('PATCH', `/flows/${orders}`, { name: 'Sales orders' })).status).toBe(200);
         expect((await call('POST', `/flows/${orders}/move`, { folderId: folder })).status).toBe(200);

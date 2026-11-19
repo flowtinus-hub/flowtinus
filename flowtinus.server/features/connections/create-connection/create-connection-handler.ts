@@ -33,17 +33,13 @@ export class CreateConnectionHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const id = crypto.randomUUID();
-        await changeTree(
-            ctx,
-            () => `Create connection ${checked.value.name}`,
-            async tx => {
-                for (const secret of usedSecrets(checked.value, newSecrets)) {
-                    await insertSecret(tx, ctx, secret.name, secret.value);
-                }
+        await changeTree(ctx, async tx => {
+            for (const secret of usedSecrets(checked.value, newSecrets)) {
+                await insertSecret(tx, ctx, secret.name, secret.value);
+            }
 
-                await new ConnectionRepository(tx, ctx.workspaceId).insert({ id, ...checked.value, updatedBy: ctx.userId });
-            },
-        );
+            await new ConnectionRepository(tx, ctx.workspaceId).insert({ id, ...checked.value, updatedBy: ctx.userId });
+        });
 
         return success({ id });
     }

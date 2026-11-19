@@ -1,21 +1,20 @@
 import { z } from 'zod';
 import { activeFlow } from '#features/deployments/deployments';
-import { replaceDraft } from '#features/git/draft-merge';
 import { isGitOn } from '#features/git/git-config';
-import { flowsInRepo } from '#features/git/workspace-export';
+import { fileRow } from '#features/git/working-copy';
+import { discardWorkingCopy } from '#features/git/working-copy-changes';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { CloneFlowHandler } from '../clone-flow/clone-flow-handler';
-import { readDraft } from '../flow-draft';
 
 export const DiscardDraftCommand = z.object({ id: z.uuid('Invalid'), copyAs: z.string().optional() });
 
 /**
- * With git on, the draft takes git's content (the way out of a conflict); `copyAs` first keeps the draft as a new flow
- * under that name, a draft only.
+ * With git on, the flow's file in the working copy goes back as committed (the way out of a conflict); `copyAs` first
+ * keeps the draft as a new flow under that name, a change of the working copy of its own.
  */
 export class DiscardDraftHandler implements UseCaseHandler<{ revision: number; copy?: { id: string } }> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ revision: number; copy?: { id: string } }>> {
@@ -37,25 +36,25 @@ export class DiscardDraftHandler implements UseCaseHandler<{ revision: number; c
             return fail('conflict', 'Git is off in this workspace.');
         }
 
-        const [inRepo] = await flowsInRepo(ctx.db, ctx.workspaceId, [row.id]);
-        if (!inRepo) {
-            return fail('conflict', 'The flow has no file in git: there is nothing to take.');
+        const draft = await fileRow(ctx.db, ctx.workspaceId, row.id);
+        if (!draft?.base) {
+            return draft ? fail('conflict', 'The flow has no file in git: there is nothing to take.') : success({ revision: 0 });
         }
 
-        return ctx.db.transaction(async db => {
-            const tx = { ...ctx, db };
-            let copy: { id: string } | undefined;
-            if (parsed.value.copyAs !== undefined) {
-                const cloned = await new CloneFlowHandler().handle({ id: row.id, name: parsed.value.copyAs }, tx);
-                if (!cloned.ok) {
-                    return cloned;
-                }
-                copy = cloned.value;
+        let copy: { id: string } | undefined;
+        if (parsed.value.copyAs !== undefined) {
+            const cloned = await new CloneFlowHandler().handle({ id: row.id, name: parsed.value.copyAs }, ctx);
+            if (!cloned.ok) {
+                return cloned;
             }
+            copy = cloned.value;
+        }
 
-            const revision = readDraft(row).revision + 1;
-            await replaceDraft(db, row.id, { revision, flow: inRepo.definition }, row.name, inRepo.content_hash);
-            return success({ revision, ...(copy ? { copy } : {}) });
-        });
+        const discarded = await discardWorkingCopy(ctx, { paths: [draft.path] });
+        if (!discarded.ok && discarded.error.code !== 'not-found') {
+            return discarded;
+        }
+        const revision = (await fileRow(ctx.db, ctx.workspaceId, row.id))?.revision ?? 0;
+        return success({ revision, ...(copy ? { copy } : {}) });
     }
 }

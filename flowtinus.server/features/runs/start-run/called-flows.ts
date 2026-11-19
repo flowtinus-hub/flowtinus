@@ -1,6 +1,6 @@
 import { COMPONENT_TYPE, dynamicTargets, flowPath, inputTypeRef, isFolderVisible, MAX_FLOW_DEPTH, scriptTypeShape, START, startConfig, validateFlowFile, DYNAMIC_TARGET, type FlowFile, type TypeShape } from '@flowtinus/core';
 import { deployedDefinitions } from '#features/deployments/deployments';
-import { readDraft } from '#features/flows/flow-draft';
+import { loadDraft } from '#features/flows/flow-draft';
 import type { ProjectTree } from '#features/folders/project-tree';
 import { typeSources } from '#features/scripts/script-store';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -85,7 +85,9 @@ export async function calledFlows(
             return [];
         }
 
-        const checked = validateFlowFile(version ? { ...version.definition, id: row.id, name: row.name } : readDraft(row).flow);
+        const checked = validateFlowFile(
+            version ? { ...version.definition, id: row.id, name: row.name } : (await loadDraft(ctx.db, ctx.workspaceId, row)).flow,
+        );
         if (!checked.ok) {
             found.set(id, { id, name: row.name, path, unavailable: checked.errors.join(' ') });
             return [];

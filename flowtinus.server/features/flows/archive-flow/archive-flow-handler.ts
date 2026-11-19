@@ -27,19 +27,14 @@ export class ArchiveFlowHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
-        const name = (await new FlowRepository(ctx.db, ctx.workspaceId).findById(id))?.name ?? '';
-        const archived = await changeTree(
-            ctx,
-            () => `Archive flow ${name}`,
-            async tx => {
-                if (!(await new FlowRepository(tx, ctx.workspaceId).softDelete(id, ctx.userId))) {
-                    return false;
-                }
+        const archived = await changeTree(ctx, async tx => {
+            if (!(await new FlowRepository(tx, ctx.workspaceId).softDelete(id, ctx.userId))) {
+                return false;
+            }
 
-                await undeployArchived(tx, ctx, [id]);
-                return true;
-            },
-        );
+            await undeployArchived(tx, ctx, [id]);
+            return true;
+        });
         if (!archived) {
             return fail('not-found', 'Flow not found.');
         }

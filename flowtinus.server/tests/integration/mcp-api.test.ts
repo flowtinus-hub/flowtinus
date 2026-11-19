@@ -247,13 +247,10 @@ describe('MCP (/mcp)', () => {
     });
 
     test('a pinned output stays when the yaml comes without it', async () => {
-        const [row] = await db.query<{ draft_definition: { revision: number; flow: { nodes: Record<string, unknown>[] } } }>(
-            'SELECT draft_definition FROM flows WHERE id = $1',
-            [flowId],
-        );
-        const draft = row!.draft_definition;
-        draft.flow.nodes = draft.flow.nodes.map(n => (n.id === 'grid' ? { ...n, pinned: { 'out-0': [{ n: 9 }] } } : n));
-        await db.query('UPDATE flows SET draft_definition = $2::text::jsonb WHERE id = $1', [flowId, JSON.stringify(draft)]);
+        await db.query('UPDATE flows SET pinned = $2::text::jsonb WHERE id = $1', [
+            flowId,
+            JSON.stringify({ grid: { 'out-0': [{ n: 9 }] } }),
+        ]);
 
         const flow = await mcp.call('get_flow', { flowId });
         expect(flow.body.pinnedNodes).toEqual(['grid']);
