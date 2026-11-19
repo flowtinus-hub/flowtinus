@@ -232,6 +232,33 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         expect((await call('GET', '/git/update')).body).toEqual({ branch, environment: 'dev', behind: 0 });
     });
 
+    test('with conflicts, resolved on the conflict screen: listed as a change, no longer a conflict, committed as resolved', async () => {
+        const { call, repo, pathOf, branch, ours, theirs, changes, inGit } = await diverged();
+        expect((await call('POST', '/git/update')).body.outcome).toBe('pending');
+
+        const conflict = await call('GET', `/git/conflict?path=${encodeURIComponent(pathOf('Orders'))}`);
+        expect(conflict.status).toBe(200);
+        const hunks = conflict.body.conflict.segments.filter((s: object) => 'hunk' in s).map(() => 'theirs');
+        const resolved = await call('POST', '/git/conflict', { path: pathOf('Orders'), revision: conflict.body.revision, hunks });
+        expect(resolved.status).toBe(200);
+
+        const listed = await changes();
+        expect(listed.merge.conflicts).toEqual([]);
+        expect(listed.changes.map(c => [c.path, c.change, c.conflict])).toEqual([
+            [pathOf('Invoices'), 'modified', undefined],
+            [pathOf('Orders'), 'modified', undefined],
+        ]);
+
+        const committed = await call('POST', '/git/commit', { paths: [], message: 'Merge dev, theirs taken' });
+        expect(committed.status).toBe(200);
+        const merge = committed.body.commit as string;
+        expect(git(repo, 'rev-parse', `${merge}^1`)).toBe(ours);
+        expect(git(repo, 'rev-parse', `${merge}^2`)).toBe(theirs);
+        expect(labelOf(inGit(branch, 'Orders')!, 'start')).toBe('Dev start');
+        expect(labelOf(inGit(branch, 'Invoices')!, 'end')).toBe('Dev end');
+        expect(await changes()).toEqual({ changes: [] });
+    });
+
     test('with conflicts, Discard all aborts the pending merge: the branch as it was, its drafts kept, ready for another Update', async () => {
         const { id, call, repo, projectId, pathOf, branch, ours, theirs, changes, draft } = await diverged();
         // drafts the merge does not touch: one made before the Update, one while it is pending

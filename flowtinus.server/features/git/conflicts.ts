@@ -11,6 +11,7 @@ import { filesAt, forgetWorkBranch, workBranch, type WorkBranch } from './branch
 import { lockBranch, refuseReadOnly } from './branch-write';
 import { refuseOffEditableBranch } from './current-branch';
 import { gitBranch } from './git-config';
+import { pendingMerge } from './pending-merge';
 import { lockReconcile } from './reconcile';
 import { canonical, ENVIRONMENT_BRANCH, idOfFile, workingRows, type WorkingRow } from './working-copy';
 import { chosenBy, workingItems, type Item } from './working-copy-changes';
@@ -423,6 +424,10 @@ export async function resolveConflict(ctx: UseCaseContext, request: Resolution):
             return fail('validation', 'The resolved file is not valid: fix it before it can be committed.', issueFields(errors));
         }
 
+        // in an Update's pending merge "theirs" is the environment's file, not this branch's: the resolved file is a change
+        // against the branch's own text (mine before resolving), as the files the merge brought cleanly are
+        const merging = branch ? await pendingMerge(db, ctx.workspaceId, branch.branch) : null;
+        const baseOf = (w: Write) => (merging && w.path === situation.row.path && !w.deleted ? situation.row.content : w.base);
         const where = 'workspace_id = $1 AND branch = $2 AND path = $3';
         for (const path of outcome.drops) {
             await db.query(`DELETE FROM working_copy WHERE ${where}`, [ctx.workspaceId, name, path]);
@@ -442,7 +447,7 @@ export async function resolveConflict(ctx: UseCaseContext, request: Resolution):
                     w.content,
                     w.deleted,
                     w.fileId,
-                    w.base === null ? null : await saveBlob(db, ctx.workspaceId, w.base),
+                    baseOf(w) === null ? null : await saveBlob(db, ctx.workspaceId, baseOf(w)!),
                     ctx.userId,
                     revision,
                 ],

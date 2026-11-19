@@ -36,7 +36,13 @@ export class GetChangesHandler implements UseCaseHandler<ChangesView> {
         }
         const branch = await workBranch(ctx);
         const merge = branch && (await pendingMerge(ctx.db, ctx.workspaceId, branch.branch));
-        return success({ changes: await workingChanges(ctx), ...(merge ? { merge: pendingMergeView(merge) } : {}) });
+        const changes = await workingChanges(ctx);
+        // the files still marked: one resolved on the conflict screen or discarded no longer is
+        const marked = new Set(changes.filter(c => c.conflict).map(c => c.path));
+        return success({
+            changes,
+            ...(merge ? { merge: { ...pendingMergeView(merge), conflicts: merge.conflicts.filter(path => marked.has(path)) } } : {}),
+        });
     }
 }
 
