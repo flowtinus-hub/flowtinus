@@ -5,13 +5,15 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { onClone } from './branch-read';
 import { branchKind, canEditBranch, currentBranch, editorOf } from './current-branch';
 import { gitBranch, readGitConfig } from './git-config';
-import { recordHeads } from './git-heads';
+import { readHeads, recordHeads } from './git-heads';
 
 export type Provider = 'gitlab' | 'github';
 
 export type PullRequestView = {
     branch: string;
     target: string;
+    /** the branch's tip here was not on the remote (removed there, or the remote behind): pushed by this call */
+    pushed: boolean;
     /** commits of the branch the environment's branch does not have */
     commits: number;
     /** commits that come from another work branch not yet merged (a branch cut from another one) */
@@ -77,7 +79,6 @@ export function pullRequestLink(repository: string, provider: Provider, source: 
     return `${project}/-/merge_requests/new?${query}`;
 }
 
-// no push here: every Commit on a work branch is pushed at once, so the branch is on the remote or was removed there
 export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<PullRequestView>> {
         const denied = requireRole(ctx, 'editor');
@@ -109,8 +110,16 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
         }
 
         const checked = await onClone(ctx, 'Git could not be reached, no pull request was opened', async remote => {
+            const here = (await readHeads(ctx.db, ctx.workspaceId))?.heads.find(h => h.name === branch)?.sha;
+            const there = (await remote.fetchHeads()).get(branch);
+            // only forward: a remote that moved past or away from the tip here is followed by the poll, not overwritten
+            const pushed = !!here && here !== there && (await remote.hasCommit(here)) && (!there || (await remote.isAncestor(there, here)));
+            if (pushed) {
+                await remote.push(here, branch, there ?? null);
+            }
             const heads = await recordHeads(ctx, remote, config);
-            const tip = heads.heads.find(h => h.name === branch)?.sha;
+            const head = heads.heads.find(h => h.name === branch);
+            const tip = head && !head.removed ? head.sha : undefined;
             const targetTip = heads.heads.find(h => h.name === target)?.sha;
             if (!tip) {
                 return fail('conflict', `The branch ${branch} is not in the repository any more.`);
@@ -138,7 +147,7 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
                 }
             }
 
-            return success({ commits, borrowed });
+            return success({ pushed, commits, borrowed });
         });
         if (!checked.ok) {
             return checked;

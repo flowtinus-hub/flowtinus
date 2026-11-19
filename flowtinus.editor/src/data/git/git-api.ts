@@ -96,6 +96,8 @@ export const listBranches = (ws: string) =>
 export type PullRequest = {
     branch: string;
     target: string;
+    /** the branch was not on the remote, or the remote was behind: this pushed it */
+    pushed: boolean;
     /** commits of the branch its target does not have */
     commits: number;
     /** commits from another work branch not yet merged, which leave the diff once that one is */

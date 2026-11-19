@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react';
 import { ExternalLink, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { openPullRequest, type PullRequest } from '@/data/git/git-api';
+import { GIT_STATUS_CHANGED, openPullRequest, type PullRequest } from '@/data/git/git-api';
 
 const PROVIDERS = { gitlab: 'GitLab', github: 'GitHub' };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * Open a pull request with no provider adapter: the server checks the branch is on the remote with commits its target
- * lacks, and the provider's page for a new pull request opens from the link (a provider the app does not know gets no link).
+ * Open a pull request with no provider adapter: the server pushes the branch when the remote lacks its tip (removed
+ * there, or behind) and checks it has commits its target lacks, and the provider's page for a new pull request opens
+ * from the link (a provider the app does not know gets no link).
  */
 export function PullRequestDialog({
     slug,
@@ -29,9 +30,14 @@ export function PullRequestDialog({
 
     useEffect(() => {
         let gone = false;
-        void openPullRequest(slug).then(
-            answer => !gone && setResult(answer.ok ? { value: answer.value } : { error: answer.error.message }),
-        );
+        void openPullRequest(slug).then(answer => {
+            if (answer.ok && answer.value.pushed) {
+                window.dispatchEvent(new Event(GIT_STATUS_CHANGED));
+            }
+            if (!gone) {
+                setResult(answer.ok ? { value: answer.value } : { error: answer.error.message });
+            }
+        });
         return () => {
             gone = true;
         };
@@ -60,6 +66,11 @@ export function PullRequestDialog({
                             {plural(pr.commits, 'commit')} of <span className="font-mono">{pr.branch}</span>{' '}
                             {pr.commits === 1 ? 'is' : 'are'} not in <span className="font-mono">{pr.target}</span> yet.
                         </p>
+                        {pr.pushed && (
+                            <p className="text-muted-foreground">
+                                The remote did not have the last commit of <span className="font-mono">{pr.branch}</span>: it is pushed now.
+                            </p>
+                        )}
                         {pr.borrowed.map(b => (
                             <p key={b.branch} className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
                                 It includes {plural(b.commits, 'commit')} from <span className="font-mono">{b.branch}</span>, not yet in{' '}
