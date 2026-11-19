@@ -96,8 +96,13 @@ async function recordCommit(ctx: UseCaseContext, remote: GitRemote, commit: stri
     return user?.id ?? null;
 }
 
-export async function reconcile(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<UseCaseResult<ReconcileResult>> {
-    const target = await environmentBranch(remote, config.environment);
+export async function reconcile(
+    ctx: UseCaseContext,
+    remote: GitRemote,
+    config: GitConfig,
+    branches?: Map<string, string>,
+): Promise<UseCaseResult<ReconcileResult>> {
+    const target = await environmentBranch(remote, config.environment, branches);
     if (!target.ok) {
         return target;
     }

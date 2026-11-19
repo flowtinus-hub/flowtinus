@@ -8,9 +8,10 @@ import { HEADS_SETTING, type GitConfig } from './git-config';
 import { GitError, type GitRemote } from './git-remote';
 import { dropPendingMerge, pendingMerge } from './pending-merge';
 import { reconcile, type ReconcileResult } from './reconcile';
-import { CONFIG_BRANCH, parseTopology, TOPOLOGY_FILE } from './topology';
+import { CONFIG_BRANCH, parseTopology } from './topology';
 import { ENVIRONMENT_BRANCH, followGit, isChange, workingRows } from './working-copy';
 import { readBranchWorkspace } from './workspace-import';
+import { topologyAt } from './workspace-topology';
 
 export type Head = { name: string; sha: string; merged: boolean; removed?: true; lostTip?: true };
 
@@ -19,12 +20,19 @@ export type Heads = { at: string; environment: string | null; environments: stri
 export const readHeads = async (db: Database, workspaceId: string) =>
     (await readWorkspaceSetting(db, workspaceId, HEADS_SETTING)) as Heads | null;
 
-export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<Heads> {
+/** since: before the fetch; cloned: the clone's tips before the fetch pruned the branches gone from the remote */
+export type FetchedHeads = { since: Date; cloned: Map<string, string>; fetched: Map<string, string> };
+
+export async function fetchHeads(remote: GitRemote): Promise<FetchedHeads> {
     const since = new Date();
     const cloned = await clonedTips(remote);
-    const fetched = await remote.fetchHeads();
+    return { since, cloned, fetched: await remote.fetchHeads() };
+}
+
+export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config: GitConfig, at?: FetchedHeads): Promise<Heads> {
+    const { since, cloned, fetched } = at ?? (await fetchHeads(remote));
     const configTip = fetched.get(CONFIG_BRANCH);
-    const text = configTip ? await remote.readFile(configTip, TOPOLOGY_FILE) : null;
+    const text = configTip ? await topologyAt(remote, configTip) : null;
     const environments = text === null ? [] : parseTopology(text).environments;
     const environment = environments.find(e => e.env === config.environment)?.branch ?? null;
     const envTip = environment ? fetched.get(environment) : undefined;
@@ -176,7 +184,8 @@ export async function fetchAndReconcile(
     remote: GitRemote,
     config: GitConfig,
 ): Promise<UseCaseResult<ReconcileResult>> {
-    const result = await reconcile(ctx, remote, config);
-    await recordHeads(ctx, remote, config);
+    const heads = await fetchHeads(remote);
+    const result = await reconcile(ctx, remote, config, heads.fetched);
+    await recordHeads(ctx, remote, config, heads);
     return result;
 }

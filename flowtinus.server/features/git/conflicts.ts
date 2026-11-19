@@ -56,14 +56,14 @@ export async function mergeSegments(mine: string, base: string, theirs: string):
     try {
         const files = [join(dir, 'mine'), join(dir, 'base'), join(dir, 'theirs')];
         await Promise.all([mine, base, theirs].map((text, i) => Bun.write(files[i]!, text)));
-        const merge = Bun.spawnSync(
+        const merge = Bun.spawn(
             ['git', 'merge-file', '-p', '--diff3', `--marker-size=${MARKER}`, '-L', 'mine', '-L', 'base', '-L', 'theirs', ...files],
-            { stdout: 'pipe', stderr: 'pipe' },
+            { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
         );
-        if (merge.exitCode < 0 || merge.exitCode > 127) {
-            throw new Error(`git merge-file: ${merge.stderr.toString()}`);
+        const [out, err, code] = await Promise.all([new Response(merge.stdout).text(), new Response(merge.stderr).text(), merge.exited]);
+        if (code < 0 || code > 127) {
+            throw new Error(`git merge-file: ${err}`);
         }
-        const out = merge.stdout.toString();
         const lines = out.split('\n');
         if (out.endsWith('\n')) {
             lines.pop();

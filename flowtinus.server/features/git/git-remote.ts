@@ -32,6 +32,8 @@ function gitEnv(access: GitAccess | null, extra: Record<string, string> = {}): R
         config.push(['http.extraHeader', `Authorization: Basic ${Buffer.from(`oauth2:${access.token}`).toString('base64')}`]);
     }
 
+    // after the environment's own config entries (the tests'), which later ones override
+    const inherited = Number(process.env.GIT_CONFIG_COUNT) || 0;
     return {
         ...(process.env as Record<string, string>),
         GIT_TERMINAL_PROMPT: '0',
@@ -39,11 +41,11 @@ function gitEnv(access: GitAccess | null, extra: Record<string, string> = {}): R
         SSH_ASKPASS: '',
         GIT_CONFIG_NOSYSTEM: '1',
         GIT_ALLOW_PROTOCOL: 'http:https:file',
-        GIT_CONFIG_COUNT: String(config.length),
+        GIT_CONFIG_COUNT: String(inherited + config.length),
         ...Object.fromEntries(
             config.flatMap(([key, value], i) => [
-                [`GIT_CONFIG_KEY_${i}`, key],
-                [`GIT_CONFIG_VALUE_${i}`, value],
+                [`GIT_CONFIG_KEY_${inherited + i}`, key],
+                [`GIT_CONFIG_VALUE_${inherited + i}`, value],
             ]),
         ),
         ...extra,
@@ -89,8 +91,10 @@ export class GitRemote {
             await mkdir(dir, { recursive: true });
             await runGit(dir, ['init', '--bare', '--quiet']);
             await runGit(dir, ['remote', 'add', 'origin', access.repository]);
-        } else {
+            clones.set(dir, { origin: access.repository });
+        } else if (clones.get(dir)?.origin !== access.repository) {
             await runGit(dir, ['remote', 'set-url', 'origin', access.repository]);
+            clones.set(dir, { ...clones.get(dir), origin: access.repository });
         }
 
         return new GitRemote(dir, access);
@@ -117,12 +121,31 @@ export class GitRemote {
             return null;
         }
 
-        await this.run(['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+        const tracking = await this.trackingRefs();
+        if (tracking.get(branch) !== sha) {
+            await this.run(['fetch', '--quiet', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+            tracking.set(branch, sha);
+        }
         return sha;
     }
 
     async fetchHeads(): Promise<Map<string, string>> {
         await this.run(['fetch', '--quiet', '--prune', '--no-tags', 'origin', '+refs/heads/*:refs/remotes/origin/*']);
+        const heads = await this.readTracking();
+        this.clone.tracking = new Map(heads);
+        return heads;
+    }
+
+    private get clone(): Clone {
+        return clones.get(this.dir)!;
+    }
+
+    private async trackingRefs(): Promise<Map<string, string>> {
+        this.clone.tracking ??= await this.readTracking();
+        return this.clone.tracking;
+    }
+
+    private async readTracking(): Promise<Map<string, string>> {
         const out = await this.run(['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin/']);
         const heads = new Map<string, string>();
         for (const line of out.split('\n').filter(Boolean)) {
@@ -194,6 +217,20 @@ export class GitRemote {
     }
 
     async files(commit: string, paths: string[]): Promise<Record<string, string>> {
+        if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+            return this.readFiles(commit, paths);
+        }
+        const key = JSON.stringify([commit, paths]);
+        const kept = trees.get(key) ?? (await this.readFiles(commit, paths));
+        trees.delete(key);
+        trees.set(key, kept);
+        while (trees.size > TREES_KEPT) {
+            trees.delete(trees.keys().next().value!);
+        }
+        return { ...kept };
+    }
+
+    private async readFiles(commit: string, paths: string[]): Promise<Record<string, string>> {
         const listed = (await this.run(['ls-tree', '-r', '-z', commit, '--', ...paths]))
             .split('\0')
             .filter(Boolean)
@@ -272,6 +309,7 @@ export class GitRemote {
             'origin',
             `${commit}:refs/heads/${branch}`,
         ]);
+        this.clone.tracking?.set(branch, commit);
     }
 
     async pushDryRun(commit: string, branch: string): Promise<void> {
@@ -280,8 +318,21 @@ export class GitRemote {
 
     async deleteBranch(branch: string): Promise<void> {
         await this.run(['push', '--quiet', '--porcelain', 'origin', '--delete', `refs/heads/${branch}`]);
+        this.clone.tracking?.delete(branch);
     }
 }
+
+// the files of the commits read last (a commit's files never change), most recent last
+const TREES_KEPT = 8;
+const trees = new Map<string, Record<string, string>>();
+
+/**
+ * What this server knows of each clone, which only the operations queued on it change: the origin it was last opened
+ * on (set in git again only when it changes), and its refs/remotes/origin/* (a fetch of a branch already there is skipped)
+ */
+type Clone = { origin: string; tracking?: Map<string, string> };
+
+const clones = new Map<string, Clone>();
 
 const queues = new Map<string, Promise<unknown>>();
 
@@ -311,6 +362,7 @@ export async function withThrowawayClone<T>(clonesDir: string, access: GitAccess
     try {
         return await work(await GitRemote.open(dir, access));
     } finally {
+        clones.delete(dir);
         await rm(dir, { recursive: true, force: true });
     }
 }

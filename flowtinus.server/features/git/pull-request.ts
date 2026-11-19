@@ -5,7 +5,7 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { onClone } from './branch-read';
 import { branchKind, canEditBranch, currentBranch, editorOf } from './current-branch';
 import { gitBranch, readGitConfig } from './git-config';
-import { readHeads, recordHeads } from './git-heads';
+import { fetchHeads, readHeads, recordHeads } from './git-heads';
 
 export type Provider = 'gitlab' | 'github';
 
@@ -107,13 +107,15 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
 
         const checked = await onClone(ctx, 'Git could not be reached, no pull request was opened', async remote => {
             const here = (await readHeads(ctx.db, ctx.workspaceId))?.heads.find(h => h.name === branch)?.sha;
-            const there = (await remote.fetchHeads()).get(branch);
+            const fetched = await fetchHeads(remote);
+            const there = fetched.fetched.get(branch);
             // only forward: a remote that moved past or away from the tip here is followed by the poll, not overwritten
             const pushed = !!here && here !== there && (await remote.hasCommit(here)) && (!there || (await remote.isAncestor(there, here)));
             if (pushed) {
                 await remote.push(here, branch, there ?? null);
+                fetched.fetched.set(branch, here);
             }
-            const heads = await recordHeads(ctx, remote, config);
+            const heads = await recordHeads(ctx, remote, config, fetched);
             const head = heads.heads.find(h => h.name === branch);
             const tip = head && !head.removed ? head.sha : undefined;
             const targetTip = heads.heads.find(h => h.name === target)?.sha;

@@ -211,8 +211,9 @@ export async function mergeText(ours: string, base: string, theirs: string): Pro
     try {
         const files = [join(dir, 'ours'), join(dir, 'base'), join(dir, 'theirs')];
         await Promise.all([ours, base, theirs].map((text, i) => Bun.write(files[i]!, text)));
-        const merge = Bun.spawnSync(['git', 'merge-file', '-p', ...files], { stdout: 'pipe', stderr: 'pipe' });
-        return merge.exitCode === 0 ? merge.stdout.toString() : null;
+        const merge = Bun.spawn(['git', 'merge-file', '-p', ...files], { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore' });
+        const [out, code] = await Promise.all([new Response(merge.stdout).text(), merge.exited]);
+        return code === 0 ? out : null;
     } finally {
         await rm(dir, { recursive: true, force: true });
     }
