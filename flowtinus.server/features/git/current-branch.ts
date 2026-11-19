@@ -173,9 +173,16 @@ export async function mcpCannotEdit(db: Database, workspaceId: string, userId: s
 
 /**
  * Refused unless the user may edit the branch they are on and it is the environment's branch, for a change made to the
- * tables (they are the environment's branch): on a work branch it would land where they are not looking.
+ * tables (they are the environment's branch): on a work branch it would land where they are not looking. A `discard`
+ * is also let through on a `pull-request` server's environment branch, where the changes made before the mode changed
+ * stay until taken to a branch or discarded.
  */
-export async function refuseOffEditableBranch(db: Database, workspaceId: string, userId: string | null): Promise<void> {
+export async function refuseOffEditableBranch(
+    db: Database,
+    workspaceId: string,
+    userId: string | null,
+    { discard = false }: { discard?: boolean } = {},
+): Promise<void> {
     if (userId === null) {
         return;
     }
@@ -188,6 +195,9 @@ export async function refuseOffEditableBranch(db: Database, workspaceId: string,
         return;
     }
     const environment = git?.branch ?? null;
+    if (discard && offersBranch(branch, environment, editor)) {
+        return;
+    }
     if (!canEditBranch(branch, environment, editor)) {
         throw new UseCaseFailure('conflict', readOnlyBranch(branch, editor, environment));
     }

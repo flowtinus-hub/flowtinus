@@ -377,7 +377,7 @@ export async function discardWorkingCopy(
     if (branch) {
         await refuseReadOnly(ctx, branch, true);
     } else {
-        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
+        await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId, { discard: true });
     }
     return ctx.db.transaction(async db => {
         const at = { ...ctx, db };

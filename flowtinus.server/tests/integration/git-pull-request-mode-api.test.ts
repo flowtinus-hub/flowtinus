@@ -153,7 +153,6 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
             ['POST', '/projects', { name: 'Billing' }],
             ['POST', '/git/commit', { paths: [ordersPath], message: 'Before' }],
             ['POST', `/flows/${orders}/deploy`, { message: 'Before' }],
-            ['POST', '/git/discard', { mine: true }],
         ] as const) {
             const refused = await call(method, path, body);
             expect({ path, status: refused.status, message: refused.body.error?.message }).toEqual({
@@ -168,6 +167,52 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         expect(await changes(ANA)).toEqual([ordersPath]);
         expect(await startLabel(BIA, orders)).toBe('Before');
         expect((await as(BIA)('POST', `/flows/${orders}/runs`, { mode: 'validation' })).status).toBe(202);
+    });
+
+    test("pull-request: the changes made before are discarded on the environment's branch, a file or all one's own; edits and Commit stay refused", async () => {
+        const { as, call, projectId, orders, at, tip, changes, relabelled, startLabel, setMode } = await workspace();
+        const ordersPath = at('projects/Sales/flows/Orders.flow.yaml');
+        expect((await call('PUT', `/flows/${orders}/draft`, await relabelled(ANA, orders, 'Before'))).status).toBe(200);
+        expect((await call('POST', `/projects/${projectId}/folders`, { name: 'Imports' })).status).toBe(201);
+        expect((await as(BIA)('POST', `/projects/${projectId}/folders`, { name: 'Reports' })).status).toBe(201);
+        await setMode('pull-request');
+        const before = tip();
+        const listed = await changes(ANA);
+        const imports = listed.find(path => path.includes('Imports'))!;
+        const reports = listed.find(path => path.includes('Reports'))!;
+        expect(listed.sort()).toEqual([imports, ordersPath, reports].sort());
+
+        const file = await call('POST', '/git/discard', { paths: [ordersPath] });
+        expect(file.status).toBe(200);
+        expect(file.body.discarded).toEqual([ordersPath]);
+        expect(await startLabel(ANA, orders)).toBeUndefined();
+        expect((await changes(ANA)).sort()).toEqual([imports, reports].sort());
+
+        const mine = await call('POST', '/git/discard', { mine: true });
+        expect(mine.status).toBe(200);
+        expect(mine.body.discarded).toEqual([imports]);
+        expect(await changes(ANA)).toEqual([reports]);
+        const folders = (await call('GET', `/projects/${projectId}/contents`)).body.folders as {
+            name: string;
+            archivedAt: string | null;
+        }[];
+        expect(folders.filter(f => !f.archivedAt).map(f => f.name)).toEqual(['Reports']);
+
+        for (const [method, path, body] of [
+            ['PUT', `/flows/${orders}/draft`, await relabelled(ANA, orders, 'After')],
+            ['POST', `/projects/${projectId}/folders`, { name: 'Imports' }],
+            ['POST', '/git/commit', { paths: [reports], message: 'Reports' }],
+            ['POST', `/flows/${orders}/deploy`, { message: 'Before' }],
+        ] as const) {
+            const refused = await call(method, path, body);
+            expect({ path, status: refused.status, message: refused.body.error?.message }).toEqual({
+                path,
+                status: 409,
+                message: PULL_REQUESTS,
+            });
+        }
+        expect(tip()).toBe(before);
+        expect(await changes(BIA)).toEqual([reports]);
     });
 
     test('pull-request: Create branch from the first edit takes it along to users/<handle>/…; a Commit there is pushed', async () => {

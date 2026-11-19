@@ -7,15 +7,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { FlowFile } from '@flowtinus/core';
 import { branchNamePart, createBranch } from '@/data/git/git-api';
-import type { ApiError } from '@/lib/api';
+import type { ApiError, ApiResult } from '@/lib/api';
 
-/** the edit that offered the branch (on a pull-request server's environment branch), taken along to it */
-export type OfferedEdit = { flowName: string; draft: () => { flowId: string; flow: FlowFile } | null };
+/**
+ * the edit that offered the branch (on a pull-request server's environment branch), taken along to it: the flow's
+ * canvas (`draft`) goes with the branch; any other change is made again on the new branch (`replay`) once it is current
+ */
+export type OfferedEdit = {
+    name: string;
+    draft?: () => { flowId: string; flow: FlowFile } | null;
+    replay?: () => Promise<ApiResult<unknown>>;
+};
 
 /**
  * Create branch: cut from the current branch's tip, named users/<handle>/… (the prefix fixed, the user types the rest), pushed at once. The user's
  * uncommitted changes go along to it, and the editor opens on it. Offered by a first edit (`edit`), the name is filled in
- * with the flow's and the edit goes along too; the flow then opens again, on the new branch.
+ * with what was edited and the edit goes along too; the page then opens again, on the new branch.
  */
 export function CreateBranchDialog({
     slug,
@@ -35,31 +42,56 @@ export function CreateBranchDialog({
 }) {
     const prefix = `users/${handle}/`;
     // the prefix is fixed: the field holds the rest of the name
-    const [rest, setRest] = useState(() => (edit ? branchNamePart(edit.flowName) : ''));
+    const [rest, setRest] = useState(() => (edit ? branchNamePart(edit.name) : ''));
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
+    const [made, setMade] = useState<{ branch: string; error: string } | null>(null);
     const own = from.startsWith(prefix);
+
+    // every page read so far was the other branch's
+    const open = () => (edit ? window.location.reload() : window.location.assign(projectsPath(slug)));
 
     const create = async () => {
         setBusy(true);
         setError(null);
-        const result = await createBranch(slug, `${prefix}${rest.trim()}`, edit?.draft() ?? undefined);
+        const name = `${prefix}${rest.trim()}`;
+        const result = await createBranch(slug, name, edit?.draft?.() ?? undefined);
         if (!result.ok) {
             setBusy(false);
             setError(result.error);
             return;
         }
-        // every page read so far was the other branch's
-        if (edit) {
-            window.location.reload();
-        } else {
-            window.location.assign(projectsPath(slug));
+        const replayed = edit?.replay ? await edit.replay() : null;
+        if (replayed && !replayed.ok) {
+            setBusy(false);
+            setMade({ branch: name, error: replayed.error.fields?.name ?? replayed.error.message });
+            return;
         }
+        open();
     };
+
+    if (made) {
+        return (
+            <Dialog open onOpenChange={isOpen => !isOpen && open()}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Branch created</DialogTitle>
+                        <DialogDescription>
+                            You are on <span className="font-mono">{made.branch}</span> now, but the change was not made there:
+                        </DialogDescription>
+                    </DialogHeader>
+                    <p className="text-sm text-destructive">{made.error}</p>
+                    <DialogFooter>
+                        <Button onClick={open}>Open the branch</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        );
+    }
 
     const fieldError = error?.fields?.name;
     return (
-        <Dialog open onOpenChange={open => !open && !busy && onClose()}>
+        <Dialog open onOpenChange={isOpen => !isOpen && !busy && onClose()}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Create branch</DialogTitle>
