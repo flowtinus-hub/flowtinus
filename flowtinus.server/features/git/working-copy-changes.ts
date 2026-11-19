@@ -10,7 +10,9 @@ import { onClone, workBranch, type WorkBranch } from './branch-read';
 import { branchIds, lockBranch, noteHead, refuseReadOnly } from './branch-write';
 import { gitAuthorOf, gitBranch } from './git-config';
 import { GitError } from './git-remote';
+import { pendingMerge, pendingMergeRefusal } from './pending-merge';
 import { lockReconcile } from './reconcile';
+import { abortMerge, commitPendingMerge } from './update';
 import { ENVIRONMENT_BRANCH, followGit, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
 import { committedFlowText, exportTree, flowsInRepo, type GitChanges, type RepoFiles } from './workspace-export';
 import { importStructure, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
@@ -296,6 +298,9 @@ async function commitOnBranch(ctx: UseCaseContext, branch: WorkBranch, request: 
     if (request.deploy) {
         return fail('conflict', `A flow is deployed from the environment's branch: on ${branch.branch}, Commit its changes.`);
     }
+    if (await pendingMerge(ctx.db, ctx.workspaceId, branch.branch)) {
+        return commitPendingMerge(ctx, branch, request.message);
+    }
     const author = await gitAuthorOf(ctx);
     return onClone(ctx, `Git could not be reached, nothing was committed`, remote =>
         ctx.db.transaction(async (db): Promise<UseCaseResult<string>> => {
@@ -379,6 +384,12 @@ export async function discardWorkingCopy(
         } else {
             await lockReconcile(db, ctx.workspaceId);
         }
+        // while a merge is pending, Discard all only aborts it: one's other changes stay
+        const merge = branch && which === 'mine' ? await pendingMerge(db, ctx.workspaceId, branch.branch) : null;
+        if (branch && merge) {
+            await abortMerge(db, at, branch, merge);
+            return success({ discarded: [...merge.paths].sort() });
+        }
         const { items, files } = await workingItems(at, branch);
         const chosen = withDependents(items, which === 'mine' ? items.filter(i => i.mine) : chosenBy(items, which.paths));
         if (chosen.length === 0) {
@@ -418,16 +429,24 @@ async function putBack(ctx: UseCaseContext, branch: WorkBranch | null, chosen: I
         await importStructure(ctx, await workspaceSlug(ctx), working, { keep: true });
     }
     for (const [row, text] of committed) {
+        if (text === null) {
+            // a file the branch does not have: no row (a deleted row with no base would stand for a file git never had)
+            await ctx.db.query('DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND path = $3', [
+                ctx.workspaceId,
+                branch?.branch ?? ENVIRONMENT_BRANCH,
+                row.path,
+            ]);
+            continue;
+        }
         await ctx.db.query(
-            `UPDATE working_copy SET content = coalesce($4, content), deleted = $5, base = $6, conflict = NULL, edited_by = $7,
+            `UPDATE working_copy SET content = $4, deleted = false, base = $5, conflict = NULL, edited_by = $6,
            revision = revision + 1, updated_at = now() WHERE workspace_id = $1 AND branch = $2 AND path = $3`,
             [
                 ctx.workspaceId,
                 branch?.branch ?? ENVIRONMENT_BRANCH,
                 row.path,
                 text,
-                text === null,
-                text === null ? null : await saveBlob(ctx.db, ctx.workspaceId, text),
+                await saveBlob(ctx.db, ctx.workspaceId, text),
                 ctx.userId,
             ],
         );
@@ -504,6 +523,10 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
     }
 
     const source = await workBranch(ctx);
+    const merging = source && (await pendingMerge(ctx.db, ctx.workspaceId, source.branch));
+    if (merging) {
+        return fail('conflict', pendingMergeRefusal(merging));
+    }
     const from = source?.branch ?? git.branch;
     return onClone(ctx, `Git could not be reached, no branch was created`, async remote => {
         const branches = await remote.branches();

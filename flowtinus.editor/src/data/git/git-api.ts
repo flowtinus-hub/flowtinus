@@ -167,7 +167,27 @@ export type WorkingChange = {
 /** said on window when the working copy changed here (a Commit, a discard): the Changes item reads it again */
 export const CHANGES_CHANGED = 'flowtinus:changes-changed';
 
-export const getChanges = (ws: string) => api<{ changes: WorkingChange[] }>(`/w/${ws}/git/changes`);
+/**
+ * An Update that could not be pushed at once: from: the environment's branch merged in; theirs: its tip (the second
+ * parent); ours: the branch's tip it was made on; conflicts: the files marked. A Commit takes it whole, Discard all aborts it.
+ */
+export type PendingMerge = { from: string; theirs: string; ours: string; conflicts: string[] };
+
+export const getChanges = (ws: string) => api<{ changes: WorkingChange[]; merge?: PendingMerge }>(`/w/${ws}/git/changes`);
+
+/** how far the current work branch is behind the environment's branch, and its pending merge */
+export type UpdateStatus = { branch: string; environment: string; behind: number; pending?: PendingMerge };
+
+export const getUpdateStatus = (ws: string) => api<UpdateStatus>(`/w/${ws}/git/update`);
+
+/** errors: the merged tree's validation errors per file (a merge with no conflict that would not be valid) */
+export type UpdateOutcome =
+    | { outcome: 'up-to-date' }
+    | { outcome: 'merged'; commit: string }
+    | { outcome: 'pending'; conflicts: string[]; errors?: Record<string, string> };
+
+/** Update: the environment's branch merged into the current work branch, pushed at once when clean */
+export const updateBranch = (ws: string) => api<UpdateOutcome>(`/w/${ws}/git/update`, { method: 'POST' });
 
 export const commitChanges = (ws: string, paths: string[], message: string) =>
     api<{ commit: string }>(`/w/${ws}/git/commit`, { method: 'POST', body: { paths, message } });

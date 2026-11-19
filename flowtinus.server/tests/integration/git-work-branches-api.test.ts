@@ -115,6 +115,17 @@ describe('work branches: create one taking the changes along, edit and Commit on
         expect((await call('GET', '/projects')).body.items[0].summary).toEqual({ flows: 2, deployed: 1, scripts: 0 });
     });
 
+    test('a new flow taken from dev to a branch leaves no row on dev', async () => {
+        const { id, call, projectId, at, handle, changes } = await workspace();
+        expect((await call('POST', `/projects/${projectId}/flows`, { name: 'Fresh' })).status).toBe(201);
+        const created = await call('POST', '/git/branches', { name: `users/${await handle(ANA)}/fresh` });
+        expect(created.body.taken).toEqual([at('projects/Sales/flows/Fresh.flow.yaml')]);
+        expect(await changes(ANA)).toEqual([at('projects/Sales/flows/Fresh.flow.yaml')]);
+        expect(
+            await db.query("SELECT path FROM working_copy WHERE workspace_id = $1 AND branch = '' AND deleted AND base IS NULL", [id]),
+        ).toEqual([]);
+    });
+
     test('edits on a work branch go into its working copy, and a Commit pushes them to that branch, read back with git', async () => {
         const { call, projectId, orders, repo, at, handle, show, changes, relabel } = await workspace();
         const branch = `users/${await handle(ANA)}/work`;

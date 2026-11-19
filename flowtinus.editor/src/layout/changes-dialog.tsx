@@ -3,7 +3,7 @@ import { CircleCheck, GitCommitHorizontal, Lock, LoaderCircle, Undo2 } from 'luc
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, type WorkingChange } from '@/data/git/git-api';
+import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
 import type { ApiError } from '@/lib/api';
 
 const CHANGE_LABEL: Record<WorkingChange['change'], string> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
@@ -33,6 +33,7 @@ function requiredBy(changes: WorkingChange[], chosen: Set<string>): Map<string, 
  */
 export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
     const [changes, setChanges] = useState<WorkingChange[] | null>(null);
+    const [merge, setMerge] = useState<PendingMerge | null>(null);
     const [chosen, setChosen] = useState<Set<string>>(new Set());
     const [message, setMessage] = useState('');
     const [busy, setBusy] = useState(false);
@@ -42,8 +43,13 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     const load = useCallback(async () => {
         const result = await getChanges(slug);
         if (result.ok) {
+            const pending = result.value.merge ?? null;
             setChanges(result.value.changes);
-            setChosen(new Set(result.value.changes.filter(c => c.mine && !c.conflict).map(c => c.path)));
+            setMerge(pending);
+            setChosen(new Set(result.value.changes.filter(c => (pending ? true : c.mine && !c.conflict)).map(c => c.path)));
+            if (pending) {
+                setMessage(current => current || `Merge ${pending.from}`);
+            }
         } else {
             setError(result.error);
         }
@@ -53,7 +59,8 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     }, [load]);
 
     const locked = useMemo(() => requiredBy(changes ?? [], chosen), [changes, chosen]);
-    const all = [...chosen, ...locked.keys()];
+    // a pending merge is committed whole: every file, whatever is checked
+    const all = merge ? (changes ?? []).map(c => c.path) : [...chosen, ...locked.keys()];
     const conflicted = (changes ?? []).filter(c => c.conflict && all.includes(c.path));
 
     const changed = () => window.dispatchEvent(new Event(CHANGES_CHANGED));
@@ -111,10 +118,17 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                     </p>
                 ) : changes === null ? (
                     <LoaderCircle className="animate-spin" />
-                ) : changes.length === 0 ? (
+                ) : changes.length === 0 && !merge ? (
                     <p className="text-sm text-muted-foreground">Nothing to commit: the branch has every change.</p>
                 ) : (
                     <>
+                        {merge && (
+                            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+                                A merge of <span className="font-mono">{merge.from}</span> ({merge.theirs.slice(0, 7)}) is pending. Commit
+                                takes every file as one merge commit; Abort the merge puts the branch back as it was.
+                                {merge.conflicts.length > 0 && ' Discard a conflicted file to keep this branch’s version of it.'}
+                            </p>
+                        )}
                         <ul className="grid max-h-80 gap-1 overflow-y-auto text-sm">
                             {changes.map(change => {
                                 const reason = locked.get(change.path);
@@ -124,8 +138,8 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                             type="checkbox"
                                             className="mt-1"
                                             aria-label={shortPath(slug, change.path)}
-                                            checked={chosen.has(change.path) || !!reason}
-                                            disabled={busy || !!reason || !!change.conflict}
+                                            checked={!!merge || chosen.has(change.path) || !!reason}
+                                            disabled={busy || !!merge || !!reason || !!change.conflict}
                                             onChange={e => toggle(change.path, e.target.checked)}
                                         />
                                         <span className="w-4 font-mono text-xs text-muted-foreground" title={change.change}>
@@ -188,19 +202,19 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                     </div>
                 )}
                 <DialogFooter>
-                    {committed || !changes?.length ? (
+                    {committed || (!changes?.length && !merge) ? (
                         <Button onClick={onClose}>Close</Button>
                     ) : (
                         <>
                             <Button
                                 variant="outline"
-                                disabled={busy || !changes.some(c => c.mine)}
+                                disabled={busy || (!merge && !changes?.some(c => c.mine))}
                                 onClick={() => void discard({ mine: true })}
                             >
-                                Discard all mine
+                                {merge ? 'Abort the merge' : 'Discard all mine'}
                             </Button>
                             <Button
-                                disabled={busy || all.length === 0 || !message.trim() || conflicted.length > 0}
+                                disabled={busy || (all.length === 0 && !merge) || !message.trim() || conflicted.length > 0}
                                 onClick={() => void commit()}
                             >
                                 {busy ? <LoaderCircle className="animate-spin" /> : <GitCommitHorizontal />}

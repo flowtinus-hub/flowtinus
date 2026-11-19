@@ -6,6 +6,7 @@ import type { UseCaseResult } from '#shared/use-cases/use-case-result';
 import { lockBranch } from './branch-write';
 import { HEADS_SETTING, type GitConfig } from './git-config';
 import { GitError, type GitRemote } from './git-remote';
+import { dropPendingMerge, pendingMerge } from './pending-merge';
 import { reconcile, type ReconcileResult } from './reconcile';
 import { CONFIG_BRANCH, parseTopology, TOPOLOGY_FILE } from './topology';
 import { ENVIRONMENT_BRANCH, followGit, isChange, workingRows } from './working-copy';
@@ -104,6 +105,10 @@ async function followBranches(
                 if (noted && noted !== was?.sha && noted !== sha) {
                     return;
                 }
+                // a pending merge keeps its files and marks as the Update left them: its Commit refuses a moved branch, its abort merges
+                if (await pendingMerge(db, ctx.workspaceId, branch)) {
+                    return;
+                }
                 await followGit(db, ctx.workspaceId, tip, sha, branch);
             });
             continue;
@@ -121,6 +126,7 @@ async function followBranches(
             await ctx.db.transaction(async db => {
                 await lockBranch(db, ctx.workspaceId, branch);
                 await db.query('DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2', [ctx.workspaceId, branch]);
+                await dropPendingMerge(db, ctx.workspaceId, branch);
             });
             if (was?.removed) {
                 await dropKeptRef(remote, branch);

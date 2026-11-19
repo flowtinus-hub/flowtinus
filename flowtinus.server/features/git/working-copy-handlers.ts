@@ -10,12 +10,17 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { validate } from '#shared/use-cases/validate';
 import { branchAccess, currentBranchView } from './current-branch';
 import { isGitOn } from './git-config';
+import { pendingMerge, pendingMergeView, type PendingMergeView } from './pending-merge';
+import { updateBranch, updateStatus, type UpdateOutcome, type UpdateStatus } from './update';
 import { commitWorkingCopy, createBranch, discardWorkingCopy, workingChanges, type CreatedBranch, type WorkingChange } from './working-copy-changes';
 
 const gitOff = () => fail('conflict', 'Git is off in this workspace.');
 
-export class GetChangesHandler implements UseCaseHandler<{ changes: WorkingChange[] }> {
-    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ changes: WorkingChange[] }>> {
+/** merge: a pending merge on the branch, which a Commit takes whole and Discard all aborts */
+export type ChangesView = { changes: WorkingChange[]; merge?: PendingMergeView };
+
+export class GetChangesHandler implements UseCaseHandler<ChangesView> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ChangesView>> {
         if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
             return gitOff();
         }
@@ -25,12 +30,44 @@ export class GetChangesHandler implements UseCaseHandler<{ changes: WorkingChang
             branchAccess(ctx.db, ctx.workspaceId, ctx.userId),
             currentBranchView(ctx.db, ctx.workspaceId, ctx.userId),
         ]);
-        return success({ changes: mayChange || view.offersBranch ? await workingChanges(ctx) : [] });
+        if (!mayChange && !view.offersBranch) {
+            return success({ changes: [] });
+        }
+        const branch = await workBranch(ctx);
+        const merge = branch && (await pendingMerge(ctx.db, ctx.workspaceId, branch.branch));
+        return success({ changes: await workingChanges(ctx), ...(merge ? { merge: pendingMergeView(merge) } : {}) });
+    }
+}
+
+export class GetUpdateHandler implements UseCaseHandler<UpdateStatus> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<UpdateStatus>> {
+        const denied = requireRole(ctx, 'editor');
+        if (denied) {
+            return denied;
+        }
+        if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
+            return gitOff();
+        }
+        return updateStatus(ctx);
+    }
+}
+
+export class UpdateBranchHandler implements UseCaseHandler<UpdateOutcome> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<UpdateOutcome>> {
+        const denied = requireRole(ctx, 'editor');
+        if (denied) {
+            return denied;
+        }
+        if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
+            return gitOff();
+        }
+        return updateBranch(ctx);
     }
 }
 
 export const CommitChangesCommand = z.object({
-    paths: z.array(z.string().min(1)).min(1),
+    // empty: only for a pending merge, committed whole even when every file it brought was discarded
+    paths: z.array(z.string().min(1)),
     message: z.string().trim().min(1).max(1000),
 });
 
