@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { projectsPath } from '@/app/paths';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
-import { getCurrentBranch, listBranches, REMOVED_BRANCH, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch } from '@/data/git/git-api';
+import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, REMOVED_BRANCH, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { cn } from '@/lib/utils';
 import { CreateBranchDialog } from './create-branch-dialog';
@@ -53,9 +53,12 @@ export function BranchPicker({ slug }: { slug: string }) {
 
     useEffect(() => {
         let gone = false;
-        void getCurrentBranch(slug).then(result => !gone && result.ok && setCurrent({ slug, value: result.value }));
+        const read = () => void getCurrentBranch(slug).then(result => !gone && result.ok && setCurrent({ slug, value: result.value }));
+        read();
+        window.addEventListener(GIT_STATUS_CHANGED, read);
         return () => {
             gone = true;
+            window.removeEventListener(GIT_STATUS_CHANGED, read);
         };
     }, [slug]);
 
