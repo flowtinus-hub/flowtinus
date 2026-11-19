@@ -25,10 +25,8 @@ export class CreateProjectHandler implements UseCaseHandler<CreateProjectRespons
             return fail('conflict', `A project named "${command.name}" already exists.`, { name: 'Already in use' });
         }
 
-        const project = await changeTree(
-            ctx,
-            () => `Create project ${command.name}`,
-            db => new ProjectRepository(db, ctx.workspaceId).insert({ id: crypto.randomUUID(), ...command }),
+        const project = await changeTree(ctx, db =>
+            new ProjectRepository(db, ctx.workspaceId).insert({ id: crypto.randomUUID(), ...command }),
         );
         return success({ id: project.id });
     }

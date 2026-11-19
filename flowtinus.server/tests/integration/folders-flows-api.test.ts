@@ -79,7 +79,7 @@ describe('folders and flows api', () => {
         };
         expect(copy.revision).toBe(0);
         expect(copy.flow).toMatchObject({ id, name: 'Source (copy)' });
-        expect(copy.flow.nodes.map(n => n.id)).toEqual(nodes.map(n => n.id));
+        expect(copy.flow.nodes.map(n => n.id).sort()).toEqual(nodes.map(n => n.id).sort());
         expect((await call('GET', `/flows/${sourceId}/draft`)).body).toMatchObject({ revision: 1, flow: { id: sourceId, name: 'Source' } });
 
         // a name taken in that folder (any case): 409; another folder (the root here): fine
@@ -99,7 +99,7 @@ describe('folders and flows api', () => {
         expect((await call('GET', `/projects/${crypto.randomUUID()}/contents`)).status).toBe(404);
     });
 
-    test('an edge on a port its component no longer has: a save is refused; a stored draft opens without it (not as a new flow)', async () => {
+    test('an edge on a port its component no longer has: a save is refused', async () => {
         const flowId = (await call('POST', `/projects/${projectId}/flows`, { name: 'Ports' })).body.id as string;
         const opened = (await call('GET', `/flows/${flowId}/draft`)).body.flow as { nodes: object[] };
         const flow = {
@@ -115,12 +115,6 @@ describe('folders and flows api', () => {
         const refused = await call('PUT', `/flows/${flowId}/draft`, { revision: 0, flow });
         expect(refused.status).toBe(400);
         expect((refused.body.error as { message: string }).message).toContain('is on a port its component does not have');
-
-        // saved before such edges were taken out: it opens with the rest of the flow
-        await db.query(`UPDATE flows SET draft_definition = $1 WHERE id = $2`, [JSON.stringify({ revision: 3, flow }), flowId]);
-        const reopened = await call('GET', `/flows/${flowId}/draft`);
-        expect(reopened.body.revision).toBe(3);
-        expect((reopened.body.flow as { edges: { sourcePort: string }[] }).edges.map(e => e.sourcePort)).toEqual(['out-0', 'out-0']);
     });
 
     test("a flow's draft: a new flow opens with its Start and End; a save checks it, grows the revision, and a stale one is refused", async () => {
@@ -134,7 +128,7 @@ describe('folders and flows api', () => {
             edges: unknown[];
         };
         expect(flow.name).toBe('Drafts');
-        expect(flow.nodes.map(n => n.type)).toEqual(['start', 'end']);
+        expect(flow.nodes.map(n => n.type).sort()).toEqual(['end', 'start']);
 
         // a component in between, saved
         const edited = {
@@ -198,8 +192,11 @@ describe('folders and flows api', () => {
                 ]),
             },
         });
-        const store = (id: string, name: string, to: string[]) =>
-            db.query(`UPDATE flows SET draft_definition = $1 WHERE id = $2`, [JSON.stringify(calling(id, name, to)), id]);
+        const save = async (id: string, flow: object) => {
+            const { revision } = (await call('GET', `/flows/${id}/draft`)).body as { revision: number };
+            expect((await call('PUT', `/flows/${id}/draft`, { revision, flow })).status).toBe(200);
+        };
+        const store = (id: string, name: string, to: string[]) => save(id, calling(id, name, to).flow);
         await store(one, 'Calls 1', [two, gone]);
         await store(two, 'Calls 2', [one]);
         expect((await call('POST', `/flows/${gone}/archive`)).status).toBe(200);
@@ -235,7 +232,7 @@ describe('folders and flows api', () => {
             { source: 'start', sourcePort: 'out-0', target: 'ts', targetPort: 'in-0' },
             { source: 'ts', sourcePort: 'out-0', target: 'end', targetPort: 'in-0' },
         );
-        await db.query(`UPDATE flows SET draft_definition = $1 WHERE id = $2`, [JSON.stringify(uses), one]);
+        await save(one, uses.flow);
         for (const [path, content] of [
             ['lib/prices', "import {two} from '@myproject/scripts/lib/math';\nexport const round = 1;"],
             ['lib/math', 'export const two = 2;'],

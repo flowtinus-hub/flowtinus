@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ApiError, ApiResult } from '@/lib/api';
+import { API_WRITE_DONE, type ApiError, type ApiResult } from '@/lib/api';
 import type { ProjectContents } from './flow';
 import * as flowsApi from './flows-api';
 
@@ -32,6 +32,18 @@ export function useProjectContents(projectId: string) {
         return () => {
             current = false;
         };
+    }, [projectId]);
+
+    // a change made elsewhere on the page (the Changes dialog's discard, a Commit): read again, without a spinner
+    useEffect(() => {
+        const refresh = () =>
+            void flowsApi.getProjectContents(projectId).then(result => {
+                if (result.ok) {
+                    setLoaded({ for: projectId, state: toState(result) });
+                }
+            });
+        window.addEventListener(API_WRITE_DONE, refresh);
+        return () => window.removeEventListener(API_WRITE_DONE, refresh);
     }, [projectId]);
 
     const thenRefresh = useCallback(

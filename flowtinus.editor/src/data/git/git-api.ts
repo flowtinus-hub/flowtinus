@@ -85,6 +85,31 @@ export const saveGitConfig = (ws: string, config: GitConfig) =>
 
 export const removeGitConfig = (ws: string) => api<{ config: null }>(`/w/${ws}/git`, { method: 'DELETE' });
 
+/** a file of the working copy of the environment's branch: a rename is one change (from: its old path) */
+export type WorkingChange = {
+    path: string;
+    from?: string;
+    change: 'added' | 'modified' | 'deleted' | 'renamed';
+    kind: string;
+    editedBy: string | null;
+    editedByName?: string;
+    mine: boolean;
+    conflict?: string;
+    /** what it needs to be committed with, and why */
+    requires: { path: string; reason: string }[];
+};
+
+/** said on window when the working copy changed here (a Commit, a discard): the Changes item reads it again */
+export const CHANGES_CHANGED = 'flowtinus:changes-changed';
+
+export const getChanges = (ws: string) => api<{ changes: WorkingChange[] }>(`/w/${ws}/git/changes`);
+
+export const commitChanges = (ws: string, paths: string[], message: string) =>
+    api<{ commit: string }>(`/w/${ws}/git/commit`, { method: 'POST', body: { paths, message } });
+
+export const discardChanges = (ws: string, which: { paths: string[] } | { mine: true }) =>
+    api<{ discarded: string[] }>(`/w/${ws}/git/discard`, { method: 'POST', body: which });
+
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
 
 export const getTopology = (ws: string) => api<{ topology: Topology }>(`/w/${ws}/git/topology`);

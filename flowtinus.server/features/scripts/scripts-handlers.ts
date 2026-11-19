@@ -1,7 +1,5 @@
 import { z } from 'zod';
-import { changeTree, commitTree } from '#features/git/git-first';
-import { isGitOn } from '#features/git/git-config';
-import type { Database } from '#shared/database/database';
+import { changeTree } from '#features/git/git-first';
 import { rewriteMovedScript, scriptStates, type ScriptState } from './script-git';
 import { movedScriptPath, normalizeScriptPath, scriptContentIssue } from '@flowtinus/core';
 import { pathTooLong, requireActiveProject } from '#features/folders/project-tree';
@@ -11,7 +9,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { allFolders, deleteScriptPath, exportsOf, getScript, listScripts, moveScriptPath, newPathIssue, scriptUsage, type ScriptEntry } from './script-store';
+import { allFolders, deleteScriptPath, getScript, listScripts, moveScriptPath, newPathIssue, scriptUsage, writeScript, type ScriptEntry } from './script-store';
 
 const projectId = z.uuid('Invalid');
 const path = z.string().transform(normalizeScriptPath);
@@ -86,29 +84,14 @@ export class CreateScriptPathHandler implements UseCaseHandler<{ path: string; r
         }
 
         if (kind === 'folder') {
-            await changeTree(
-                ctx,
-                () => `Create script folder ${target}`,
-                db =>
-                    db.query('INSERT INTO script_folders (workspace_id, project_id, path) VALUES ($1, $2, $3)', [
-                        ctx.workspaceId,
-                        id,
-                        target,
-                    ]),
+            await changeTree(ctx, db =>
+                db.query('INSERT INTO script_folders (workspace_id, project_id, path) VALUES ($1, $2, $3)', [ctx.workspaceId, id, target]),
             );
             return success({ path: target, revision: 0 });
         }
 
-        await changeTree(
-            ctx,
-            () => `Create script ${target}`,
-            db =>
-                db.query(
-                    'INSERT INTO scripts (id, workspace_id, project_id, path, content, exports, updated_by) VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7)',
-                    [crypto.randomUUID(), ctx.workspaceId, id, target, code, exportsOf(code), ctx.userId],
-                ),
-        );
-        return success({ path: target, revision: 0 });
+        const revision = await changeTree(ctx, db => writeScript(db, ctx.workspaceId, id, target, code, ctx.userId));
+        return success({ path: target, revision: revision ?? 0 });
     }
 }
 
@@ -135,21 +118,11 @@ export class SaveScriptHandler implements UseCaseHandler<{ revision: number }> {
             return tooLarge(large);
         }
 
-        const [saved] = await ctx.db.query<{ revision: number }>(
-            `UPDATE scripts SET content = $4, exports = $7::text::jsonb, revision = revision + 1, updated_by = $6, updated_at = now()
-       WHERE workspace_id = $1 AND project_id = $2 AND path = $3 AND revision = $5 RETURNING revision`,
-            [ctx.workspaceId, id, target, content, revision, ctx.userId, exportsOf(content)],
-        );
-        if (saved) {
-            return success({ revision: saved.revision });
+        if (!(await getScript(ctx.db, ctx.workspaceId, id, target))) {
+            return fail('not-found', 'Script not found.');
         }
-
-        const [exists] = await ctx.db.query('SELECT 1 FROM scripts WHERE workspace_id = $1 AND project_id = $2 AND path = $3', [
-            ctx.workspaceId,
-            id,
-            target,
-        ]);
-        return exists ? conflict() : fail('not-found', 'Script not found.');
+        const saved = await ctx.db.transaction(db => writeScript(db, ctx.workspaceId, id, target, content, ctx.userId, revision));
+        return saved === null ? conflict() : success({ revision: saved });
     }
 }
 
@@ -192,17 +165,10 @@ export class MoveScriptPathHandler implements UseCaseHandler<{ path: string }> {
             return tooLong;
         }
 
-        const message = `Move script ${from} to ${to}`;
-        const move = async (db: Database) => {
+        await changeTree(ctx, async db => {
             await moveScriptPath(db, ctx.workspaceId, id, from, to, ctx.userId);
-            return rewriteMovedScript({ ...ctx, db }, id, from, to);
-        };
-        if (await isGitOn(ctx.db, ctx.workspaceId)) {
-            const committed = await commitTree(ctx, message, move);
-            return committed.ok ? success({ path: to }) : committed;
-        }
-
-        await changeTree(ctx, () => message, move);
+            await rewriteMovedScript({ ...ctx, db }, id, from, to);
+        });
         return success({ path: to });
     }
 }
@@ -224,11 +190,7 @@ export class DeleteScriptPathHandler implements UseCaseHandler<{ path: string }>
             return missing;
         }
 
-        await changeTree(
-            ctx,
-            () => `Delete script ${parsed.value.path}`,
-            db => deleteScriptPath(db, ctx.workspaceId, parsed.value.projectId, parsed.value.path),
-        );
+        await changeTree(ctx, db => deleteScriptPath(db, ctx.workspaceId, parsed.value.projectId, parsed.value.path, ctx.userId));
         return success({ path: parsed.value.path });
     }
 }

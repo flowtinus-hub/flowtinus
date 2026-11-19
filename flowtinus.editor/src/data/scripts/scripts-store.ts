@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { insideScriptFolder, normalizeScriptPath, pathCaseClash, scriptContentIssue, scriptExports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
-import { api, type ApiResult } from '@/lib/api';
+import { api, API_WRITE_DONE, type ApiResult } from '@/lib/api';
+import { CHANGES_CHANGED } from '@/data/git/git-api';
 
 /*
  * A project's scripts from the server (/projects/:id/scripts), kept for every editor of the page: the Scripts tab, and
@@ -94,6 +95,21 @@ export function useProjectScripts(projectId: string): ProjectScripts {
         if (projectId && !loading.has(projectId)) {
             void reloadScripts(projectId);
         }
+    }, [projectId]);
+    // a write anywhere (a save, a Commit) can change what the list says changed; a discard or a Commit from the Changes
+    // dialog can change the code too
+    useEffect(() => {
+        if (!projectId) {
+            return;
+        }
+        const list = () => void reloadScripts(projectId);
+        const all = () => void flushScripts(projectId).then(() => reloadAll(projectId));
+        window.addEventListener(API_WRITE_DONE, list);
+        window.addEventListener(CHANGES_CHANGED, all);
+        return () => {
+            window.removeEventListener(API_WRITE_DONE, list);
+            window.removeEventListener(CHANGES_CHANGED, all);
+        };
     }, [projectId]);
     // the same on the server (a form rendered to text: tests)
     return useSyncExternalStore(

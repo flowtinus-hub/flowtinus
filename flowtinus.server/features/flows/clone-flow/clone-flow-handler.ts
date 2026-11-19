@@ -1,12 +1,14 @@
 import { z } from 'zod';
-import { isFolderVisible } from '@flowtinus/core';
+import { isFolderVisible, repoFlowToYaml } from '@flowtinus/core';
+import { changeTree } from '#features/git/git-first';
+import { writeFile } from '#features/git/working-copy';
 import { FlowRepository, loadTree, nameInTree, requireActiveProject } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { readDraft, type StoredDraft } from '../flow-draft';
+import { flowRepoPath, loadDraft } from '../flow-draft';
 
 export const CloneFlowCommand = z.object({
     id: z.uuid('Invalid'),
@@ -50,15 +52,24 @@ export class CloneFlowHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const name = named.value;
-        const draft: StoredDraft = { revision: 0, flow: { ...readDraft(source).flow, id, name } };
-        await repository.insert({
-            id,
-            projectId: source.projectId,
-            folderId,
-            name,
-            draftDefinition: draft,
-            workerTag: source.workerTag,
-            updatedBy: ctx.userId,
+        const { flow } = await loadDraft(ctx.db, ctx.workspaceId, source);
+        await changeTree(ctx, async db => {
+            const copy = await new FlowRepository(db, ctx.workspaceId).insert({
+                id,
+                projectId: source.projectId,
+                folderId,
+                name,
+                workerTag: source.workerTag,
+                updatedBy: ctx.userId,
+            });
+            const content = repoFlowToYaml({ ...flow, id, name });
+            await writeFile(db, ctx.workspaceId, {
+                path: await flowRepoPath(db, ctx.workspaceId, copy),
+                content,
+                fileId: id,
+                userId: ctx.userId,
+                revision: 0,
+            });
         });
         return success({ id });
     }

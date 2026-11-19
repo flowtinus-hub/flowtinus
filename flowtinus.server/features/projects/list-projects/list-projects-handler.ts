@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { workingScripts } from '#features/scripts/script-store';
 import { desc } from 'drizzle-orm';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -26,17 +27,16 @@ async function summaries(ctx: UseCaseContext, ids: string[]): Promise<Map<string
     const rows = await ctx.db.query<{ id: string } & Record<keyof ProjectSummary, number | string>>(
         `SELECT p.id,
        (SELECT count(*) FROM flows f WHERE f.project_id = p.id AND f.deleted_at IS NULL) AS flows,
-       (SELECT count(*) FROM deployments d JOIN flows f ON f.id = d.flow_id WHERE f.project_id = p.id AND f.deleted_at IS NULL) AS deployed,
-       (SELECT count(*) FROM scripts s WHERE s.project_id = p.id) AS scripts
+       (SELECT count(*) FROM deployments d JOIN flows f ON f.id = d.flow_id WHERE f.project_id = p.id AND f.deleted_at IS NULL) AS deployed
      FROM projects p WHERE p.workspace_id = $1 AND p.id = ANY($2::uuid[])`,
         [ctx.workspaceId, ids],
     );
-    return new Map(
-        rows.map(({ id, ...counts }) => [
-            id,
-            Object.fromEntries(Object.entries(counts).map(([key, value]) => [key, Number(value)])) as ProjectSummary,
-        ]),
-    );
+    const summaries = new Map<string, ProjectSummary>();
+    for (const { id, ...counts } of rows) {
+        const scripts = (await workingScripts(ctx.db, ctx.workspaceId, id)).length;
+        summaries.set(id, { flows: Number(counts.flows), deployed: Number(counts.deployed), scripts });
+    }
+    return summaries;
 }
 
 export class ListProjectsHandler implements UseCaseHandler<ListProjectsResponse> {

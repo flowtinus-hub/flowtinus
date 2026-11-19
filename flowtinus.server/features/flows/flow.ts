@@ -1,5 +1,4 @@
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { jsonb } from '#shared/database/jsonb';
 import { folders } from '#features/folders/folder';
 import { workspaces } from '#features/workspaces/workspace';
 import { projects } from '#features/projects/project';
@@ -19,9 +18,6 @@ export const flows = pgTable('flows', {
         .references(() => projects.id),
     folderId: uuid('folder_id').references(() => folders.id),
     name: text('name').notNull(),
-    draftDefinition: jsonb('draft_definition'),
-    draftBase: text('draft_base'),
-    draftConflict: text('draft_conflict'),
     workerTag: text('worker_tag').notNull().default('default'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedBy: text('updated_by'),

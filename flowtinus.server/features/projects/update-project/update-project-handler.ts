@@ -35,11 +35,7 @@ export class UpdateProjectHandler implements UseCaseHandler<UpdateProjectRespons
             }
         }
 
-        const project = await changeTree<Project | null>(
-            ctx,
-            updated => `Update project ${updated?.name ?? ''}`,
-            db => new ProjectRepository(db, ctx.workspaceId).update(id, changes),
-        );
+        const project = await changeTree<Project | null>(ctx, db => new ProjectRepository(db, ctx.workspaceId).update(id, changes));
         if (!project) {
             return fail('not-found', 'Project not found.');
         }

@@ -1,6 +1,8 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitBranch, GitPullRequest } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitBranch, GitPullRequest, GitCommitHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getCurrentBranch, getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { CHANGES_CHANGED, getChanges, getCurrentBranch, getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { ChangesDialog } from './changes-dialog';
+import { API_WRITE_DONE } from '@/lib/api';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -151,6 +153,41 @@ function CurrentBranchItem({ slug }: { slug: string }) {
     );
 }
 
+/** with git on, when the working copy has changes: their count, a click opens the Commit */
+function ChangesItem({ slug, pathname }: { slug: string; pathname: string }) {
+    const [count, setCount] = useState<{ slug: string; value: number } | null>(null);
+    const [open, setOpen] = useState(false);
+    useEffect(() => {
+        let gone = false;
+        const read = () =>
+            void getChanges(slug).then(result => !gone && setCount({ slug, value: result.ok ? result.value.changes.length : 0 }));
+        read();
+        const timer = setInterval(read, GIT_STATUS_MS);
+        window.addEventListener(CHANGES_CHANGED, read);
+        window.addEventListener(API_WRITE_DONE, read);
+        return () => {
+            gone = true;
+            clearInterval(timer);
+            window.removeEventListener(CHANGES_CHANGED, read);
+            window.removeEventListener(API_WRITE_DONE, read);
+        };
+    }, [slug, pathname]);
+
+    const value = count?.slug === slug ? count.value : 0;
+    if (value === 0 && !open) {
+        return null;
+    }
+    return (
+        <SidebarMenuItem>
+            <SidebarMenuButton tooltip={`Changes (${value})`} onClick={() => setOpen(true)}>
+                <GitCommitHorizontal />
+                <span>Changes ({value})</span>
+            </SidebarMenuButton>
+            {open && <ChangesDialog slug={slug} onClose={() => setOpen(false)} />}
+        </SidebarMenuItem>
+    );
+}
+
 export function AppSidebar() {
     const { pathname } = useLocation();
     const { state } = useMe();
@@ -201,6 +238,7 @@ export function AppSidebar() {
                         ))}
                         {current && <CurrentBranchItem slug={current.slug} />}
                         {current && <GitAheadItem slug={current.slug} pathname={pathname} />}
+                        {current && <ChangesItem slug={current.slug} pathname={pathname} />}
                     </SidebarMenu>
                 </SidebarGroup>
                 {/* the environment's pages (not a workspace's), at the bottom */}

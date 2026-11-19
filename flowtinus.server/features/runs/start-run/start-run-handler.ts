@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { inputIssues, inputTypeRef, isFolderVisible, planRunFrom, scriptTypeShape, START, startConfig, toExecutableFlow, validateFlowFile, type FlowFile, type RunFromPlan, type RunRecord } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
-import { readDraft } from '#features/flows/flow-draft';
+import { loadDraft } from '#features/flows/flow-draft';
 import { pinsOf, withPins } from '#features/pins/pins';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -108,7 +108,7 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('unavailable', noSupervisorFor(row.workerTag));
         }
 
-        const { flow: draft } = readDraft(row);
+        const { flow: draft } = await loadDraft(ctx.db, ctx.workspaceId, row);
         const checked = validateFlowFile(
             mode === 'validation' ? withPins(draft, await pinsOf(ctx.db, ctx.workspaceId, ctx.userId, flowId)) : draft,
         );

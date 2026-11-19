@@ -1,9 +1,11 @@
 import { deployContent, isFolderVisible, type FlowFile } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { pgJson } from '#shared/database/jsonb';
-import type { Flow } from '#features/flows/flow';
+import { eq } from 'drizzle-orm';
+import { flows, type Flow } from '#features/flows/flow';
+import { loadDraft } from '#features/flows/flow-draft';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
-import { gitBranch } from '#features/git/git-config';
+import { gitBranch, isGitOn } from '#features/git/git-config';
 import type { Mode } from '#features/git/topology';
 import { changedImports } from '#features/scripts/script-git';
 import { withUpdatedByName } from '#features/users/user-names';
@@ -110,11 +112,9 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             [workspaceId, flowId],
         ),
         gitBranch(db, workspaceId),
-        db.query<{ draft_conflict: string | null; project_id: string; draft_definition: { flow?: FlowFile } | null }>(
-            'SELECT draft_conflict, project_id, draft_definition FROM flows WHERE id = $1',
-            [flowId],
-        ),
+        new FlowRepository(db, workspaceId).findAll(eq(flows.id, flowId)),
     ]);
+    const draft = git && flow ? await loadDraft(db, workspaceId, flow) : null;
     const commit = new Map(commits.map(c => [c.sha, c]));
     const who = await names(db, [...versions.map(v => v.created_by), ...deployed.map(d => d.deployed_by), ...history.map(h => h.by_user)]);
     // a commit's author who is no app user is named as git has it
@@ -151,10 +151,8 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             commit: h.commit_sha,
         })),
         ...(git ? { git } : {}),
-        ...(git && flow?.draft_conflict ? { draftConflict: flow.draft_conflict } : {}),
-        ...(git && flow?.draft_definition?.flow
-            ? { changedScripts: await changedImports(db, workspaceId, flow.project_id, flow.draft_definition.flow) }
-            : {}),
+        ...(draft?.conflict ? { draftConflict: draft.conflict } : {}),
+        ...(draft && flow ? { changedScripts: await changedImports(db, workspaceId, flow.projectId, draft.flow) } : {}),
     };
 }
 
@@ -257,7 +255,8 @@ export async function deployedDefinitions(
  * turns nothing back on). In the archive's transaction.
  */
 export async function undeployArchived(db: Database, ctx: Actor, flowIds: string[], commit: string | null = null): Promise<void> {
-    if (flowIds.length === 0) {
+    // with git on, an archive is a change of the working copy: the flow runs as deployed until its Commit
+    if (flowIds.length === 0 || (!commit && (await isGitOn(db, ctx.workspaceId)))) {
         return;
     }
 

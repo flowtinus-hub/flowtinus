@@ -1,4 +1,4 @@
-import type { TreeIssue } from '@flowtinus/core';
+import { repoEntry, type TreeIssue } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
 import { deleteWorkspaceSetting, readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspaces/workspace-settings';
 import type { Database } from '#shared/database/database';
@@ -6,7 +6,8 @@ import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { isGitOn, POLL_SETTING, RECONCILE_SETTING, type GitConfig } from './git-config';
 import type { GitRemote } from './git-remote';
-import type { RepoFiles } from './workspace-export';
+import { exportTree, type RepoFiles } from './workspace-export';
+import { fileRow, writeFile } from './working-copy';
 import { importWorkspace, readBranchWorkspace, validateImport, type RenamedDraft } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
 import type { Mode } from './topology';
@@ -52,6 +53,14 @@ const markApplied = (ctx: UseCaseContext, { branch, commit, mode }: BranchCommit
     );
 
 export async function forgetReconcile(ctx: UseCaseContext) {
+    // git off: the scripts as committed become scripts being edited, in the working copy that holds them from then on
+    const tree = await exportTree(ctx.db, ctx.workspaceId);
+    for (const [path, content] of Object.entries(tree.files)) {
+        const fileId = tree.ids[path];
+        if (repoEntry(path).kind === 'script' && fileId && !(await fileRow(ctx.db, ctx.workspaceId, fileId))) {
+            await writeFile(ctx.db, ctx.workspaceId, { path, content, fileId, userId: ctx.userId, committed: content, revision: 0 });
+        }
+    }
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, RECONCILE_SETTING);
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, POLL_SETTING);
     await ctx.db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1', [ctx.workspaceId]);
