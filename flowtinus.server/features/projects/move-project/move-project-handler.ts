@@ -5,6 +5,8 @@ import { loadDraft, writeDraft } from '#features/flows/flow-draft';
 import { scriptFileId } from '#features/git/working-copy';
 import { workingScripts, writeScript } from '#features/scripts/script-store';
 import { changeTree } from '#features/git/git-first';
+import { workBranch } from '#features/git/branch-read';
+import { gitBranch } from '#features/git/git-config';
 import { undeployArchived } from '#features/deployments/deployments';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -50,6 +52,14 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
         }
 
         const { id, toWorkspace } = parsed.value;
+        // its runs, versions, deployments, schedules and webhooks move with it, and they are the environment's, not a branch's
+        if (await workBranch(ctx)) {
+            const environment = (await gitBranch(ctx.db, ctx.workspaceId))?.branch;
+            return fail(
+                'conflict',
+                `A project moves to another workspace on ${environment} only: its runs, deployments, schedules and webhooks go with it. Pick ${environment} to move it.`,
+            );
+        }
         const [project] = await ctx.db.orm
             .select({ name: projects.name })
             .from(projects)

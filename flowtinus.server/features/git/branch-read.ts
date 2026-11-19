@@ -1,4 +1,4 @@
-import { isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, type FlowFile, type RepoFlow } from '@flowtinus/core';
+import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, type ConnectionTypeName, type FlowFile, type RepoFlow } from '@flowtinus/core';
 import { activeFlow } from '#features/deployments/deployments';
 import type { Flow } from '#features/flows/flow';
 import type { FlowDraft } from '#features/flows/flow-draft';
@@ -26,6 +26,8 @@ export type BranchFolder = Folder & { archivedAt: null };
 
 export type BranchScript = { path: string; content: string; revision: number; updatedBy: string | null; updatedAt: Date };
 
+export type BranchConnection = { id: string; name: string; type: ConnectionTypeName; path: string };
+
 export type WorkBranch = {
     branch: string;
     tip: string;
@@ -36,8 +38,11 @@ export type WorkBranch = {
     /** a shared branch or the user's own, removed or not: on a removed one, its changes may still be discarded or taken to a new branch */
     mayChange: boolean;
     slug: string;
+    /** when the tip was committed */
+    at: Date;
     /** the files at the tip, without the working copy */
     tipFiles: RepoFiles;
+    connections: BranchConnection[];
     projects: Project[];
     folders: BranchFolder[];
     flows: BranchFlow[];
@@ -186,6 +191,16 @@ async function buildBranch(
         .filter(([path]) => path.startsWith(`${slug}/`))
         .map(([path, text]) => ({ path, text, entry: repoEntry(path) }));
 
+    const connections: BranchConnection[] = [];
+    for (const { path, text, entry } of entries) {
+        if (entry.kind === 'connection') {
+            const read = connectionFromYaml(text);
+            if (read.ok && isRepoId(read.value.id)) {
+                connections.push({ id: read.value.id, name: entry.name, type: read.value.type, path });
+            }
+        }
+    }
+
     const projects: Project[] = [];
     const projectIds = new Map<string, string>();
     for (const { text, entry } of entries) {
@@ -315,7 +330,9 @@ async function buildBranch(
         tip: sha,
         editable,
         slug,
+        at: tip.at,
         tipFiles: tip.files,
+        connections: connections.sort(byName),
         projects: projects.sort(byName),
         folders: [...folders.values()].sort(byName),
         flows: flows.sort(byName),
@@ -346,3 +363,125 @@ export const branchDraft = (flow: BranchFlow): FlowDraft => ({
     revision: flow.revision,
     ...(flow.conflict ? { conflict: flow.conflict } : {}),
 });
+
+export type ArchivedProject = Project & { deletedAt: Date; path: string };
+
+export type ArchivedFolder = Folder & { deletedAt: Date; names: string[] };
+
+export type ArchivedFlow = Flow & { deletedAt: Date; path: string; content: string };
+
+/** what a work branch's working copy deleted (an archive there), with the text each file had: a restore puts it back */
+export type BranchArchive = { projects: ArchivedProject[]; folders: ArchivedFolder[]; flows: ArchivedFlow[]; rows: WorkingRow[] };
+
+/**
+ * The branch's archive, from its deleted rows: a project, folder or flow whose file is deleted and whose id is nowhere
+ * on the branch any more (a rename or a move leaves its old path deleted, but its id lives on). A deletion's time is
+ * its row's: what one change archived has one time.
+ */
+export async function branchArchive(ctx: UseCaseContext, branch: WorkBranch): Promise<BranchArchive> {
+    // a file is archived as its last deletion left it: an older path of it (before a rename) is not
+    const newest = new Set<string>();
+    const rows = (await workingRows(ctx.db, ctx.workspaceId, branch.branch))
+        .filter(r => r.path.startsWith(`${branch.slug}/`) && r.deleted)
+        .map(r => ({ ...r, updated_at: new Date(r.updated_at) }))
+        .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime())
+        .filter(r => {
+            if (r.file_id !== null) {
+                if (newest.has(r.file_id)) {
+                    return false;
+                }
+                newest.add(r.file_id);
+            }
+            return r.content !== null;
+        });
+    const live = new Set([...branch.projects.map(p => p.id), ...branch.flows.map(f => f.id)]);
+    const liveFolders = new Set(branch.folders.map(f => f.id));
+    const projectIds = new Map(branch.projects.map(p => [p.name, p.id]));
+
+    const projects: ArchivedProject[] = [];
+    for (const row of rows) {
+        const entry = repoEntry(row.path);
+        if (entry.kind !== 'project' || projectIds.has(entry.project)) {
+            continue;
+        }
+        const read = projectFromYaml(row.content!);
+        if (read.ok && isRepoId(read.value.id) && !live.has(read.value.id) && !projects.some(p => p.id === read.value.id)) {
+            projectIds.set(entry.project, read.value.id);
+            projects.push({
+                id: read.value.id,
+                workspaceId: ctx.workspaceId,
+                name: entry.project,
+                description: read.value.description,
+                icon: read.value.icon ?? 'folder',
+                color: read.value.color ?? 'blue',
+                createdAt: row.updated_at,
+                deletedAt: row.updated_at,
+                deletedBy: row.edited_by,
+                path: row.path,
+            });
+        }
+    }
+
+    const folders = new Map<string, ArchivedFolder>();
+    const archiveFolders = (projectId: string, names: string[], at: Date, by: string | null) => {
+        for (let i = 1; i <= names.length; i++) {
+            const id = branchFolderId(projectId, names.slice(0, i));
+            const was = folders.get(id);
+            if (liveFolders.has(id) || (was && was.deletedAt >= at)) {
+                continue;
+            }
+            folders.set(id, {
+                id,
+                workspaceId: ctx.workspaceId,
+                projectId,
+                parentId: i > 1 ? branchFolderId(projectId, names.slice(0, i - 1)) : null,
+                name: names[i - 1]!,
+                createdAt: at,
+                deletedAt: at,
+                deletedBy: by,
+                removedAt: null,
+                removedBy: null,
+                names: names.slice(0, i),
+            });
+        }
+    };
+
+    const flows: ArchivedFlow[] = [];
+    for (const row of rows) {
+        const entry = repoEntry(row.path);
+        const projectId = 'project' in entry ? projectIds.get(entry.project) : undefined;
+        if (!projectId) {
+            continue;
+        }
+        if (entry.kind === 'flow') {
+            const read = repoFlowFromYaml(row.content!, entry.name);
+            const id = read.ok ? read.value.flow.id : undefined;
+            if (!id || !isRepoId(id) || live.has(id) || flows.some(f => f.id === id)) {
+                continue;
+            }
+            flows.push({
+                id,
+                workspaceId: ctx.workspaceId,
+                projectId,
+                folderId: entry.folders.length > 0 ? branchFolderId(projectId, entry.folders) : null,
+                name: entry.name,
+                workerTag: 'default',
+                createdAt: row.updated_at,
+                updatedBy: row.edited_by,
+                updatedAt: row.updated_at,
+                deletedAt: row.updated_at,
+                deletedBy: row.edited_by,
+                deletedByCommit: null,
+                removedAt: null,
+                removedBy: null,
+                path: row.path,
+                content: row.content!,
+            });
+            archiveFolders(projectId, entry.folders, row.updated_at, row.edited_by);
+        } else if (entry.kind === 'folder') {
+            archiveFolders(projectId, entry.folders, row.updated_at, row.edited_by);
+        }
+    }
+
+    return { projects, folders: [...folders.values()], flows, rows };
+}

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { isFolderVisible, repoFlowToYaml } from '@flowtinus/core';
+import { workBranch } from '#features/git/branch-read';
+import { cloneFlowOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { writeFile } from '#features/git/working-copy';
 import { FlowRepository, loadTree, nameInTree, requireActiveProject } from '#features/folders/project-tree';
@@ -28,6 +30,10 @@ export class CloneFlowHandler implements UseCaseHandler<{ id: string }> {
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return cloneFlowOnBranch(ctx, branch, parsed.value);
+        }
         const repository = new FlowRepository(ctx.db, ctx.workspaceId);
         const source = await repository.findById(parsed.value.id);
         const tree = source ? await loadTree(ctx.db, ctx.workspaceId, source.projectId) : null;

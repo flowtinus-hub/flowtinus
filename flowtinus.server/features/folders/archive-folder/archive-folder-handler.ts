@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { archiveFolderOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { isFolderVisible, subtreeIds } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -29,6 +31,10 @@ export class ArchiveFolderHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return archiveFolderOnBranch(ctx, branch, id);
+        }
         const folder = await new FolderRepository(ctx.db, ctx.workspaceId).findById(id);
         const tree = folder ? await loadTree(ctx.db, ctx.workspaceId, folder.projectId) : null;
         if (!folder || !tree || !isFolderVisible(tree.folders, id)) {

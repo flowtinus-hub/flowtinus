@@ -1,4 +1,4 @@
-import { branchProject, workBranch } from '#features/git/branch-read';
+import { branchArchive, branchProject, workBranch } from '#features/git/branch-read';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -21,7 +21,7 @@ export class GetProjectHandler implements UseCaseHandler<ProjectView> {
         const { id } = parsed.value;
         const branch = await workBranch(ctx);
         if (branch) {
-            const found = branchProject(branch, id);
+            const found = branchProject(branch, id) ?? (await branchArchive(ctx, branch)).projects.find(p => p.id === id);
             return found
                 ? success({ ...toProjectView(found), ...(branch.editable ? {} : { readOnly: true as const }) })
                 : fail('not-found', 'Project not found.');

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { restoreFolderOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { eq } from 'drizzle-orm';
 import { isFolderVisible, subtreeIds } from '@flowtinus/core';
@@ -30,6 +32,10 @@ export class RestoreFolderHandler implements UseCaseHandler<FolderView> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return restoreFolderOnBranch(ctx, branch, id);
+        }
         const [folder] = await new FolderRepository(ctx.db, ctx.workspaceId).findAll(eq(folders.id, id));
         if (!folder?.deletedAt) {
             return fail('not-found', 'Archived folder not found.');
