@@ -1,11 +1,12 @@
-import { Check, ChevronsUpDown, GitBranch, GitBranchPlus, Lock } from 'lucide-react';
+import { Check, ChevronsUpDown, GitBranch, GitBranchPlus, GitMerge, GitPullRequestArrow, Lock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { projectsPath } from '@/app/paths';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
-import { getCurrentBranch, listBranches, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch } from '@/data/git/git-api';
+import { getCurrentBranch, listBranches, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { CreateBranchDialog } from './create-branch-dialog';
+import { PullRequestDialog } from './pull-request-dialog';
 
 const GROUPS: { kind: BranchKind; label: string }[] = [
     { kind: 'environment', label: 'Environments' },
@@ -19,6 +20,7 @@ function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: 
         <DropdownMenuItem onSelect={() => onPick(branch.name)} title={branch.editable ? branch.name : `${branch.name} (read only here)`}>
             <span className="min-w-0 flex-1 truncate font-mono text-xs">{branch.name}</span>
             {who && <span className="shrink-0 text-xs text-muted-foreground">{who}</span>}
+            {branch.merged && <span className="shrink-0 text-xs text-muted-foreground">merged</span>}
             {branch.changes > 0 && (
                 <span className="shrink-0 text-xs text-muted-foreground" title={`${branch.changes} uncommitted on this server`}>
                     {branch.changes}
@@ -38,10 +40,17 @@ function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: 
 export function BranchPicker({ slug }: { slug: string }) {
     const { isMobile } = useSidebar();
     const [current, setCurrent] = useState<{ slug: string; value: CurrentBranch } | null>(null);
-    const [branches, setBranches] = useState<{ slug: string; list: BranchInfo[]; error?: string } | null>(null);
+    const [branches, setBranches] = useState<{
+        slug: string;
+        list: BranchInfo[];
+        environment?: string | null;
+        mode?: Mode;
+        error?: string;
+    } | null>(null);
     const [showMerged, setShowMerged] = useState(false);
     const [error, setError] = useState('');
     const [creating, setCreating] = useState(false);
+    const [proposing, setProposing] = useState(false);
     const { state } = useMe();
     const { canEdit } = useWorkspace();
     const handle = state.status === 'ready' ? state.me.handle : null;
@@ -65,7 +74,11 @@ export function BranchPicker({ slug }: { slug: string }) {
         }
         setError('');
         void listBranches(slug).then(result =>
-            setBranches(result.ok ? { slug, list: result.value.branches } : { slug, list: [], error: result.error.message }),
+            setBranches(
+                result.ok
+                    ? { slug, list: result.value.branches, environment: result.value.environment, mode: result.value.mode }
+                    : { slug, list: [], error: result.error.message },
+            ),
         );
     };
     const pick = async (name: string) => {
@@ -85,6 +98,9 @@ export function BranchPicker({ slug }: { slug: string }) {
     const merged = list.filter(b => b.merged && b.name !== value.branch);
     const shown = list.filter(b => showMerged || !b.merged || b.name === value.branch);
     const label = value.editable ? `On ${value.branch}` : `On ${value.branch} (read only)`;
+    const environment = branches?.slug === slug ? branches.environment : null;
+    const work = list.find(b => b.name === value.branch && b.kind !== 'environment');
+    const proposable = canEdit && environment && work?.editable && branches?.mode !== 'protected' ? work : null;
 
     return (
         <SidebarMenuItem>
@@ -128,6 +144,18 @@ export function BranchPicker({ slug }: { slug: string }) {
                             </DropdownMenuItem>
                         </>
                     )}
+                    {proposable &&
+                        (proposable.merged ? (
+                            <DropdownMenuItem disabled>
+                                <GitMerge />
+                                Merged into {environment}
+                            </DropdownMenuItem>
+                        ) : (
+                            <DropdownMenuItem onSelect={() => setProposing(true)}>
+                                <GitPullRequestArrow />
+                                Open a pull request to {environment}...
+                            </DropdownMenuItem>
+                        ))}
                     {merged.length > 0 && (
                         <>
                             <DropdownMenuSeparator />
@@ -143,6 +171,15 @@ export function BranchPicker({ slug }: { slug: string }) {
                 </DropdownMenuContent>
             </DropdownMenu>
             {error && <p className="px-2 text-xs text-destructive group-data-[collapsible=icon]:hidden">{error}</p>}
+            {proposing && proposable && environment && (
+                <PullRequestDialog
+                    slug={slug}
+                    branch={proposable.name}
+                    target={environment}
+                    uncommitted={proposable.changes}
+                    onClose={() => setProposing(false)}
+                />
+            )}
             {creating && handle && (
                 <CreateBranchDialog slug={slug} from={value.branch} handle={handle} onClose={() => setCreating(false)} />
             )}

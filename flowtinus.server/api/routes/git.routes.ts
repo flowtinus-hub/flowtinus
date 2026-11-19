@@ -3,6 +3,7 @@ import type { GitOptions } from '#features/git/git-config';
 import { CreateTopologyHandler, GetGitConfigHandler, GetTopologyHandler, GetTurnOnPlanHandler, GetGitStatusHandler, ReconcileHandler, RemoveGitConfigHandler, RenewHookTokenHandler, SaveGitConfigHandler, TestGitAccessHandler, TurnGitOnHandler } from '#features/git/git-handlers';
 import { GetCurrentBranchHandler, SetCurrentBranchHandler } from '#features/git/current-branch';
 import { ListBranchesHandler } from '#features/git/branches';
+import { OpenPullRequestHandler } from '#features/git/pull-request';
 import { CommitChangesHandler, CreateBranchHandler, DiscardChangesHandler, GetChangesHandler } from '#features/git/working-copy-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
@@ -28,6 +29,7 @@ export function gitRoutes(options: GitOptions) {
         .get('/changes', async c => toHttpResult(c, await new GetChangesHandler().handle({}, c.get('useCase'))))
         .post('/commit', async c => toHttpResult(c, await new CommitChangesHandler().handle(await jsonBody(c), c.get('useCase'))))
         .post('/discard', async c => toHttpResult(c, await new DiscardChangesHandler().handle(await jsonBody(c), c.get('useCase'))))
+        .post('/pull-request', async c => toHttpResult(c, await new OpenPullRequestHandler().handle({}, c.get('useCase'))))
         .post('/reconcile', async c => toHttpResult(c, await new ReconcileHandler(options).handle({}, c.get('useCase'))))
         .delete('/', async c => toHttpResult(c, await new RemoveGitConfigHandler().handle({}, c.get('useCase'))));
 }

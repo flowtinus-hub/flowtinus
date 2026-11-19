@@ -5,6 +5,7 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { branchKind, canEditBranch, currentBranch, type BranchKind } from './current-branch';
 import { gitBranch, type GitOptions } from './git-config';
+import type { Mode } from './topology';
 import { onWorkspaceRepository } from './git-handlers';
 import { readHeads, recordHeads } from './git-heads';
 import { ENVIRONMENT_BRANCH, type WorkingRow } from './working-copy';
@@ -25,7 +26,13 @@ export type BranchView = {
     changes: number;
 };
 
-export type BranchesView = { current: string | null; environment: string | null; branches: BranchView[]; fetchedAt: string | null };
+export type BranchesView = {
+    current: string | null;
+    environment: string | null;
+    mode: Mode;
+    branches: BranchView[];
+    fetchedAt: string | null;
+};
 
 async function changesPerBranch(db: Database, workspaceId: string, environment: string | null): Promise<Map<string, number>> {
     const rows = await db.query<WorkingRow & { branch: string }>(
@@ -108,6 +115,6 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 Number(b.mine) - Number(a.mine) ||
                 (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
         );
-        return success({ current, environment, branches, fetchedAt: heads.at });
+        return success({ current, environment, mode: git.mode, branches, fetchedAt: heads.at });
     }
 }
