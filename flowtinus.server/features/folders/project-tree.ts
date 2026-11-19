@@ -121,6 +121,8 @@ export type FlowView = {
     readOnly?: true;
     /** read from a work branch: what is the environment's (deploy, schedules, webhooks, worker tag) is not here */
     workBranch?: true;
+    /** read from a pull-request server's environment branch: the first edit offers Create branch */
+    offersBranch?: true;
 };
 
 export const toFolderView = (folder: Folder): FolderView => ({

@@ -476,6 +476,9 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
     if (!git?.branch) {
         return fail('conflict', 'Git is off in this workspace: there are no branches.');
     }
+    if (git.mode === 'protected') {
+        return fail('conflict', "This server's environment is protected: no branch is created or changed from here.");
+    }
     const invalid = gitBranchNameError(name);
     if (invalid) {
         return fail('validation', 'The request has invalid fields.', { name: invalid });

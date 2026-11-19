@@ -5,17 +5,34 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createBranch } from '@/data/git/git-api';
+import type { FlowFile } from '@flowtinus/core';
+import { branchNamePart, createBranch } from '@/data/git/git-api';
 import type { ApiError } from '@/lib/api';
+
+/** the edit that offered the branch (on a pull-request server's environment branch), taken along to it */
+export type OfferedEdit = { flowName: string; draft: () => { flowId: string; flow: FlowFile } | null };
 
 /**
  * Create branch: cut from the current branch's tip, named users/<handle>/… (the prefix fixed, the user types the rest), pushed at once. The user's
- * uncommitted changes go along to it, and the editor opens on it.
+ * uncommitted changes go along to it, and the editor opens on it. Offered by a first edit (`edit`), the name is filled in
+ * with the flow's and the edit goes along too; the flow then opens again, on the new branch.
  */
-export function CreateBranchDialog({ slug, from, handle, onClose }: { slug: string; from: string; handle: string; onClose: () => void }) {
+export function CreateBranchDialog({
+    slug,
+    from,
+    handle,
+    edit,
+    onClose,
+}: {
+    slug: string;
+    from: string;
+    handle: string;
+    edit?: OfferedEdit;
+    onClose: () => void;
+}) {
     const prefix = `users/${handle}/`;
     // the prefix is fixed: the field holds the rest of the name
-    const [rest, setRest] = useState('');
+    const [rest, setRest] = useState(() => (edit ? branchNamePart(edit.flowName) : ''));
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
     const own = from.startsWith(prefix);
@@ -23,14 +40,18 @@ export function CreateBranchDialog({ slug, from, handle, onClose }: { slug: stri
     const create = async () => {
         setBusy(true);
         setError(null);
-        const result = await createBranch(slug, `${prefix}${rest.trim()}`);
+        const result = await createBranch(slug, `${prefix}${rest.trim()}`, edit?.draft() ?? undefined);
         if (!result.ok) {
             setBusy(false);
             setError(result.error);
             return;
         }
         // every page read so far was the other branch's
-        window.location.assign(projectsPath(slug));
+        if (edit) {
+            window.location.reload();
+        } else {
+            window.location.assign(projectsPath(slug));
+        }
     };
 
     const fieldError = error?.fields?.name;
@@ -40,6 +61,12 @@ export function CreateBranchDialog({ slug, from, handle, onClose }: { slug: stri
                 <DialogHeader>
                     <DialogTitle>Create branch</DialogTitle>
                     <DialogDescription>
+                        {edit && (
+                            <>
+                                <span className="font-mono">{from}</span> only takes pull requests: make your change on a branch of your
+                                own. Your edit goes along.{' '}
+                            </>
+                        )}
                         From the tip of <span className="font-mono">{from}</span>, pushed at once.{' '}
                         {own
                             ? 'Every uncommitted change of this branch goes along.'

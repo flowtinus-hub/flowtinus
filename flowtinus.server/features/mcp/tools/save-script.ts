@@ -24,6 +24,7 @@ export const saveScript = defineTool({
         expectedRevision: z.number().int().min(0).optional().describe('the revision it was based on; omit to create a new script'),
     },
     annotations: { destructiveHint: false, idempotentHint: false },
+    editsBranch: true,
     run: async ({ projectId, path, content, expectedRevision }, t) => {
         const error = syntaxError(content);
         if (error) {

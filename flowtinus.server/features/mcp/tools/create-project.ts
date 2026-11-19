@@ -12,6 +12,7 @@ export const createProject = defineTool({
         description: z.string().optional().describe('what it is for'),
     },
     annotations: { destructiveHint: false },
+    editsBranch: true,
     run: async ({ name, description }, t) =>
         answer(await new CreateProjectHandler().handle({ name, ...(description ? { description } : {}) }, t.ctx), (p: { id: string }) => ({
             projectId: p.id,

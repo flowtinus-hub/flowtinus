@@ -19,6 +19,7 @@ export const archiveFlow = defineTool({
         userApproval: userApproval('archiving this flow'),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    editsBranch: true,
     run: async ({ flowId, userApproval: approval }, t) => {
         const found = await t.flowAndDraft(flowId);
         if (!found.ok) {

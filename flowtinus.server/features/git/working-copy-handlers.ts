@@ -1,10 +1,14 @@
 import { z } from 'zod';
+import { validateFlowFile } from '@flowtinus/core';
+import { branchFlow, workBranch } from './branch-read';
+import { saveDraftOnBranch } from './branch-edits';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { branchAccess } from './current-branch';
+import { branchAccess, currentBranchView } from './current-branch';
 import { isGitOn } from './git-config';
 import { commitWorkingCopy, createBranch, discardWorkingCopy, workingChanges, type CreatedBranch, type WorkingChange } from './working-copy-changes';
 
@@ -15,9 +19,13 @@ export class GetChangesHandler implements UseCaseHandler<{ changes: WorkingChang
         if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
             return gitOff();
         }
-        // a removed branch's changes are listed to whoever may take them to a new branch or discard them
-        const { mayChange } = await branchAccess(ctx.db, ctx.workspaceId, ctx.userId);
-        return success({ changes: mayChange ? await workingChanges(ctx) : [] });
+        // listed to whoever may take them to a new branch or discard them (a removed branch), and on a pull-request
+        // server's environment branch, where the changes made before stay, to take to a branch
+        const [{ mayChange }, view] = await Promise.all([
+            branchAccess(ctx.db, ctx.workspaceId, ctx.userId),
+            currentBranchView(ctx.db, ctx.workspaceId, ctx.userId),
+        ]);
+        return success({ changes: mayChange || view.offersBranch ? await workingChanges(ctx) : [] });
     }
 }
 
@@ -41,10 +49,17 @@ export class CommitChangesHandler implements UseCaseHandler<{ commit: string }> 
     }
 }
 
-export const CreateBranchCommand = z.object({ name: z.string().trim().min(1, 'Required') });
+export const CreateBranchCommand = z.object({
+    name: z.string().trim().min(1, 'Required'),
+    /** the edit that offered the branch (a flow's draft on a pull-request server's environment branch), saved on it */
+    draft: z.object({ flowId: z.uuid('Invalid'), flow: z.unknown() }).optional(),
+});
 
-export class CreateBranchHandler implements UseCaseHandler<CreatedBranch> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CreatedBranch>> {
+/** draft: the edit taken along, saved on the new branch (its revision), or why it could not be */
+export type CreatedBranchView = CreatedBranch & { draft?: { revision: number } | { error: string } };
+
+export class CreateBranchHandler implements UseCaseHandler<CreatedBranchView> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CreatedBranchView>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
             return denied;
@@ -53,7 +68,33 @@ export class CreateBranchHandler implements UseCaseHandler<CreatedBranch> {
         if (!parsed.ok) {
             return parsed;
         }
-        return createBranch(ctx, parsed.value.name);
+        const { name, draft } = parsed.value;
+        const checked = draft ? validateFlowFile(draft.flow) : null;
+        if (checked && !checked.ok) {
+            return fail('validation', `The flow is not valid: ${checked.errors.join(' ')}`);
+        }
+        const created = await createBranch(ctx, name);
+        if (!created.ok || !draft || !checked?.ok) {
+            return created;
+        }
+
+        // a new context: the one of this request read the branch the user was on
+        const on = { ...ctx };
+        try {
+            const branch = await workBranch(on);
+            const flow = branch && branchFlow(branch, draft.flowId);
+            if (!branch || !flow) {
+                return success({ ...created.value, draft: { error: `The flow is not on ${name}: the edit was not taken along.` } });
+            }
+            const saved = await saveDraftOnBranch(on, branch, { id: flow.id, revision: flow.revision, flow: checked.value });
+            return success({ ...created.value, draft: saved.ok ? { revision: saved.value.revision } : { error: saved.error.message } });
+        } catch (e) {
+            // the branch is made and current whatever happens to the edit
+            if (e instanceof UseCaseFailure) {
+                return success({ ...created.value, draft: { error: e.error.message } });
+            }
+            throw e;
+        }
     }
 }
 

@@ -148,6 +148,15 @@ Resources: `flowtinus://catalog`, `flowtinus://components/{type}`, `flowtinus://
 `flowtinus://flows/{flowId}` (the draft as YAML). Prompts: `build-flow(description, projectId?)` and `debug-run(run)`,
 which walk an agent through the loop catalog → write → `validate_flow` → `save_draft` → `test_run` → fix.
 
+**Git sync: the user's current branch.** In a workspace with git on, every tool reads and writes the branch the token's
+user is on in the editor (their current branch, kept on the server): a flow or project that exists only on that branch is
+found by its id, a save is an uncommitted change there, and `test_run` runs that branch's flow, called flows and scripts.
+There are no branch or commit tools: the user picks, creates and commits branches in the editor. Where the current branch
+cannot be edited (the environment's branch of a `pull-request` server, another user's `users/…` branch, a work branch of a
+`protected` server, whose environment's branch is as step 2 left it) `save_draft`, `create_flow`, `create_folder`, `create_project`, `rename_flow`, `move_flow`,
+`archive_flow` and `save_script` refuse (`conflict`), saying to pick or create a branch in the editor; reading, pins and
+runs still work.
+
 **Flows that call flows.** A test run's Flow Invoker calls the other flow's **draft**, so an agent that splits a process
 into flows A → B saves B, then tests A: nothing has to be deployed. Deploying stays a person's decision in the editor.
 

@@ -16,6 +16,7 @@ export const createFlow = defineTool({
         yaml: z.string().optional().describe('its first draft (a flow file); without it the flow has only a Start and an End'),
     },
     annotations: { destructiveHint: false },
+    editsBranch: true,
     run: async ({ projectId, name, folderId, yaml }, t) => {
         if (yaml !== undefined) {
             const project = await new GetProjectHandler().handle({ id: projectId }, t.ctx);
