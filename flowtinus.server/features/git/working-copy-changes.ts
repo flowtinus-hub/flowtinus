@@ -484,7 +484,8 @@ export function deployedText(path: string, text: string): string {
     return read?.ok ? repoFlowToYaml(read.value.flow) : text;
 }
 
-export type CreatedBranch = { branch: string; taken: string[] };
+/** cutFrom: the environment's branch, when the branch it was made from was removed while git was off (its last tip unknown here) */
+export type CreatedBranch = { branch: string; taken: string[]; cutFrom?: string };
 
 /**
  * A new branch, cut from the tip of the user's current branch and pushed at once; it becomes their current branch. It
@@ -528,16 +529,18 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
     if (merging) {
         return fail('conflict', pendingMergeRefusal(merging));
     }
-    const from = source?.branch ?? git.branch;
+    const environment = git.branch;
+    const from = source?.branch ?? environment;
     return onClone(ctx, `Git could not be reached, no branch was created`, async remote => {
         const branches = await remote.branches();
         if ([...branches.keys()].some(b => b.toLowerCase() === name.toLowerCase())) {
             return fail('conflict', `The branch ${name} already exists.`, { name: 'Already exists' });
         }
         // a branch removed on the remote is cut from its last tip, which this server still has
-        const tip = source?.removed ? source.tip : await remote.fetch(from, branches);
+        const cutFrom = source?.lostTip ? environment : from;
+        const tip = source?.removed && !source.lostTip ? source.tip : await remote.fetch(cutFrom, branches);
         if (!tip) {
-            return fail('conflict', `The branch ${from} is not in the repository any more.`);
+            return fail('conflict', `The branch ${cutFrom} is not in the repository any more.`);
         }
         await remote.push(tip, name, null);
         const tipFiles =
@@ -582,7 +585,7 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
                  ON CONFLICT (workspace_id, user_id) DO UPDATE SET branch = EXCLUDED.branch, updated_at = now()`,
                 [ctx.workspaceId, ctx.userId, name],
             );
-            return success({ branch: name, taken: taken.map(item => item.path).sort() });
+            return success({ branch: name, taken: taken.map(item => item.path).sort(), ...(source?.lostTip ? { cutFrom } : {}) });
         });
     });
 }

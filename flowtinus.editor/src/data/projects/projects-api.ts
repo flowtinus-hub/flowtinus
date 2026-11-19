@@ -24,6 +24,7 @@ export function toProject(dto: ProjectDto): Project {
         archivedAt: dto.archivedAt ? new Date(dto.archivedAt) : null,
         ...(dto.summary ? { summary: dto.summary } : {}),
         ...(dto.readOnly ? { readOnly: true } : {}),
+        ...(dto.removedBranch ? { removedBranch: true } : {}),
     };
 }
 

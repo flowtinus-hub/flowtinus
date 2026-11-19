@@ -17,8 +17,11 @@ import { commitWorkingCopy, createBranch, discardWorkingCopy, workingChanges, ty
 
 const gitOff = () => fail('conflict', 'Git is off in this workspace.');
 
-/** merge: a pending merge on the branch, which a Commit takes whole and Discard all aborts */
-export type ChangesView = { changes: WorkingChange[]; merge?: PendingMergeView };
+/**
+ * merge: a pending merge on the branch, which a Commit takes whole and Discard all aborts. removed: the branch was
+ * removed on the remote, its changes go to a new branch or are discarded (no Commit); lostTip as the current branch's
+ */
+export type ChangesView = { changes: WorkingChange[]; merge?: PendingMergeView; removed?: true; lostTip?: true };
 
 export class GetChangesHandler implements UseCaseHandler<ChangesView> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ChangesView>> {
@@ -41,6 +44,8 @@ export class GetChangesHandler implements UseCaseHandler<ChangesView> {
         const marked = new Set(changes.filter(c => c.conflict).map(c => c.path));
         return success({
             changes,
+            ...(view.removed ? { removed: true as const } : {}),
+            ...(view.lostTip ? { lostTip: true as const } : {}),
             ...(merge ? { merge: { ...pendingMergeView(merge), conflicts: merge.conflicts.filter(path => marked.has(path)) } } : {}),
         });
     }

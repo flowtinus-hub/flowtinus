@@ -25,6 +25,8 @@ export type ProjectView = {
     archivedAt: Date | null;
     /** read from a work branch the user cannot edit */
     readOnly?: true;
+    /** read from a work branch removed on the remote: its changes go to a new branch or are discarded */
+    removedBranch?: true;
 };
 
 export const toProjectView = (project: Project): ProjectView => ({

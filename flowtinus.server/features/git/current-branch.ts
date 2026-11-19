@@ -90,10 +90,11 @@ export async function editorOf(db: Database, workspaceId: string, userId: string
 
 /**
  * editable: whether the editor may change things on it (else it is read only). removed: gone from the remote while
- * this server has uncommitted changes on it (read only: they can be taken to a new branch or discarded). offersBranch:
+ * this server has uncommitted changes on it (read only: they can be taken to a new branch or discarded); lostTip: its
+ * last tip unknown here (removed while git was off), a branch made from it is cut from the environment's. offersBranch:
  * the environment's branch of a `pull-request` server, where the first edit offers Create branch and takes the edit along
  */
-export type CurrentBranchView = { branch: string | null; editable: boolean; removed?: true; offersBranch?: true };
+export type CurrentBranchView = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: true };
 
 export const offersBranch = (branch: string | null, environment: string | null, editor: Editor) =>
     branch !== null && branch === environment && editor.mode === 'pull-request';
@@ -103,19 +104,24 @@ export async function branchAccess(
     db: Database,
     workspaceId: string,
     userId: string,
-): Promise<{ branch: string | null; mayChange: boolean; removed: boolean }> {
+): Promise<{ branch: string | null; mayChange: boolean; removed: boolean; lostTip: boolean }> {
     const [git, branch, editor, heads] = await Promise.all([
         gitBranch(db, workspaceId),
         currentBranch(db, workspaceId, userId),
         editorOf(db, workspaceId, userId),
         readHeads(db, workspaceId),
     ]);
-    const removed = branch !== null && heads?.heads.some(h => h.name === branch && h.removed) === true;
-    return { branch, mayChange: canEditBranch(branch, git?.branch ?? null, editor), removed };
+    const head = branch === null ? undefined : heads?.heads.find(h => h.name === branch && h.removed);
+    return {
+        branch,
+        mayChange: canEditBranch(branch, git?.branch ?? null, editor),
+        removed: head !== undefined,
+        lostTip: head?.lostTip === true,
+    };
 }
 
 export async function currentBranchView(db: Database, workspaceId: string, userId: string): Promise<CurrentBranchView> {
-    const [{ branch, mayChange, removed }, git, editor] = await Promise.all([
+    const [{ branch, mayChange, removed, lostTip }, git, editor] = await Promise.all([
         branchAccess(db, workspaceId, userId),
         gitBranch(db, workspaceId),
         editorOf(db, workspaceId, userId),
@@ -124,6 +130,7 @@ export async function currentBranchView(db: Database, workspaceId: string, userI
         branch,
         editable: mayChange && !removed,
         ...(removed ? { removed: true as const } : {}),
+        ...(lostTip ? { lostTip: true as const } : {}),
         ...(offersBranch(branch, git?.branch ?? null, editor) ? { offersBranch: true as const } : {}),
     };
 }

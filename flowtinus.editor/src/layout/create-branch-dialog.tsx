@@ -20,12 +20,15 @@ export type OfferedEdit = { flowName: string; draft: () => { flowId: string; flo
 export function CreateBranchDialog({
     slug,
     from,
+    lostTip,
     handle,
     edit,
     onClose,
 }: {
     slug: string;
     from: string;
+    /** `from` was removed while git was off: the server cuts the branch from the environment's */
+    lostTip?: boolean;
     handle: string;
     edit?: OfferedEdit;
     onClose: () => void;
@@ -67,7 +70,16 @@ export function CreateBranchDialog({
                                 own. Your edit goes along.{' '}
                             </>
                         )}
-                        From the tip of <span className="font-mono">{from}</span>, pushed at once.{' '}
+                        {lostTip ? (
+                            <>
+                                <span className="font-mono">{from}</span> was removed while git was off and its last commit is not known
+                                here: the new branch starts from the tip of the environment&apos;s branch, pushed at once.{' '}
+                            </>
+                        ) : (
+                            <>
+                                From the tip of <span className="font-mono">{from}</span>, pushed at once.{' '}
+                            </>
+                        )}
                         {own
                             ? 'Every uncommitted change of this branch goes along.'
                             : 'Your uncommitted changes go along; the others stay here.'}

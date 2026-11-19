@@ -25,7 +25,7 @@ import { FlowCanvas, type CanvasHandle } from './flow-canvas';
 import { RunPanel } from './run-panel';
 import { portLabel } from '@/editor/run/port-label';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
-import { getCurrentBranch, getGitStatus } from '@/data/git/git-api';
+import { getCurrentBranch, getGitStatus, REMOVED_BRANCH } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { CreateBranchDialog } from '@/layout/create-branch-dialog';
 import { cancelRun, getLastRun, getRun, startRun, type RunUsage } from '@/data/flows/flows-api';
@@ -380,15 +380,24 @@ export function FlowEditorPage() {
                     flowName={flowName}
                 />
                 <div className="ml-auto flex shrink-0 items-center gap-1">
-                    {onBranch && (
-                        <span
-                            role="status"
-                            className="shrink-0 text-xs whitespace-nowrap text-muted-foreground"
-                            title="This branch is read only here: pick the environment's branch in the sidebar to make changes. Run runs what the branch has."
-                        >
-                            Read only
-                        </span>
-                    )}
+                    {onBranch &&
+                        (current?.flow?.removedBranch ? (
+                            <span
+                                role="status"
+                                className="shrink-0 text-xs whitespace-nowrap text-destructive"
+                                title={`${REMOVED_BRANCH} Run runs what the branch has.`}
+                            >
+                                Branch removed
+                            </span>
+                        ) : (
+                            <span
+                                role="status"
+                                className="shrink-0 text-xs whitespace-nowrap text-muted-foreground"
+                                title="This branch is read only here: pick the environment's branch in the sidebar to make changes. Run runs what the branch has."
+                            >
+                                Read only
+                            </span>
+                        ))}
                     <SaveStatus
                         save={save}
                         archived={

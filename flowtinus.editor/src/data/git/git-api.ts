@@ -56,10 +56,11 @@ export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`
 
 /**
  * the user's current branch in the workspace (the environment's branch until another is picked; null with git off), and
- * whether they may edit there; removed: gone from the remote while this server has uncommitted changes on it;
- * offersBranch: the environment's branch of a pull-request server, where the first edit offers Create branch
+ * whether they may edit there; removed: gone from the remote while this server has uncommitted changes on it (lostTip:
+ * removed while git was off, its last commit unknown here); offersBranch: the environment's branch of a pull-request
+ * server, where the first edit offers Create branch
  */
-export type CurrentBranch = { branch: string | null; editable: boolean; removed?: true; offersBranch?: boolean };
+export type CurrentBranch = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: boolean };
 
 export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git/current-branch`);
 
@@ -83,9 +84,17 @@ export type BranchInfo = {
     changes: number;
     /** removed on the remote while this server has uncommitted changes on it: create a branch with them, or discard them */
     removed?: true;
+    /** removed while git was off: its last commit is not known here, a branch made from it starts from the environment's */
+    lostTip?: true;
 };
 
 export const REMOVED_BRANCH = 'Removed on the remote: create a branch with its changes, or discard them.';
+
+/** REMOVED_BRANCH, saying where a branch made from it starts when its last commit is not known here */
+export const removedBranchText = (lostTip?: boolean) =>
+    lostTip
+        ? `${REMOVED_BRANCH} It was removed while git was off: its last commit is not known here, so a new branch starts from the environment's branch.`
+        : REMOVED_BRANCH;
 
 /** the remote's branches as the last fetch found them (the app's own left out), by kind */
 export const listBranches = (ws: string) =>
@@ -113,7 +122,7 @@ export const openPullRequest = (ws: string) => api<PullRequest>(`/w/${ws}/git/pu
  * uncommitted changes along (from the environment's or a shared branch, one's own; from one's own branch, all of them).
  */
 export const createBranch = (ws: string, name: string, draft?: { flowId: string; flow: FlowFile }) =>
-    api<{ branch: string; taken: string[]; draft?: { revision: number } | { error: string } }>(`/w/${ws}/git/branches`, {
+    api<{ branch: string; taken: string[]; cutFrom?: string; draft?: { revision: number } | { error: string } }>(`/w/${ws}/git/branches`, {
         method: 'POST',
         body: draft ? { name, draft } : { name },
     });
@@ -174,7 +183,9 @@ export const CHANGES_CHANGED = 'flowtinus:changes-changed';
  */
 export type PendingMerge = { from: string; theirs: string; ours: string; conflicts: string[] };
 
-export const getChanges = (ws: string) => api<{ changes: WorkingChange[]; merge?: PendingMerge }>(`/w/${ws}/git/changes`);
+/** removed: the current branch was removed on the remote (no Commit: its changes go to a new branch or are discarded) */
+export const getChanges = (ws: string) =>
+    api<{ changes: WorkingChange[]; merge?: PendingMerge; removed?: true; lostTip?: true }>(`/w/${ws}/git/changes`);
 
 /** how far the current work branch is behind the environment's branch, and its pending merge */
 export type UpdateStatus = { branch: string; environment: string; behind: number; pending?: PendingMerge };
