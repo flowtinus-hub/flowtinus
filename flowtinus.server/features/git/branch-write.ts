@@ -16,8 +16,15 @@ import { idOfFile, overlayRows, recordChanges, scriptFileId, workingRows, writeF
  * environment's branch.
  */
 
-export async function refuseReadOnly(ctx: UseCaseContext, branch: WorkBranch): Promise<void> {
-    if (!branch.editable) {
+/** `discarding`: a removed branch's changes may still be discarded by whoever may change it */
+export async function refuseReadOnly(ctx: UseCaseContext, branch: WorkBranch, discarding = false): Promise<void> {
+    if (branch.removed && branch.mayChange && !discarding) {
+        throw new UseCaseFailure(
+            'conflict',
+            `The branch ${branch.branch} was removed on the remote: create a branch with its changes, or discard them.`,
+        );
+    }
+    if (!branch.editable && !(discarding && branch.removed && branch.mayChange)) {
         throw new UseCaseFailure(
             'conflict',
             readOnlyBranch(branch.branch, (await editorOf(ctx.db, ctx.workspaceId, ctx.userId)).environments),

@@ -1,10 +1,10 @@
-import { currentBranchView } from './current-branch';
 import { z } from 'zod';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
+import { branchAccess } from './current-branch';
 import { isGitOn } from './git-config';
 import { commitWorkingCopy, createBranch, discardWorkingCopy, workingChanges, type CreatedBranch, type WorkingChange } from './working-copy-changes';
 
@@ -15,9 +15,9 @@ export class GetChangesHandler implements UseCaseHandler<{ changes: WorkingChang
         if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
             return gitOff();
         }
-        return success({
-            changes: !(await currentBranchView(ctx.db, ctx.workspaceId, ctx.userId)).editable ? [] : await workingChanges(ctx),
-        });
+        // a removed branch's changes are listed to whoever may take them to a new branch or discard them
+        const { mayChange } = await branchAccess(ctx.db, ctx.workspaceId, ctx.userId);
+        return success({ changes: mayChange ? await workingChanges(ctx) : [] });
     }
 }
 

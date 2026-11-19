@@ -247,12 +247,18 @@ const mergedIsValid = (path: string, text: string) => {
 export type RenamedDraft = { id: string; from: string; to: string };
 
 /**
- * The working copy when a commit arrives on the branch (#35, per file): a file git did not change stays; one equal to
- * its base follows git; one changed on both sides is merged three ways, its base moving on, or marked with the commit
- * when they conflict. A new flow whose path git takes is renamed "<name> (draft)".
+ * The working copy when a commit arrives on the branch (#35, per file, on any branch): a file git did not change stays;
+ * one equal to its base follows git; one changed on both sides is merged three ways, its base moving on, or marked with
+ * the commit when they conflict. A new flow whose path git takes is renamed "<name> (draft)".
  */
-export async function followGit(db: Database, workspaceId: string, tip: RepoFiles, commit: string): Promise<RenamedDraft[]> {
-    const rows = await workingRows(db, workspaceId);
+export async function followGit(
+    db: Database,
+    workspaceId: string,
+    tip: RepoFiles,
+    commit: string,
+    branch = ENVIRONMENT_BRANCH,
+): Promise<RenamedDraft[]> {
+    const rows = await workingRows(db, workspaceId, branch);
     const flowPaths = new Map<string, string>();
     for (const [path, text] of Object.entries(tip)) {
         if (repoEntry(path).kind === 'flow') {
@@ -270,7 +276,7 @@ export async function followGit(db: Database, workspaceId: string, tip: RepoFile
     );
     const lowerPaths = new Map(Object.keys(tip).map(path => [path.toLowerCase(), path]));
     const where = 'workspace_id = $1 AND branch = $2 AND path = $3';
-    const at = (row: WorkingRow) => [workspaceId, ENVIRONMENT_BRANCH, row.path];
+    const at = (row: WorkingRow) => [workspaceId, branch, row.path];
     const mark = (row: WorkingRow) => db.query(`UPDATE working_copy SET conflict = $4 WHERE ${where}`, [...at(row), commit]);
     const renamed: RenamedDraft[] = [];
 
@@ -303,7 +309,7 @@ export async function followGit(db: Database, workspaceId: string, tip: RepoFile
                     await saveBlob(db, workspaceId, arrived),
                 ]);
             } else if (kind === 'flow') {
-                renamed.push(await renameDraft(db, workspaceId, row, taken));
+                renamed.push(await renameDraft(db, workspaceId, row, taken, branch));
             } else {
                 await mark(row);
             }
@@ -353,8 +359,8 @@ export async function followGit(db: Database, workspaceId: string, tip: RepoFile
         if (arrived === undefined) {
             if (textHash(row.content ?? '') === row.base) {
                 await db.query(`DELETE FROM working_copy WHERE ${where}`, at(row));
-            } else if (kind === 'flow') {
-                // a flow git deleted while it has a draft here goes to the archive with its draft
+            } else if (kind === 'flow' && branch === ENVIRONMENT_BRANCH) {
+                // a flow git deleted while it has a draft here goes to the archive with its draft (a work branch has no archive: marked)
                 await db.query(`UPDATE working_copy SET deleted = true, base = NULL, conflict = NULL WHERE ${where}`, at(row));
             } else {
                 await mark(row);
@@ -384,7 +390,7 @@ export async function followGit(db: Database, workspaceId: string, tip: RepoFile
     return renamed;
 }
 
-async function renameDraft(db: Database, workspaceId: string, row: WorkingRow, taken: Set<string>): Promise<RenamedDraft> {
+async function renameDraft(db: Database, workspaceId: string, row: WorkingRow, taken: Set<string>, branch: string): Promise<RenamedDraft> {
     const entry = repoEntry(row.path);
     const from = entry.kind === 'flow' ? entry.name : '';
     const dir = row.path.slice(0, row.path.length - `${from}.flow.yaml`.length);
@@ -396,11 +402,17 @@ async function renameDraft(db: Database, workspaceId: string, row: WorkingRow, t
     taken.add(path.toLowerCase());
     await db.query('UPDATE working_copy SET path = $4 WHERE workspace_id = $1 AND branch = $2 AND path = $3', [
         workspaceId,
-        ENVIRONMENT_BRANCH,
+        branch,
         row.path,
         path,
     ]);
-    await db.query('UPDATE flows SET name = $3, updated_at = now() WHERE workspace_id = $1 AND id = $2', [workspaceId, row.file_id, name]);
+    if (branch === ENVIRONMENT_BRANCH) {
+        await db.query('UPDATE flows SET name = $3, updated_at = now() WHERE workspace_id = $1 AND id = $2', [
+            workspaceId,
+            row.file_id,
+            name,
+        ]);
+    }
     return { id: row.file_id!, from, to: name };
 }
 

@@ -54,8 +54,11 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
-/** the user's current branch in the workspace (the environment's branch until another is picked; null with git off), and whether they may edit there */
-export type CurrentBranch = { branch: string | null; editable: boolean };
+/**
+ * the user's current branch in the workspace (the environment's branch until another is picked; null with git off), and
+ * whether they may edit there; removed: gone from the remote while this server has uncommitted changes on it
+ */
+export type CurrentBranch = { branch: string | null; editable: boolean; removed?: true };
 
 export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git/current-branch`);
 
@@ -77,7 +80,11 @@ export type BranchInfo = {
     merged: boolean;
     /** uncommitted changes on this server */
     changes: number;
+    /** removed on the remote while this server has uncommitted changes on it: create a branch with them, or discard them */
+    removed?: true;
 };
+
+export const REMOVED_BRANCH = 'Removed on the remote: create a branch with its changes, or discard them.';
 
 /** the remote's branches as the last fetch found them (the app's own left out), by kind */
 export const listBranches = (ws: string) =>
