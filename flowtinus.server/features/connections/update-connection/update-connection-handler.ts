@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { updateConnectionOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { insertSecret } from '#features/secrets/secret-store';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -23,6 +25,10 @@ export class UpdateConnectionHandler implements UseCaseHandler<ConnectionView> {
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return updateConnectionOnBranch(ctx, branch, parsed.value);
+        }
         const { id, newSecrets, ...fields } = parsed.value;
         const current = await new ConnectionRepository(ctx.db, ctx.workspaceId).findById(id);
         if (!current) {

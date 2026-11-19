@@ -69,7 +69,7 @@ const isKeep = (path: string) => path.endsWith('/.gitkeep');
  * Folders as the export makes them: a folder of flows emptied by the change keeps a .gitkeep, and a .gitkeep goes
  * once something else is in its folder.
  */
-function tidyKeeps(before: RepoFiles, after: RepoFiles): RepoFiles {
+function tidyKeeps(before: RepoFiles, after: RepoFiles, gone: string[]): RepoFiles {
     const files = { ...after };
     const flowDirs = new Set<string>();
     for (const path of Object.keys(before)) {
@@ -82,7 +82,7 @@ function tidyKeeps(before: RepoFiles, after: RepoFiles): RepoFiles {
         }
     }
     const paths = () => Object.keys(files);
-    for (const dir of flowDirs) {
+    for (const dir of [...flowDirs].filter(dir => !gone.some(prefix => dir.startsWith(prefix)))) {
         const project = dir.slice(0, dir.indexOf('/flows/'));
         if (`${project}/project.yaml` in files && !paths().some(path => path.startsWith(dir))) {
             files[`${dir}.gitkeep`] = '';
@@ -97,13 +97,25 @@ function tidyKeeps(before: RepoFiles, after: RepoFiles): RepoFiles {
     return files;
 }
 
-/** a change of a work branch's files (`change` answers them changed), recorded in its working copy */
-export async function changeBranch(ctx: UseCaseContext, branch: WorkBranch, change: (files: RepoFiles) => RepoFiles): Promise<void> {
+/**
+ * A change of a work branch's files (`change` answers them changed), recorded in its working copy. `gone`: folders
+ * (paths ending in /) that left with the change (archived, renamed, moved), so no .gitkeep keeps them; `also`: more
+ * work in the same transaction (a connection's configuration, kept in the environment); `archives`: the change archives
+ * folders, whose deleted .gitkeeps keep their text for the branch's archive to find (any other change forgets it: a
+ * folder renamed, moved or filled is not archived).
+ */
+export async function changeBranch(
+    ctx: UseCaseContext,
+    branch: WorkBranch,
+    change: (files: RepoFiles) => RepoFiles,
+    { gone = [], also, archives = false }: { gone?: string[]; also?: (db: Database) => Promise<void>; archives?: boolean } = {},
+): Promise<void> {
     await refuseReadOnly(ctx, branch);
     await ctx.db.transaction(async db => {
         await lockBranch(db, ctx.workspaceId, branch.branch);
+        await also?.(db);
         const before = overlayRows(branch.tipFiles, await workingRows(db, ctx.workspaceId, branch.branch));
-        const after = tidyKeeps(before, change({ ...before }));
+        const after = tidyKeeps(before, change({ ...before }), gone);
         await recordChanges(
             db,
             ctx.workspaceId,
@@ -112,6 +124,13 @@ export async function changeBranch(ctx: UseCaseContext, branch: WorkBranch, chan
             ctx.userId,
             branch.branch,
         );
+        const keeps = Object.keys(before).filter(path => isKeep(path) && !(path in after));
+        if (!archives && keeps.length > 0) {
+            await db.query(
+                'UPDATE working_copy SET content = NULL WHERE workspace_id = $1 AND branch = $2 AND deleted AND path = ANY($3::text[])',
+                [ctx.workspaceId, branch.branch, keeps],
+            );
+        }
     });
     forgetWorkBranch(ctx);
 }

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { moveFolderOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { canMoveFolder, isFolderVisible } from '@flowtinus/core';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -23,6 +25,10 @@ export class MoveFolderHandler implements UseCaseHandler<FolderView> {
         }
 
         const { id, parentId } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return moveFolderOnBranch(ctx, branch, parsed.value);
+        }
         const repository = new FolderRepository(ctx.db, ctx.workspaceId);
         const folder = await repository.findById(id);
         const tree = folder ? await loadTree(ctx.db, ctx.workspaceId, folder.projectId) : null;

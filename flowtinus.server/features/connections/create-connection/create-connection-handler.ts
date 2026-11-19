@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { createConnectionOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { insertSecret } from '#features/secrets/secret-store';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -26,6 +28,10 @@ export class CreateConnectionHandler implements UseCaseHandler<{ id: string }> {
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return createConnectionOnBranch(ctx, branch, parsed.value);
+        }
         const { newSecrets, ...fields } = parsed.value;
         const checked = await checkProfile(ctx, fields, newSecrets);
         if ('failure' in checked) {

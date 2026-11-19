@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { restoreFlowOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { eq } from 'drizzle-orm';
 import { isFolderVisible } from '@flowtinus/core';
@@ -29,6 +31,10 @@ export class RestoreFlowHandler implements UseCaseHandler<FlowView> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return restoreFlowOnBranch(ctx, branch, id);
+        }
         const repository = new FlowRepository(ctx.db, ctx.workspaceId);
         const [flow] = await repository.findDeleted(eq(flows.id, id));
         if (!flow) {

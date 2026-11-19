@@ -1,4 +1,4 @@
-import { createScriptOnBranch, deleteScriptOnBranch, saveScriptOnBranch } from '#features/git/branch-edits';
+import { createScriptOnBranch, deleteScriptOnBranch, moveScriptOnBranch, saveScriptOnBranch } from '#features/git/branch-edits';
 import { refuseOffEditableBranch } from '#features/git/current-branch';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
@@ -166,6 +166,10 @@ export class MoveScriptPathHandler implements UseCaseHandler<{ path: string }> {
         }
 
         const { projectId: id, from, to } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return moveScriptOnBranch(ctx, branch, parsed.value);
+        }
         const missing = await requireActiveProject(ctx, id);
         if (missing && !missing.ok) {
             return missing;

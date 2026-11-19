@@ -1,4 +1,4 @@
-import { branchScripts, branchTree, workBranch } from '#features/git/branch-read';
+import { branchArchive, branchScripts, branchTree, workBranch, type WorkBranch } from '#features/git/branch-read';
 import { z } from 'zod';
 import { workingScripts } from '#features/scripts/script-store';
 import { desc } from 'drizzle-orm';
@@ -40,6 +40,17 @@ async function summaries(ctx: UseCaseContext, ids: string[]): Promise<Map<string
     return summaries;
 }
 
+async function archivedOnBranch(ctx: UseCaseContext, branch: WorkBranch): Promise<ListProjectsResponse['items']> {
+    const archive = await branchArchive(ctx, branch);
+    return archive.projects
+        .sort((a, b) => b.deletedAt.getTime() - a.deletedAt.getTime())
+        .map(project => ({
+            ...toProjectView(project),
+            ...(branch.editable ? {} : { readOnly: true as const }),
+            summary: { ...EMPTY, flows: archive.flows.filter(f => f.projectId === project.id).length },
+        }));
+}
+
 export class ListProjectsHandler implements UseCaseHandler<ListProjectsResponse> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ListProjectsResponse>> {
         const parsed = validate(ListProjectsQuery, input ?? {});
@@ -70,7 +81,7 @@ export class ListProjectsHandler implements UseCaseHandler<ListProjectsResponse>
                           };
                           return { ...toProjectView(project), ...(branch.editable ? {} : { readOnly: true as const }), summary };
                       })
-                    : [];
+                    : await archivedOnBranch(ctx, branch);
             return success({ items });
         }
 

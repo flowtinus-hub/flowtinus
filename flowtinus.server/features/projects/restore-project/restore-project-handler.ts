@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { restoreProjectOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import { eq } from 'drizzle-orm';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -30,6 +32,10 @@ export class RestoreProjectHandler implements UseCaseHandler<ProjectView> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return restoreProjectOnBranch(ctx, branch, id);
+        }
         const repository = new ProjectRepository(ctx.db, ctx.workspaceId);
         const [archived] = await repository.findDeleted(eq(projects.id, id), { limit: 1 });
         if (!archived?.deletedAt) {

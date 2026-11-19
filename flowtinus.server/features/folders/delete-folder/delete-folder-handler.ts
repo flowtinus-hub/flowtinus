@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { deleteArchivedFolderOnBranch } from '#features/git/branch-edits';
+import { workBranch } from '#features/git/branch-read';
 import { eq } from 'drizzle-orm';
 import { subtreeIds } from '@flowtinus/core';
 import { undeployArchived } from '#features/deployments/deployments';
@@ -25,6 +27,10 @@ export class DeleteFolderHandler implements UseCaseHandler<{ id: string; flows: 
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return deleteArchivedFolderOnBranch(ctx, branch, id);
+        }
         const [folder] = await new FolderRepository(ctx.db, ctx.workspaceId).findAll(eq(folders.id, id));
         if (!folder) {
             return fail('not-found', 'Folder not found.');

@@ -1,3 +1,5 @@
+import { workBranch } from '#features/git/branch-read';
+import { updateProjectOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -22,6 +24,10 @@ export class UpdateProjectHandler implements UseCaseHandler<UpdateProjectRespons
             return parsed;
         }
 
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return updateProjectOnBranch(ctx, branch, parsed.value);
+        }
         const { id, ...changes } = parsed.value;
         const projects = new ProjectRepository(ctx.db, ctx.workspaceId);
         if (changes.name !== undefined && (await projects.existsByName(changes.name, id))) {

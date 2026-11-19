@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { deleteArchivedFlowOnBranch } from '#features/git/branch-edits';
+import { workBranch } from '#features/git/branch-read';
 import { eq } from 'drizzle-orm';
 import { undeployArchived } from '#features/deployments/deployments';
 import { FlowRepository, requireActiveProject } from '#features/folders/project-tree';
@@ -29,6 +31,10 @@ export class DeleteFlowHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return deleteArchivedFlowOnBranch(ctx, branch, id);
+        }
         const [flow] = await new FlowRepository(ctx.db, ctx.workspaceId).findAll(eq(flows.id, id));
         if (!flow) {
             return fail('not-found', 'Flow not found.');

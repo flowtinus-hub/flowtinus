@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { workBranch } from '#features/git/branch-read';
+import { archiveProjectOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -25,6 +27,10 @@ export class ArchiveProjectHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return archiveProjectOnBranch(ctx, branch, id);
+        }
         const archived = await changeTree(ctx, tx => archiveProject(tx, ctx, id));
         if (!archived) {
             return fail('not-found', 'Project not found.');

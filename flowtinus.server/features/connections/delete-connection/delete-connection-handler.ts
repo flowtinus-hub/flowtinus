@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { isGitOn } from '#features/git/git-config';
+import { workBranch } from '#features/git/branch-read';
+import { deleteConnectionOnBranch } from '#features/git/branch-edits';
 import { changeTree } from '#features/git/git-first';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -24,6 +26,10 @@ export class DeleteConnectionHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const { id } = parsed.value;
+        const branch = await workBranch(ctx);
+        if (branch) {
+            return deleteConnectionOnBranch(ctx, branch, id);
+        }
         return (await changeTree(
             ctx,
             // with git on, until its Commit: archived, its configuration kept for a discard to bring back
