@@ -63,7 +63,7 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
             commitFiles(repo, 'flowtinus/config', { 'topology.yaml': topology.replace(/mode: [a-z-]+/, `mode: ${mode}`) }, mode);
             expect((await call('POST', '/git/reconcile')).status).toBe(200);
         };
-        return { id, as, call, repo, handle, commitFlow, setMode };
+        return { id, as, call, repo, projectId, handle, commitFlow, setMode };
     }
 
     beforeAll(async () => {
@@ -104,6 +104,7 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
         expect(opened.body).toEqual({
             branch,
             target: 'dev',
+            pushed: false,
             commits: 1,
             borrowed: [],
             provider: 'github',
@@ -153,6 +154,7 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
         expect(opened.body).toEqual({
             branch: bias,
             target: 'dev',
+            pushed: false,
             commits: 2,
             borrowed: [{ branch: anas, commits: 1 }],
             provider: 'gitlab',
@@ -190,5 +192,42 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
         const opened = await other.call('POST', '/git/pull-request');
         expect(opened.status).toBe(200);
         expect(opened.body).toMatchObject({ branch: 'fix/x', target: 'dev', commits: 1, provider: null, url: null });
+    });
+
+    test('a branch removed on the remote, or a remote behind, is pushed back; one moved ahead is left as it is', async () => {
+        const { call, repo, projectId, handle, commitFlow } = await workspace('https://github.com/acme/gone.git');
+        const branch = `users/${await handle(ANA)}/gone`;
+        expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
+        await commitFlow(ANA, 'Refunds');
+        const tip = git(repo, 'rev-parse', branch);
+        expect((await call('POST', `/projects/${projectId}/flows`, { name: 'Uncommitted' })).status).toBe(201);
+
+        git(repo, 'update-ref', '-d', `refs/heads/${branch}`);
+        expect((await call('POST', '/git/reconcile')).status).toBe(200);
+        const listed = (await call('GET', '/git/branches')).body.branches;
+        expect(listed.find((b: { name: string }) => b.name === branch)).toMatchObject({ removed: true });
+
+        const opened = await call('POST', '/git/pull-request');
+        expect(opened.status).toBe(200);
+        expect(opened.body).toMatchObject({ branch, pushed: true, commits: 1, provider: 'github' });
+        expect(git(repo, 'rev-parse', branch)).toBe(tip);
+        const back = (await call('GET', '/git/branches')).body.branches.find((b: { name: string }) => b.name === branch);
+        expect(back.removed).toBeUndefined();
+        expect(back).toMatchObject({ editable: true });
+        expect(back.changes).toBeGreaterThan(0);
+        expect((await call('GET', '/git/current-branch')).body).toEqual({ branch, editable: true });
+
+        git(repo, 'update-ref', `refs/heads/${branch}`, git(repo, 'rev-parse', 'dev'));
+        const behind = await call('POST', '/git/pull-request');
+        expect(behind.status).toBe(200);
+        expect(behind.body).toMatchObject({ pushed: true, commits: 1 });
+        expect(git(repo, 'rev-parse', branch)).toBe(tip);
+
+        commitFiles(repo, branch, { 'notes.txt': 'from a laptop' }, 'laptop');
+        const ahead = git(repo, 'rev-parse', branch);
+        const moved = await call('POST', '/git/pull-request');
+        expect(moved.status).toBe(200);
+        expect(moved.body).toMatchObject({ pushed: false, commits: 2 });
+        expect(git(repo, 'rev-parse', branch)).toBe(ahead);
     });
 });

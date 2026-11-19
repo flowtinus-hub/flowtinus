@@ -121,7 +121,8 @@ export function BranchPicker({ slug }: { slug: string }) {
     const environment = branches?.slug === slug ? branches.environment : null;
     const work = list.find(b => b.name === value.branch && b.kind !== 'environment');
     const updatable = canEdit && environment && work?.editable ? work : null;
-    const proposable = updatable && branches?.mode !== 'protected' ? work : null;
+    const pushable = work?.removed && (work.kind === 'shared' || work.mine) ? work : null;
+    const proposable = canEdit && environment && branches?.mode !== 'protected' ? (updatable ?? pushable) : null;
 
     return (
         <SidebarMenuItem>
