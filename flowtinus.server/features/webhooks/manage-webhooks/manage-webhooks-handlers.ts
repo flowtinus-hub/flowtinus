@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { activeFlow, currentDeployment } from '#features/deployments/deployments';
+import { refuseTriggerTables } from '#features/git/git-config';
 import { flows } from '#features/flows/flow';
 import { FlowRepository } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -26,7 +27,7 @@ export class ListWebhooksHandler implements UseCaseHandler<{ items: WebhookView[
 
 export class CreateWebhookHandler implements UseCaseHandler<{ webhook: WebhookView; token: string }> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ webhook: WebhookView; token: string }>> {
-        const denied = requireRole(ctx, 'editor');
+        const denied = requireRole(ctx, 'editor') ?? (await refuseTriggerTables(ctx.db, ctx.workspaceId));
         if (denied) {
             return denied;
         }
@@ -59,7 +60,7 @@ export class CreateWebhookHandler implements UseCaseHandler<{ webhook: WebhookVi
 
 export class UpdateWebhookHandler implements UseCaseHandler<WebhookView & { token?: string }> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<WebhookView & { token?: string }>> {
-        const denied = requireRole(ctx, 'editor');
+        const denied = requireRole(ctx, 'editor') ?? (await refuseTriggerTables(ctx.db, ctx.workspaceId));
         if (denied) {
             return denied;
         }
@@ -137,7 +138,7 @@ export class NewWebhookTokenHandler implements UseCaseHandler<{ webhook: Webhook
 
 export class DeleteWebhookHandler implements UseCaseHandler<{ id: string }> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ id: string }>> {
-        const denied = requireRole(ctx, 'editor');
+        const denied = requireRole(ctx, 'editor') ?? (await refuseTriggerTables(ctx.db, ctx.workspaceId));
         if (denied) {
             return denied;
         }

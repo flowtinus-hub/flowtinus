@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { refuseTriggerTables } from '#features/git/git-config';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -10,7 +11,7 @@ export const DeleteScheduleCommand = z.object({ id: z.uuid('Invalid') });
 
 export class DeleteScheduleHandler implements UseCaseHandler<{ id: string }> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ id: string }>> {
-        const denied = requireRole(ctx, 'editor');
+        const denied = requireRole(ctx, 'editor') ?? (await refuseTriggerTables(ctx.db, ctx.workspaceId));
         if (denied) {
             return denied;
         }

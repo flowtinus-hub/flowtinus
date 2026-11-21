@@ -1,4 +1,4 @@
-import { dropDanglingEdges, folderPath, newFlowFile, repoFlowFromYaml, repoFlowToYaml, repoPath, validateFlowFile, type FlowFile } from '@flowtinus/core';
+import { dropDanglingEdges, folderPath, newFlowFile, repoFlowFromYaml, repoFlowToYaml, repoPath, validateFlowFile, type FlowFile, type RepoTriggers } from '@flowtinus/core';
 import { loadTree } from '#features/folders/project-tree';
 import { committedFlowText, flowsInRepo } from '#features/git/workspace-export';
 import { ENVIRONMENT_BRANCH, fileRow, writeFile } from '#features/git/working-copy';
@@ -38,6 +38,28 @@ export async function loadDraft(db: Database, workspaceId: string, row: Flow): P
     };
 }
 
+export async function draftTriggers(db: Database, workspaceId: string, row: Flow): Promise<RepoTriggers> {
+    const draft = await fileRow(db, workspaceId, row.id);
+    const read = draft?.content && !draft.deleted ? repoFlowFromYaml(draft.content, row.name) : null;
+    if (read?.ok) {
+        return { schedules: read.value.schedules, webhooks: read.value.webhooks };
+    }
+    const [inRepo] = await flowsInRepo(db, workspaceId, [row.id]);
+    return { schedules: inRepo?.schedules ?? [], webhooks: inRepo?.webhooks ?? [] };
+}
+
+const triggersText = (triggers: RepoTriggers) => repoFlowToYaml(newFlowFile('', ''), triggers);
+
+export async function draftTriggersChanged(db: Database, workspaceId: string, row: Flow): Promise<boolean> {
+    const draft = await fileRow(db, workspaceId, row.id);
+    const read = draft?.content && !draft.deleted ? repoFlowFromYaml(draft.content, row.name) : null;
+    if (!read?.ok) {
+        return false;
+    }
+    const [inRepo] = await flowsInRepo(db, workspaceId, [row.id]);
+    return triggersText(read.value) !== triggersText({ schedules: inRepo?.schedules ?? [], webhooks: inRepo?.webhooks ?? [] });
+}
+
 export async function flowRepoPath(db: Database, workspaceId: string, row: Flow): Promise<string> {
     const [[names], tree] = await Promise.all([
         db.query<{ slug: string; project: string }>(
@@ -61,7 +83,7 @@ export async function writeDraft(
     flow: FlowFile,
     userId: string | null,
     expected?: number,
-    options: { asNew?: boolean } = {},
+    options: { asNew?: boolean; triggers?: RepoTriggers } = {},
 ): Promise<number | null> {
     await refuseOffEditableBranch(db, workspaceId, userId);
     await db.query('UPDATE flows SET updated_at = now(), updated_by = $3 WHERE workspace_id = $1 AND id = $2', [
@@ -75,7 +97,9 @@ export async function writeDraft(
     const live = draft && !draft.deleted ? draft : null;
     const deployed = live?.content ? !/^deployed: false$/m.test(live.content) : (inRepo?.deployed ?? true);
     const before = live?.content ? repoFlowFromYaml(live.content, row.name) : null;
-    const triggers = before?.ok ? before.value : inRepo && !options.asNew ? { schedules: inRepo.schedules, webhooks: inRepo.webhooks } : {};
+    const triggers =
+        options.triggers ??
+        (before?.ok ? before.value : inRepo && !options.asNew ? { schedules: inRepo.schedules, webhooks: inRepo.webhooks } : {});
     const text = repoFlowToYaml({ ...flow, id: row.id, name: row.name }, { ...triggers, deployed });
     if (live) {
         const [saved] = await db.query<{ revision: number }>(

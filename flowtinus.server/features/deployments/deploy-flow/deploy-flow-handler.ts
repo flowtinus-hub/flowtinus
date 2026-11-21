@@ -12,6 +12,7 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { validate } from '#shared/use-cases/validate';
 import { changeTree } from '#features/git/git-first';
 import { isGitOn } from '#features/git/git-config';
+import { arrivedSince, listArrivedDisabled } from '#features/git/arrived-disabled';
 import type { CommittedDeployments } from '../commit-deploy';
 import { activeFlow, contentHash, currentDeployment, insertVersion, loadDeployments, lockFlowDeployments, newestVersionLike, setDeployed } from '../deployments';
 
@@ -87,6 +88,7 @@ async function commitFlow(
     }
 
     const scriptPaths = (await workingScriptPaths(ctx.db, ctx.workspaceId, row.projectId, scripts)) ?? [];
+    const before = await listArrivedDisabled(ctx.db, ctx.workspaceId);
     const committed = await commitWorkingCopy(ctx, {
         paths: [...(draft ? [draft.path] : []), ...scriptPaths],
         message,
@@ -98,5 +100,9 @@ async function commitFlow(
             ? fail('validation', `Nothing to commit: the draft is v${current.number}.`)
             : committed;
     }
-    return success({ ...(await loadDeployments(ctx.db, ctx.workspaceId, row.id)), commit: committed.value });
+    return success({
+        ...(await loadDeployments(ctx.db, ctx.workspaceId, row.id)),
+        commit: committed.value,
+        arrived: arrivedSince(before, await listArrivedDisabled(ctx.db, ctx.workspaceId)),
+    });
 }

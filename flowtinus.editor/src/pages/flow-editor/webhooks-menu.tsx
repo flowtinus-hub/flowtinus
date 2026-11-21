@@ -17,10 +17,10 @@ import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
 
-const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
+export const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 
 /** where the server answers (in development the editor's /api, which Vite sends to it) */
-const serverOrigin = () => `${window.location.origin}/api`;
+export const serverOrigin = () => `${window.location.origin}/api`;
 
 type Props = {
     flowId: string;
@@ -74,7 +74,7 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
     const newToken = (webhook: Webhook) =>
         confirm({
             title: `New token for ${webhook.name}?`,
-            description: `The token ${webhook.tokenHint}… stops working at once.`,
+            description: webhook.tokenHint ? `The token ${webhook.tokenHint}… stops working at once.` : 'It has no token yet.',
             confirmLabel: 'New token',
             busyLabel: 'Making…',
             destructive: true,
@@ -194,7 +194,16 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
     );
 }
 
-const callTone = (status: number) => (status < 300 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive');
+export const TokenHint = ({ hint }: { hint: string | null }) =>
+    hint === null ? (
+        <span>no token yet: made when first turned on</span>
+    ) : (
+        <span>
+            token <span className="font-mono">{hint}…</span>
+        </span>
+    );
+
+export const callTone = (status: number) => (status < 300 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive');
 
 function WebhookRow(props: {
     webhook: Webhook;
@@ -225,8 +234,7 @@ function WebhookRow(props: {
                     </span>
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
-                    {WEBHOOK_RESPONSE_OPTIONS.find(r => r.value === webhook.response)?.label} · token{' '}
-                    <span className="font-mono">{webhook.tokenHint}…</span>
+                    {WEBHOOK_RESPONSE_OPTIONS.find(r => r.value === webhook.response)?.label} · <TokenHint hint={webhook.tokenHint} />
                     {webhook.last && (
                         <>
                             {' · '}
@@ -258,12 +266,13 @@ function WebhookRow(props: {
 }
 
 /** the name, how it answers, on or off */
-function WebhookForm(props: {
-    webhook: Webhook | null;
+export function WebhookForm(props: {
+    webhook: (Omit<WebhookFields, 'enabled'> & { enabled?: boolean }) | null;
+    switchable?: boolean;
     onClose: () => void;
     onSave: (fields: WebhookFields) => Promise<{ ok: true } | { ok: false; error: { message: string; fields?: Record<string, string> } }>;
 }) {
-    const { webhook, onClose, onSave } = props;
+    const { webhook, switchable = true, onClose, onSave } = props;
     const [name, setName] = useState(webhook?.name ?? '');
     const [response, setResponse] = useState<WebhookResponse>(webhook?.response ?? 'async');
     const [enabled, setEnabled] = useState(webhook?.enabled ?? true);
@@ -284,10 +293,12 @@ function WebhookForm(props: {
             <DialogContent className="sm:max-w-md">
                 <DialogHeader className="flex-row items-center gap-3 pr-8">
                     <DialogTitle className="flex-1">{webhook ? 'Edit webhook' : 'New webhook'}</DialogTitle>
-                    <label className="flex items-center gap-2 text-sm font-normal">
-                        <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="On" />
-                        {enabled ? 'On' : 'Off'}
-                    </label>
+                    {switchable && (
+                        <label className="flex items-center gap-2 text-sm font-normal">
+                            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="On" />
+                            {enabled ? 'On' : 'Off'}
+                        </label>
+                    )}
                 </DialogHeader>
                 <div className="grid gap-4">
                     <div className="grid gap-1.5">

@@ -27,6 +27,7 @@ import { SaveScheduleHandler } from '#features/schedules/save-schedule/save-sche
 import { SwitchScheduleHandler } from '#features/schedules/switch-schedule/switch-schedule-handler';
 import { OverrideScheduleHandler } from '#features/schedules/override-schedule/override-schedule-handler';
 import { CreateWebhookHandler, DeleteWebhookHandler, ListWebhooksHandler, NewWebhookTokenHandler, SwitchWebhookHandler, UpdateWebhookHandler } from '#features/webhooks/manage-webhooks/manage-webhooks-handlers';
+import { GetFlowTriggersHandler, RemoveFileTriggerHandler, SaveFileScheduleHandler, SaveFileWebhookHandler } from '#features/flows/flow-triggers/flow-triggers-handlers';
 import { RerunRunHandler } from '#features/runs/rerun-run/rerun-run-handler';
 import { StartRunHandler } from '#features/runs/start-run/start-run-handler';
 import type { RunProgress, RunRecord } from '@flowtinus/core';
@@ -134,6 +135,59 @@ export function flowsRoutes() {
                 c,
                 await new SaveScheduleHandler('create').handle({ flowId: c.req.param('id'), fields: await jsonBody(c) }, c.get('useCase')),
                 201,
+            ),
+        )
+        .get('/:id/triggers', async c =>
+            toHttpResult(c, await new GetFlowTriggersHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
+        )
+        .post('/:id/triggers/schedules', async c =>
+            toHttpResult(
+                c,
+                await new SaveFileScheduleHandler().handle({ id: c.req.param('id'), fields: await jsonBody(c) }, c.get('useCase')),
+                201,
+            ),
+        )
+        .put('/:id/triggers/schedules/:scheduleId', async c =>
+            toHttpResult(
+                c,
+                await new SaveFileScheduleHandler().handle(
+                    { id: c.req.param('id'), scheduleId: c.req.param('scheduleId'), fields: await jsonBody(c) },
+                    c.get('useCase'),
+                ),
+            ),
+        )
+        .delete('/:id/triggers/schedules/:scheduleId', async c =>
+            toHttpResult(
+                c,
+                await new RemoveFileTriggerHandler('schedules').handle(
+                    { id: c.req.param('id'), triggerId: c.req.param('scheduleId') },
+                    c.get('useCase'),
+                ),
+            ),
+        )
+        .post('/:id/triggers/webhooks', async c =>
+            toHttpResult(
+                c,
+                await new SaveFileWebhookHandler().handle({ id: c.req.param('id'), fields: await jsonBody(c) }, c.get('useCase')),
+                201,
+            ),
+        )
+        .put('/:id/triggers/webhooks/:webhookId', async c =>
+            toHttpResult(
+                c,
+                await new SaveFileWebhookHandler().handle(
+                    { id: c.req.param('id'), webhookId: c.req.param('webhookId'), fields: await jsonBody(c) },
+                    c.get('useCase'),
+                ),
+            ),
+        )
+        .delete('/:id/triggers/webhooks/:webhookId', async c =>
+            toHttpResult(
+                c,
+                await new RemoveFileTriggerHandler('webhooks').handle(
+                    { id: c.req.param('id'), triggerId: c.req.param('webhookId') },
+                    c.get('useCase'),
+                ),
             ),
         )
         .get('/:id/webhooks', async c =>

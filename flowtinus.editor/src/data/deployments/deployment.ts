@@ -1,4 +1,5 @@
 import { deployContent, type FlowFile } from '@flowtinus/core';
+import type { ArrivedDisabled } from '@/data/git/git-api';
 
 /*
  * A flow's deploys in this environment (not a promotion to another one): the draft is what the editor edits, saves and
@@ -50,10 +51,12 @@ export type FlowDeployments = {
     git?: { branch: string | null; mode: 'direct' | 'pull-request' | 'protected' };
     /** the commit a Commit applied */
     commit?: string;
+    arrived?: ArrivedDisabled[];
     /** with git on: the commit the draft could not be merged with; it cannot be committed until it is discarded */
     draftConflict?: string;
     /** with git on: the changed scripts the draft imports (directly or through another script), offered to its Commit */
     changedScripts?: string[];
+    triggersChanged?: true;
 };
 
 /** a commit as the editor shows it */
