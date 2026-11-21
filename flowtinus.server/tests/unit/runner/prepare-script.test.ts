@@ -28,6 +28,8 @@ export function uploadIdOf(response: IUploadInitResponse): string { return respo
     '@w/acme/billing/scripts/upload/headers': `import { uploadIdOf, type IUploadInitResponse } from '@w/acme/shared/scripts/upload/types';
 export const header = (r: IUploadInitResponse) => 'id=' + uploadIdOf(r);`,
 };
+const NONE = { scripts: {}, hashes: {}, workspace: 'acme' };
+const WITH_SCRIPTS = { ...NONE, scripts: SCRIPTS };
 
 test('process runs with the run globals and log (the console at its levels); types do not stop it', async () => {
     logs.length = 0;
@@ -43,6 +45,7 @@ test('process runs with the run globals and log (the console at its levels); typ
   return { double: $input.n * 2, hasSecret: typeof $SECRETS.TOKEN === 'string' };
 }`,
         globals,
+        NONE,
     );
     expect(await process({ n: 21 })).toEqual({ double: 42, hasSecret: true });
     expect(logs).toEqual(['hi 21 eu https://api.test validation', '{"ok":true}', 'careful', 'broke', 'detail']);
@@ -55,13 +58,13 @@ test('it imports scripts of any project of the workspace, which import each othe
 import type { IUploadInitResponse } from '@w/acme/shared/scripts/upload/types';
 async function process($input: IUploadInitResponse) { return header($input); }`,
         globals,
-        SCRIPTS,
+        WITH_SCRIPTS,
     );
     expect(await process({ file: { uploadId: 'u7' } })).toBe('id=u7');
 });
 
 test('what does not compile says why: an unknown script, a script of another workspace, a package, a syntax error (with its line)', async () => {
-    const compiled = (code: string) => prepareScript(`${code}\nasync function process() { return x; }`, globals, SCRIPTS, {}, 'acme');
+    const compiled = (code: string) => prepareScript(`${code}\nasync function process() { return x; }`, globals, WITH_SCRIPTS);
     await expect(compiled(`import { x } from '@w/acme/billing/scripts/nope';`)).rejects.toThrow(
         'The script "@w/acme/billing/scripts/nope" does not exist.',
     );
@@ -74,18 +77,22 @@ test('what does not compile says why: an unknown script, a script of another wor
     await expect(compiled(`import x from 'node:fs';`)).rejects.toThrow(
         '"node:fs" cannot be imported: only scripts of this workspace (@w/acme/<project>/scripts/<path>).',
     );
-    await expect(prepareScript(`async function process() {\n  return (;\n}`, globals)).rejects.toThrow(/does not compile: .*line 2/);
-    await expect(prepareScript(`const x = 1;`, globals)).rejects.toThrow('The code has no process function.');
+    await expect(prepareScript(`async function process() {\n  return (;\n}`, globals, NONE)).rejects.toThrow(/does not compile: .*line 2/);
+    await expect(prepareScript(`const x = 1;`, globals, NONE)).rejects.toThrow('The code has no process function.');
 });
 
 test('isolated: no process, require, Bun or disk; an endless loop is stopped', async () => {
-    const peek = await prepareScript(`async function process() { return [typeof Bun, typeof globalThis.process, typeof fetch]; }`, globals);
+    const peek = await prepareScript(
+        `async function process() { return [typeof Bun, typeof globalThis.process, typeof fetch]; }`,
+        globals,
+        NONE,
+    );
     expect(await peek(null)).toEqual(['undefined', 'undefined', 'function']);
     // a require is an import to the bundle: refused like any other that is not a project script
-    await expect(prepareScript(`async function process() { return require('node:fs'); }`, globals)).rejects.toThrow(
+    await expect(prepareScript(`async function process() { return require('node:fs'); }`, globals, NONE)).rejects.toThrow(
         '"node:fs" cannot be imported',
     );
-    const loop = await prepareScript(`async function process() { while (true) {} }`, globals);
+    const loop = await prepareScript(`async function process() { while (true) {} }`, globals, NONE);
     await expect(loop(null)).rejects.toThrow(/timed out|timeout/i);
 });
 
@@ -100,6 +107,7 @@ test("what the script waits for outside goes through the engine's wait: its time
   return (await response.json()).ok;
 }`,
             globals,
+            NONE,
         );
         expect(await process(null)).toBe(true);
         expect(waits).toEqual(['wait', 'wait']);
@@ -107,6 +115,7 @@ test("what the script waits for outside goes through the engine's wait: its time
         const cleared = await prepareScript(
             `async function process() { clearTimeout(setTimeout(() => {}, 10_000)); return 'done'; }`,
             globals,
+            NONE,
         );
         expect(await cleared(null)).toBe('done');
     } finally {
@@ -136,6 +145,7 @@ test("the script sees exactly the globals the core lists (what the code editor t
   };
 }`,
         globals,
+        NONE,
     );
     const { onGlobalThis, undefinedOnes } = (await process({})) as { onGlobalThis: string[]; undefinedOnes: string[] };
     expect(undefinedOnes).toEqual([]);
@@ -149,13 +159,13 @@ async function process($input) {
   if ($input !== null) globalThis.shared = $input;
   return { calls, shared: globalThis.shared };
 }`;
-    const first = await prepareScript(code, globals);
+    const first = await prepareScript(code, globals, NONE);
     expect(await first(null)).toEqual({ calls: 1, shared: undefined });
     expect(await first('from the first')).toEqual({ calls: 2, shared: 'from the first' });
-    const second = await prepareScript(code, globals);
+    const second = await prepareScript(code, globals, NONE);
     expect(await second(null)).toEqual({ calls: 1, shared: 'from the first' });
     await (
-        await prepareScript(`async function process() { delete globalThis.shared; }`, globals)
+        await prepareScript(`async function process() { delete globalThis.shared; }`, globals, NONE)
     )(null);
 });
 
@@ -172,7 +182,7 @@ async function process($input: Order) {
   return missing.value + total;
 }`,
         globals,
-        SCRIPTS,
+        WITH_SCRIPTS,
     );
     await expect(component({ id: 1 })).rejects.toThrow('one is not allowed (line 6)');
     // in a script it imports: that script and its line
@@ -180,13 +190,13 @@ async function process($input: Order) {
     await expect(component({ id: 3 })).rejects.toThrow(/missing is not defined \(line 9\)$/);
     // the code around process (run once, when prepared): its line too
     await expect(
-        prepareScript(`const broken = null;\nconst x = broken.y;\nasync function process() { return x; }`, globals),
+        prepareScript(`const broken = null;\nconst x = broken.y;\nasync function process() { return x; }`, globals, NONE),
     ).rejects.toThrow(/\(line 2\)$/);
 });
 
 test('an error that already says where it broke keeps that place: a rethrow adds no line of its own', async () => {
     // a called flow failed: its message, rethrown by this component, already has the line of the script that broke
-    const component = await prepareScript(`async function process($input) {\n  throw new Error($input.message);\n}`, globals);
+    const component = await prepareScript(`async function process($input) {\n  throw new Error($input.message);\n}`, globals, NONE);
     const inner = 'The flow "Child" failed: "Prepare": Unsupported value (@w/acme/dw/scripts/Shared/Sla line 24)';
     await expect(component({ message: inner })).rejects.toThrow(new RegExp(`Sla line 24\\)$`));
     await expect(component({ message: 'The flow "Child" failed: "Check": boom (line 3)' })).rejects.toThrow(/boom \(line 3\)$/);
@@ -203,6 +213,7 @@ test("an error thrown with a cause keeps it out of the script's context: rethrow
   rethrow($input.firstError);
 }`,
         globals,
+        NONE,
     );
     const firstError = { error: 'Error', message: 'value too long', component: 'Insert' };
     const rethrown = toError(await component({ firstError }).catch((e: unknown) => e));

@@ -41,7 +41,7 @@ const run = async (code: string, parallel: boolean) => {
         evaluate,
         input: [{ n: 1 }, { n: 2 }, { n: 3 }],
         onReachEnd: async doc => void reached.push(doc.DATA as (typeof reached)[number]),
-        prepareScript: (code, globals) => prepareScript(code, globals),
+        prepareScript: (code, globals) => prepareScript(code, globals, { scripts: {}, hashes: {}, workspace: 'acme' }),
     });
     return { record, results: reached.map(d => d.result) };
 };

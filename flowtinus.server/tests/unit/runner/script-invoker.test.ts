@@ -44,7 +44,7 @@ test("a Script Invoker runs the script's function in the worker's runner (its im
         id: 'si',
         evaluate,
         input: [{ price: 1.111 }, { price: 10 }],
-        prepareScript: (code, globals) => prepareScript(code, globals, SCRIPTS),
+        prepareScript: (code, globals) => prepareScript(code, globals, { scripts: SCRIPTS, hashes: {}, workspace: 'acme' }),
     });
     expect(record.status).toBe('completed');
     expect(record.components.find(c => c.nodeId === 's')!.outputSample['out-0']).toEqual([
@@ -61,7 +61,7 @@ test('a function named process does not clash with the call around it', async ()
             id: 'si2',
             evaluate,
             input: [{}],
-            prepareScript: (code, globals) => prepareScript(code, globals, SCRIPTS),
+            prepareScript: (code, globals) => prepareScript(code, globals, { scripts: SCRIPTS, hashes: {}, workspace: 'acme' }),
         },
     );
     expect(record.components.find(c => c.nodeId === 's')!.outputSample['out-0']).toEqual([{ result: 'named process: x' }]);

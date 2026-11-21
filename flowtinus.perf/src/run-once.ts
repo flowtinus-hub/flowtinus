@@ -86,7 +86,11 @@ async function warmUp(scenario: Scenario, flows: Record<string, ExecutableFlow>,
     for (const node of Object.values(flows).flatMap(f => f.nodes)) {
         if (node.type === 'typescript' && typeof node.config.code === 'string') {
             // with the scenario's scripts and their hashes: the bundle is kept, as a worker keeps it between runs
-            await prepareScript(node.config.code, globals, scripts.scripts, scripts.scriptHashes, PERF_WORKSPACE);
+            await prepareScript(node.config.code, globals, {
+                scripts: scripts.scripts,
+                hashes: scripts.scriptHashes,
+                workspace: PERF_WORKSPACE,
+            });
         }
     }
 }

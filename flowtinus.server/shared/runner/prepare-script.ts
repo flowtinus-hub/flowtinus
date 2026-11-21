@@ -2,13 +2,6 @@ import vm from 'node:vm';
 import { onlyThisWorkspace, rethrow, scriptAddress, SCRIPT_IMPORT_ROOT, toError, type PrepareScript } from '@flowtinus/core';
 import { bundleFrame, originalPosition, type SourceMap } from './source-position';
 
-/*
- * The TypeScript component, in the worker: its code and the workspace's scripts it imports become one bundle (Bun.build),
- * compiled once per worker, in one node:vm context, into a factory that takes the component run's globals as
- * parameters. node:vm separates the scope but is not a security boundary: the code is the project's, and each run has
- * a worker process of its own.
- */
-
 /** the synchronous part of a call: an endless loop becomes the envelope's error, it does not hang the worker */
 const SYNC_TIMEOUT_MS = Number(process.env.SCRIPT_SYNC_TIMEOUT_MS ?? 5_000);
 const CALL_TIMEOUT_MS = Number(process.env.SCRIPT_TIMEOUT_MS ?? 30_000);
@@ -24,10 +17,11 @@ const text = (parts: unknown[]) => parts.map(p => (typeof p === 'string' ? p : J
 
 export type Bundle = { js: string; map: SourceMap | null };
 
+export type ScriptSet = { scripts: Record<string, string>; hashes: Record<string, string>; workspace: string };
+
 const SCRIPT_MODULE = /^scripts\/(.+)\.ts$/;
 
-/** `scripts`: the code of the scripts it may import, by import path; `workspace`: the handle of its workspace */
-export async function bundleScript(code: string, scripts: Record<string, string>, workspace = ''): Promise<Bundle> {
+export async function bundleScript(code: string, { scripts, workspace }: Omit<ScriptSet, 'hashes'>): Promise<Bundle> {
     // the component's code is a module that exports its process (an export keeps it an ES module, whatever it uses),
     // and a small entry hands it to the caller
     if (!/\bfunction\s+process\s*\(/.test(code)) {
@@ -58,9 +52,9 @@ export async function bundleScript(code: string, scripts: Record<string, string>
                                 return { path: 'component.ts', namespace: 'flowtinus' };
                             }
 
-                            const only = onlyThisWorkspace(workspace || '<workspace>');
+                            const only = onlyThisWorkspace(workspace);
                             const address = scriptAddress(args.path);
-                            if (workspace && address && address.workspace !== workspace) {
+                            if (address && address.workspace !== workspace) {
                                 throw new Error(`"${args.path}" cannot be imported: ${only}`);
                             }
 
@@ -118,7 +112,7 @@ const BUNDLE_FILE = 'component.ts';
  * a message that already says where it happened: one that came from another component's error (a flow called and
  * failed, its message rethrown by this one), which already has its own "(line N)"
  */
-const ALREADY_LOCATED = /\((?:@w\/[^()]+ )?line \d+\)/;
+const ALREADY_LOCATED = new RegExp(String.raw`\((?:${SCRIPT_IMPORT_ROOT}[^()]+ )?line \d+\)`);
 
 /**
  * The error with where it happened in the code as written, when its stack and the map say so: "(line 7)" in the
@@ -207,14 +201,10 @@ function compile({ js, map }: Bundle): Compiled {
 const compiled = new Map<string, Compiled>();
 const KEPT_SCRIPTS = 50;
 
-async function cachedScript(
-    code: string,
-    scripts: Record<string, string>,
-    hashes: Record<string, string>,
-    workspace: string,
-): Promise<Compiled> {
+async function cachedScript(code: string, set: ScriptSet): Promise<Compiled> {
+    const { scripts, hashes, workspace } = set;
     if (Object.keys(scripts).length > 0 && Object.keys(hashes).length === 0) {
-        return compile(await bundleScript(code, scripts, workspace));
+        return compile(await bundleScript(code, set));
     }
 
     const key = new Bun.CryptoHasher('sha256')
@@ -229,7 +219,7 @@ async function cachedScript(
         return known;
     }
 
-    const script = compile(await bundleScript(code, scripts, workspace));
+    const script = compile(await bundleScript(code, set));
     compiled.set(key, script);
     if (compiled.size > KEPT_SCRIPTS) {
         compiled.delete(compiled.keys().next().value!);
@@ -238,14 +228,8 @@ async function cachedScript(
     return script;
 }
 
-export const prepareScript = async (
-    code: string,
-    globals: Parameters<PrepareScript>[1],
-    scripts: Record<string, string> = {},
-    hashes: Record<string, string> = {},
-    workspace = '',
-) => {
-    const { factory, map } = await cachedScript(code, scripts, hashes, workspace);
+export const prepareScript = async (code: string, globals: Parameters<PrepareScript>[1], set: ScriptSet) => {
+    const { factory, map } = await cachedScript(code, set);
     const log = (...parts: unknown[]) => globals.log(text(parts));
     const at =
         (level: 'debug' | 'warning' | 'error') =>
