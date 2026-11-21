@@ -49,11 +49,19 @@ const key = (projectId: string, path: string) => `${projectId}\n${path}`;
 
 const set = (projectId: string, next: Partial<ProjectScripts>) => {
     store.set(projectId, { ...(store.get(projectId) ?? EMPTY), ...next });
+    contentsSnapshot = new Map([...store].map(([id, project]) => [id, project.contents]));
     listeners.forEach(listener => listener());
 };
 
 /** the project's scripts as they are now */
 export const projectScripts = (projectId: string): ProjectScripts => store.get(projectId) ?? EMPTY;
+
+export const loadedProjects = (): string[] => [...store.keys()];
+
+let contentsSnapshot = new Map<string, Record<string, ScriptContent>>();
+
+/** the code loaded so far of every project, by project (the same object until a change) */
+export const loadedContents = () => contentsSnapshot;
 
 const subscribe = (listener: () => void) => {
     listeners.add(listener);

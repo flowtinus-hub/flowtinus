@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { Check } from 'lucide-react';
+import { AlertTriangle, Check } from 'lucide-react';
+import { handleOf } from '@flowtinus/core';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -106,6 +107,15 @@ function ProjectForm({ target, onClose, existing, onSave }: Props & { target: Pr
                     />
                 </div>
                 <FieldError message={errors.name} />
+                {editing && !errors.name && handleOf(form.name) && handleOf(form.name) !== editing.handle && (
+                    <p className="flex items-start gap-1.5 text-sm text-amber-700 dark:text-amber-500">
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                        <span>
+                            The handle becomes <code className="font-mono">{handleOf(form.name)}</code>: imports of this project's scripts
+                            break, in other projects and in its own code.
+                        </span>
+                    </p>
+                )}
             </div>
 
             <div className="grid gap-2">
