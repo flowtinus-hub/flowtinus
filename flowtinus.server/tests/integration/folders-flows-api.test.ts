@@ -165,6 +165,20 @@ describe('folders and flows api', () => {
         expect((await call('GET', `/flows/${flowId}/draft`)).status).toBe(200);
         expect((await call('PUT', `/flows/${flowId}/draft`, { revision: 1, flow })).status).toBe(404);
     });
+    test('a draft keeps its groups, a locked one (the Arrange leaves it as it is) still locked when read again', async () => {
+        const flowId = (await call('POST', `/projects/${projectId}/flows`, { name: 'Grouped' })).body.id as string;
+        const { flow } = (await call('GET', `/flows/${flowId}/draft`)).body as { flow: Record<string, unknown> };
+        const box = { position: { x: 0, y: 0 }, size: { width: 640, height: 352 } };
+        const groups = [
+            { id: 'kept', title: 'Kept', color: '#3b82f6', ...box, locked: true },
+            { id: 'free', title: 'Free', color: '#22c55e', ...box },
+        ];
+        expect((await call('PUT', `/flows/${flowId}/draft`, { revision: 0, flow: { ...flow, groups } })).status).toBe(200);
+        const read = (await call('GET', `/flows/${flowId}/draft`)).body as { flow: { groups: Record<string, unknown>[] } };
+        expect(read.flow.groups).toEqual(expect.arrayContaining(groups));
+        expect(read.flow.groups).toHaveLength(2);
+    });
+
     test("the calls between the project's flows, from their drafts: who calls whom, the circular chains, an archived one unavailable", async () => {
         const make = async (name: string) => (await call('POST', `/projects/${projectId}/flows`, { name })).body.id as string;
         const [one, two, gone] = [await make('Calls 1'), await make('Calls 2'), await make('Calls gone')];

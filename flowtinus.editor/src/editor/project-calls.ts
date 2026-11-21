@@ -3,7 +3,7 @@ import type { FlowCall } from '@flowtinus/core';
 import { getFlowCalls, type FlowCalls } from '@/data/flows/flows-api';
 
 /*
- * The calls between a project's flows, shared by the flow editor (the Calls chip in its top bar, a Flow Invoker's
+ * The calls between a project's flows, shared by the flow editor (the Calls panel in its canvas, a Flow Invoker's
  * settings): read when one of them needs it, again on demand at most every REFRESH_MS (opening the chip reads them
  * right away). Nothing is read in the background.
  */

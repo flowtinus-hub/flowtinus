@@ -1,33 +1,42 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, CircleCheck, GitCommitHorizontal, Lock, LoaderCircle, TriangleAlert, Undo2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleCheck, File, FileCode2, Folder, FolderKanban, GitCommitHorizontal, Lock, LoaderCircle, Plug, TriangleAlert, Undo2, Workflow, type LucideIcon } from 'lucide-react';
+import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, getCurrentBranch, removedBranchText, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
+import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, getCurrentBranch, discardedWith, removedBranchText, requiredBy, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
+import { useUnsavedWork } from '@/data/git/unsaved-work';
 import type { ApiError } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { ConflictDialog } from './conflict-dialog';
 import { CreateBranchDialog } from './create-branch-dialog';
 import { FileDiffView } from './file-diff';
 
-const CHANGE_LABEL: Record<WorkingChange['change'], string> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
+/** as VS Code shows a file's change: its letter, in its color, the word on hover */
+const CHANGE_MARK: Record<WorkingChange['change'], { letter: string; word: string; className: string }> = {
+    added: { letter: 'A', word: 'Added', className: 'text-emerald-600 dark:text-emerald-400' },
+    modified: { letter: 'M', word: 'Modified', className: 'text-amber-600 dark:text-amber-400' },
+    deleted: { letter: 'D', word: 'Deleted', className: 'text-red-600 dark:text-red-400' },
+    renamed: { letter: 'R', word: 'Renamed', className: 'text-sky-600 dark:text-sky-400' },
+};
+
+const KIND_ICON: Record<string, LucideIcon> = {
+    flow: Workflow,
+    script: FileCode2,
+    folder: Folder,
+    project: FolderKanban,
+    connection: Plug,
+};
+
+/** the file's name, and the folders it is in */
+const splitPath = (path: string) => {
+    const at = path.lastIndexOf('/');
+    return at < 0 ? { name: path, folder: '' } : { name: path.slice(at + 1), folder: path.slice(0, at) };
+};
 
 const shortPath = (slug: string, path: string) => (path.startsWith(`${slug}/`) ? path.slice(slug.length + 1) : path);
-
-function requiredBy(changes: WorkingChange[], chosen: Set<string>): Map<string, string> {
-    const byPath = new Map(changes.map(c => [c.path, c]));
-    const locked = new Map<string, string>();
-    const queue = [...chosen];
-    while (queue.length > 0) {
-        for (const { path, reason } of byPath.get(queue.shift()!)?.requires ?? []) {
-            if (!locked.has(path) && !chosen.has(path)) {
-                locked.set(path, reason);
-                queue.push(path);
-            }
-        }
-    }
-    return locked;
-}
 
 export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
     const [changes, setChanges] = useState<WorkingChange[] | null>(null);
@@ -43,7 +52,9 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     const [loads, setLoads] = useState(0);
     const [pullRequestsOnly, setPullRequestsOnly] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
+    const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
     const { canEdit } = useWorkspace();
+    const unsaved = useUnsavedWork();
     const { state: me } = useMe();
     const handle = me.status === 'ready' ? me.me.handle : null;
     useEffect(() => {
@@ -76,6 +87,11 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     // a pending merge is committed whole: every file, whatever is checked
     const all = merge ? (changes ?? []).map(c => c.path) : [...chosen, ...locked.keys()];
     const conflicted = (changes ?? []).filter(c => c.conflict && all.includes(c.path));
+    const pickable = (changes ?? []).filter(c => !c.conflict && !locked.has(c.path)).map(c => c.path);
+    const pickedCount = pickable.filter(path => chosen.has(path)).length;
+    const allPicked: boolean | 'indeterminate' =
+        merge || (pickable.length > 0 && pickedCount === pickable.length) ? true : pickedCount > 0 ? 'indeterminate' : false;
+    const pickAll = (on: boolean) => setChosen(on ? new Set(pickable) : new Set());
 
     const changed = () => window.dispatchEvent(new Event(CHANGES_CHANGED));
     const commit = async () => {
@@ -90,17 +106,33 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
             setError(result.error);
         }
     };
-    const discard = async (which: { paths: string[] } | { mine: true }) => {
-        setBusy(true);
-        setError(null);
-        const result = await discardChanges(slug, which);
-        setBusy(false);
-        if (result.ok) {
-            changed();
-            await load();
-        } else {
-            setError(result.error);
-        }
+    const discard = (which: { paths: string[] } | { mine: true }) => {
+        const along = 'paths' in which ? discardedWith(changes ?? [], which.paths[0]!).map(path => shortPath(slug, path)) : [];
+        setConfirm({
+            title:
+                'paths' in which
+                    ? `Discard the changes of ${shortPath(slug, which.paths[0]!)}?`
+                    : merge
+                      ? 'Abort the merge?'
+                      : 'Discard all your changes?',
+            description:
+                'paths' in which
+                    ? `The file takes git's content; its changes are lost.${along.length > 0 ? ` These go too, as they need it: ${along.join(', ')}.` : ''}`
+                    : merge
+                      ? 'The branch goes back to how it was before the merge; every file of the merge is lost.'
+                      : "Every file you changed takes git's content; your changes are lost.",
+            confirmLabel: 'paths' in which ? 'Discard changes' : merge ? 'Abort the merge' : 'Discard all mine',
+            busyLabel: merge && !('paths' in which) ? 'Aborting…' : 'Discarding…',
+            destructive: true,
+            onConfirm: async () => {
+                const result = await discardChanges(slug, which);
+                if (result.ok) {
+                    changed();
+                    await load();
+                }
+                return result;
+            },
+        });
     };
     const toggle = (path: string, on: boolean) =>
         setChosen(current => {
@@ -148,87 +180,125 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                 {merge.conflicts.length > 0 && ' Discard a conflicted file to keep this branch’s version of it.'}
                             </p>
                         )}
-                        <ul className="grid max-h-[60vh] gap-1 overflow-y-auto text-sm">
-                            {changes.map(change => {
-                                const reason = locked.get(change.path);
-                                return (
-                                    <li key={change.path} className="grid gap-1">
-                                        <div className="flex items-start gap-2">
-                                            <input
-                                                type="checkbox"
-                                                className="mt-1"
-                                                aria-label={shortPath(slug, change.path)}
-                                                checked={!!merge || chosen.has(change.path) || !!reason}
-                                                disabled={busy || !!merge || !!reason || !!change.conflict}
-                                                onChange={e => toggle(change.path, e.target.checked)}
-                                            />
-                                            <span className="w-4 font-mono text-xs text-muted-foreground" title={change.change}>
-                                                {CHANGE_LABEL[change.change]}
-                                            </span>
-                                            <span className="grid min-w-0 flex-1">
-                                                <button
-                                                    type="button"
-                                                    className="flex min-w-0 items-center gap-1 text-left hover:underline"
-                                                    title={diffOf === change.path ? 'Hide the diff' : 'Show the diff'}
-                                                    aria-expanded={diffOf === change.path}
-                                                    onClick={() => setDiffOf(diffOf === change.path ? null : change.path)}
-                                                >
-                                                    {diffOf === change.path ? (
-                                                        <ChevronDown className="size-3 shrink-0" />
-                                                    ) : (
-                                                        <ChevronRight className="size-3 shrink-0" />
-                                                    )}
-                                                    <span className="truncate font-mono text-xs">
-                                                        {change.from && `${shortPath(slug, change.from)} → `}
-                                                        {shortPath(slug, change.path)}
-                                                    </span>
-                                                </button>
-                                                {!change.mine && (
-                                                    <span className="text-xs text-muted-foreground">
-                                                        edited by {change.editedByName ?? change.editedBy ?? 'someone else'}
-                                                    </span>
-                                                )}
-                                                {reason && (
-                                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                                        <Lock className="size-3" />
-                                                        {reason}
-                                                    </span>
-                                                )}
-                                                {change.conflict && (
-                                                    <span className="text-xs text-red-700 dark:text-red-400">
-                                                        conflicts with {change.conflict.slice(0, 7)}: resolve or discard it first
-                                                    </span>
-                                                )}
-                                            </span>
-                                            {change.conflict && (
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-7 border-amber-500/60"
-                                                    disabled={busy}
-                                                    onClick={() => setResolving(change.path)}
-                                                >
-                                                    <TriangleAlert className="text-amber-500" /> Resolve
-                                                </Button>
-                                            )}
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="size-7"
-                                                title="Discard this change"
-                                                disabled={busy}
-                                                onClick={() => void discard({ paths: [change.path] })}
+                        <div className="grid min-w-0 gap-1">
+                            <div className="flex items-center gap-2 border-b px-2 pb-2 text-xs text-muted-foreground">
+                                <Checkbox
+                                    aria-label="Select all"
+                                    checked={allPicked}
+                                    disabled={busy || !!merge || pickable.length === 0}
+                                    onCheckedChange={checked => pickAll(checked === true)}
+                                />
+                                <span className="font-medium tracking-wide uppercase">Changes</span>
+                                <span className="rounded-full bg-muted px-1.5 font-medium text-foreground">{changes.length}</span>
+                                <span className="ml-auto">{all.length} to commit</span>
+                            </div>
+                            <ul className="grid max-h-[60vh] min-w-0 overflow-x-hidden overflow-y-auto text-sm">
+                                {changes.map(change => {
+                                    const reason = locked.get(change.path);
+                                    const mark = CHANGE_MARK[change.change];
+                                    const Icon = KIND_ICON[change.kind] ?? File;
+                                    const { name, folder } = splitPath(shortPath(slug, change.path));
+                                    const open = diffOf === change.path;
+                                    return (
+                                        <li key={change.path} className="grid min-w-0">
+                                            <div
+                                                role="button"
+                                                tabIndex={0}
+                                                aria-expanded={open}
+                                                title={`${shortPath(slug, change.path)} · ${mark.word}${open ? '' : ' · click to show the diff'}`}
+                                                className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 outline-none hover:bg-accent focus-visible:bg-accent"
+                                                onClick={() => setDiffOf(open ? null : change.path)}
+                                                onKeyDown={event => {
+                                                    if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault();
+                                                        setDiffOf(open ? null : change.path);
+                                                    }
+                                                }}
                                             >
-                                                <Undo2 />
-                                            </Button>
-                                        </div>
-                                        {diffOf === change.path && (
-                                            <FileDiffView key={loads} slug={slug} path={change.path} className="ml-6" />
-                                        )}
-                                    </li>
-                                );
-                            })}
-                        </ul>
+                                                <Checkbox
+                                                    aria-label={shortPath(slug, change.path)}
+                                                    checked={!!merge || chosen.has(change.path) || !!reason}
+                                                    disabled={busy || !!merge || !!reason || !!change.conflict}
+                                                    onClick={event => event.stopPropagation()}
+                                                    onCheckedChange={checked => toggle(change.path, checked === true)}
+                                                />
+                                                {open ? (
+                                                    <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                                                ) : (
+                                                    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                                                )}
+                                                <Icon className="size-4 shrink-0 text-muted-foreground" />
+                                                <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                                                    <span
+                                                        className={cn(
+                                                            'max-w-full shrink truncate',
+                                                            change.change === 'deleted' && 'line-through',
+                                                        )}
+                                                    >
+                                                        {name}
+                                                    </span>
+                                                    <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                                                        {change.from && `${shortPath(slug, change.from)} → `}
+                                                        {folder}
+                                                    </span>
+                                                </span>
+                                                {!change.mine && (
+                                                    <span className="shrink-0 text-xs text-muted-foreground">
+                                                        {change.editedByName ?? change.editedBy ?? 'someone else'}
+                                                    </span>
+                                                )}
+                                                {reason && <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-label={reason} />}
+                                                {change.conflict && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-6 border-amber-500/60 px-2 text-xs"
+                                                        title={`Conflicts with ${change.conflict.slice(0, 7)}: resolve or discard it first`}
+                                                        disabled={busy}
+                                                        onClick={event => {
+                                                            event.stopPropagation();
+                                                            setResolving(change.path);
+                                                        }}
+                                                    >
+                                                        <TriangleAlert className="text-amber-500" /> Resolve
+                                                    </Button>
+                                                )}
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="size-6 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100"
+                                                    title="Discard this change"
+                                                    aria-label={`Discard the changes of ${shortPath(slug, change.path)}`}
+                                                    disabled={busy}
+                                                    onClick={event => {
+                                                        event.stopPropagation();
+                                                        discard({ paths: [change.path] });
+                                                    }}
+                                                >
+                                                    <Undo2 />
+                                                </Button>
+                                                <span
+                                                    className={cn(
+                                                        'w-3 shrink-0 text-center font-mono text-xs font-semibold',
+                                                        mark.className,
+                                                    )}
+                                                    title={mark.word}
+                                                >
+                                                    {mark.letter}
+                                                </span>
+                                            </div>
+                                            {reason && (
+                                                <span className="flex items-center gap-1 pl-14 text-xs text-muted-foreground">
+                                                    <Lock className="size-3" />
+                                                    {reason}
+                                                </span>
+                                            )}
+                                            {open && <FileDiffView key={loads} slug={slug} path={change.path} className="my-1 ml-8" />}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
                         {pullRequestsOnly ? (
                             <p className="text-xs text-muted-foreground">
                                 <span className="font-mono">{pullRequestsOnly}</span> only takes pull requests: nothing is committed here.
@@ -264,7 +334,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                             <Button
                                 variant="outline"
                                 disabled={busy || (!merge && !changes?.some(c => c.mine))}
-                                onClick={() => void discard({ mine: true })}
+                                onClick={() => discard({ mine: true })}
                             >
                                 {merge ? 'Abort the merge' : 'Discard all mine'}
                             </Button>
@@ -276,6 +346,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                             <Button
                                 disabled={
                                     busy ||
+                                    !!unsaved ||
                                     !!removed ||
                                     !!pullRequestsOnly ||
                                     (all.length === 0 && !merge) ||
@@ -285,7 +356,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                 title={
                                     pullRequestsOnly
                                         ? `${pullRequestsOnly} only takes pull requests: create a branch of your own to commit.`
-                                        : undefined
+                                        : (unsaved ?? undefined)
                                 }
                                 onClick={() => void commit()}
                             >
@@ -300,6 +371,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                 <CreateBranchDialog slug={slug} from={pullRequestsOnly} handle={handle} onClose={() => setCreating(false)} />
             )}
             {resolving && <ConflictDialog slug={slug} path={resolving} onClose={() => setResolving(null)} onResolved={() => void load()} />}
+            <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
         </Dialog>
     );
 }

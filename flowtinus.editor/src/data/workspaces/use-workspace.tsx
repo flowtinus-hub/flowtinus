@@ -66,3 +66,10 @@ export function rememberWorkspace(slug: string) {
         // private mode: / then goes to the list
     }
 }
+
+/** the workspace in the menu: the page's, else the one last used (on the environment's pages: Runs, Workers) */
+export function useMenuWorkspace(workspaces: Membership[]): Membership | null {
+    const { ws } = useParams();
+    const slug = ws ?? lastWorkspace();
+    return workspaces.find(w => w.slug === slug) ?? workspaces[0] ?? null;
+}

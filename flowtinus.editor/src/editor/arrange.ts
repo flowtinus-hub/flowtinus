@@ -9,7 +9,7 @@ import { CARD_HEIGHT, CARD_WIDTH, cardWidth, END, ERROR_PORT, inputPorts, LOOP_B
  * go down to the next free row. Each flow that starts on its own (a card with no input edge) starts below the others.
  * A group is resized around the cards that were inside it (fitGroups), and groups never overlap: a group on top of
  * another (or closer than GROUP_GAP) moves right just past it or up, with all it holds (separate). Edges between groups
- * may get longer then.
+ * may get longer then. A locked group (and the cards in it) stays where it is, as it is: what lands on it moves away.
  */
 
 type Placed = { id: string; type?: string; position: { x: number; y: number }; data: object };
@@ -27,8 +27,31 @@ const widthOf = (n: Placed) => component(n).width ?? cardWidth(component(n).type
 
 const portIndex = (handle?: string | null) => Number(handle?.match(/(\d+)$/)?.[1] ?? 0);
 
-/** the nodes with the components in their new places (from the top left of where they are now); the rest as they are */
+/** at most this many passes: one more arrange from the result moves nothing (a card moved off a locked group, say) */
+const MAX_PASSES = 4;
+
+/**
+ * The nodes with the components in their new places (from the top left of where they are now); the rest as they are.
+ * Done again from its own result until nothing moves: a second Arrange right after never changes anything.
+ */
 export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
+    const key = (list: T[]) =>
+        JSON.stringify(
+            list.map(n => [n.id, n.position.x, n.position.y, (n as { width?: number }).width, (n as { height?: number }).height]),
+        );
+    let placed = arrangeOnce(nodes, edges);
+    for (let pass = 1; pass < MAX_PASSES; pass++) {
+        const next = arrangeOnce(placed, edges);
+        if (key(next) === key(placed)) {
+            break;
+        }
+        placed = next;
+    }
+
+    return placed;
+}
+
+function arrangeOnce<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
     const components = nodes.filter(n => n.type === 'component' && component(n).type);
     if (components.length === 0) {
         return nodes;
@@ -75,6 +98,12 @@ export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
         Array.from({ length: rows }, (_, i) => set.add(row + i));
         taken.set(col, set);
     };
+    // the rows a shortcut keeps clear (below): no card goes on one, but one below where a card goes does not push it down
+    const kept = new Set<string>();
+    const keep = (col: number, row: number) => {
+        take(col, row, 1);
+        kept.add(`${col}:${row}`);
+    };
     const lowest = () => Math.max(-1, ...[...taken.values()].flatMap(rows => [...rows]));
 
     const row = new Map<string, number>();
@@ -118,14 +147,19 @@ export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
         const lift = isBlock
             ? Math.max(0, ...outgoing(c.id).map(e => branchLift(e.target, new Set([c.id])) - (component(c).entry ?? 0)))
             : branchLift(c.id);
-        const before = [...branchColumns(c.id)].flatMap(bc => [...(taken.get(bc) ?? [])]).filter(r => r >= wanted - lift);
+        const before = [...branchColumns(c.id)]
+            .flatMap(bc => [...(taken.get(bc) ?? [])].filter(r => !(r > wanted && kept.has(`${bc}:${r}`))))
+            .filter(r => r >= wanted - lift);
         const below = before.length ? Math.max(...before) + 1 + lift : isBlock ? wanted : 0;
         let r = isBlock ? Math.max(wanted, below) : Math.max(0, wanted, below);
         while (!free(col, r, span(c))) {
             r++;
         }
 
-        take(col, r, span(c));
+        // a locked card stays where it is, elsewhere: it keeps no room here
+        if (!tree.lockedCard(c.id)) {
+            take(col, r, span(c));
+        }
         row.set(c.id, r);
         blockOf.set(c.id, block);
     };
@@ -201,20 +235,18 @@ export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
                 outer === mainBlock &&
                 group.some(e => e.sourceHandle !== ERROR_PORT && main.some(m => m.sourceHandle === e.sourceHandle));
             block = raised ? ++blocks : outer;
-            // a shortcut (an edge to a card the group's other branch leads to as well, Wait's hold beside what it waits for)
-            // runs straight along its row to that card's first input: that row is kept clear in the columns it crosses, so
-            // the longer branch goes below it instead of under the line
+            // a shortcut (an edge to a card the group's other branch leads to as well: Wait's hold beside what it waits for,
+            // its watch) runs straight along its row to that card: that row is kept clear in the columns it crosses, so the
+            // longer branch goes below it instead of under the line
             for (const edge of group) {
                 const target = edge.target;
-                const firstIn = [...incoming(target)].sort((a, b) => portIndex(a.targetHandle) - portIndex(b.targetHandle))[0];
                 const shortcut =
                     !row.has(target) &&
-                    firstIn === edge &&
                     column.get(target)! > column.get(c.id)! + 1 &&
                     group.some(other => other.target !== target && reach(other.target).has(target));
                 if (shortcut) {
                     for (let col = column.get(c.id)! + 1; col < column.get(target)!; col++) {
-                        take(col, row.get(c.id)! + outRow(edge), 1);
+                        keep(col, row.get(c.id)! + outRow(edge));
                     }
                 }
             }
@@ -291,8 +323,11 @@ export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
 
         // the rows taken again, as they are now
         taken.clear();
+        kept.clear();
         for (const [id, r] of row) {
-            take(column.get(id)!, r, span(byId.get(id)!));
+            if (!tree.lockedCard(id)) {
+                take(column.get(id)!, r, span(byId.get(id)!));
+            }
         }
     };
 
@@ -327,8 +362,16 @@ export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
     // columns give the order, left to right; a card never starts on another one of its rows.
     const xOf = new Map<string, number>();
     const rowEnd = new Map<number, number>();
+    // the card that ends each row so far
+    const rowOwner = new Map<number, string>();
     const byColumn = [...components].sort((a, b) => column.get(a.id)! - column.get(b.id)!);
     for (const c of byColumn) {
+        // a locked card stays where it is: what it feeds starts after it there, and its rows here keep no room for it
+        if (tree.lockedCard(c.id)) {
+            xOf.set(c.id, c.position.x - left);
+            continue;
+        }
+
         const needs = links
             .filter(e => e.target === c.id && xOf.has(e.source))
             .map(
@@ -338,12 +381,32 @@ export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
                     Math.max(portTextRoom(byId.get(e.source)!, e.sourceHandle, links) + inputTextRoom(c), controlRoom(c)),
             );
         const rows = Array.from({ length: span(c) }, (_, i) => row.get(c.id)! + i);
-        const x = Math.max(0, ...needs, ...rows.map(r => rowEnd.get(r) ?? 0));
+        // glued only to what feeds it on that row (its output there into the input there): after any other card a gap, so
+        // nothing reads as connected that is not (a Wait's watch after a card that does not feed it)
+        const fedOn = (r: number, owner: string) =>
+            links.some(
+                e =>
+                    e.source === owner &&
+                    e.target === c.id &&
+                    row.get(owner)! + outRow(e) === r &&
+                    row.get(c.id)! + portIndex(e.targetHandle) === r,
+            );
+        const after = rows.map(r => {
+            const end = rowEnd.get(r);
+            const owner = rowOwner.get(r);
+            return end === undefined ? 0 : owner && !fedOn(r, owner) ? end + Math.max(UNRELATED_GAP, inputTextRoom(c)) : end;
+        });
+        const x = Math.max(0, ...needs, ...after);
         xOf.set(c.id, x);
-        rows.forEach(r => rowEnd.set(r, x + widthOf(c)));
+        rows.forEach(r => {
+            rowEnd.set(r, x + widthOf(c));
+            rowOwner.set(r, c.id);
+        });
     }
 
-    const moved = new Map(components.map(c => [c.id, { x: left + xOf.get(c.id)!, y: top + row.get(c.id)! * PORT_GAP }]));
+    const moved = new Map(
+        components.map(c => [c.id, tree.lockedCard(c.id) ? c.position : { x: left + xOf.get(c.id)!, y: top + row.get(c.id)! * PORT_GAP }]),
+    );
 
     const groups = fitAndSeparate(tree, components, moved);
     return nodes.map(n => {
@@ -352,6 +415,9 @@ export function arrange<T extends Placed>(nodes: T[], edges: Edge[]): T[] {
         return position ? { ...n, position } : group ? { ...n, position: { x: group.x, y: group.y }, width: group.w, height: group.h } : n;
     });
 }
+
+/** after a card on the same row that does not feed this one (px, grid steps): enough to show the two are apart */
+const UNRELATED_GAP = 48;
 
 /** about the width of a character of a port's name or count (10px monospace), and the room around that text */
 const TEXT_CHAR = 6.5;
@@ -411,6 +477,11 @@ type Tree = {
     /** the outermost group a card is in (undefined: in none) */
     top: (cardId: string) => string | undefined;
     cardBox: (c: Placed, at: { x: number; y: number }) => Box;
+    groupBox: (g: Placed) => Box;
+    /** a group locked, or inside a locked one: it keeps its place and size */
+    lockedGroup: (groupId: string) => boolean;
+    /** a card in a locked group (at any level): it keeps its place */
+    lockedCard: (cardId: string) => boolean;
 };
 
 /** which group each card is in (as in the PoC: the smallest group around it entirely) */
@@ -449,7 +520,27 @@ function groupTree<T extends Placed>(nodes: T[], components: T[], span: (c: T) =
         return group;
     };
 
-    return { groups, cardParent, groupParent, top: id => outermost(cardParent.get(id)), cardBox };
+    const isLocked = (g: string) => (groups.find(n => n.id === g)?.data as { locked?: boolean } | undefined)?.locked === true;
+    const lockedGroup = (group: string | undefined): boolean => {
+        for (let g = group, depth = 0; g && depth <= groups.length; g = groupParent.get(g), depth++) {
+            if (isLocked(g)) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    return {
+        groups,
+        cardParent,
+        groupParent,
+        top: id => outermost(cardParent.get(id)),
+        cardBox,
+        groupBox,
+        lockedGroup: id => lockedGroup(id),
+        lockedCard: id => lockedGroup(cardParent.get(id)),
+    };
 }
 
 /**
@@ -486,6 +577,11 @@ function fitAndSeparate(tree: Tree, components: Placed[], moved: Map<string, { x
         tree.groups.filter(g => tree.groupParent.get(g.id) === container && hasCards(g.id)).map(g => g.id);
 
     const fit = (g: string) => {
+        if (tree.lockedGroup(g)) {
+            fitted.set(g, tree.groupBox(tree.groups.find(n => n.id === g)!));
+            return;
+        }
+
         const boxes = [...directCards(g).map(c => tree.cardBox(c, moved.get(c.id)!)), ...directGroups(g).map(inner => fitted.get(inner)!)];
         const x = snap(Math.min(...boxes.map(b => b.x)) - GROUP_PADDING.left);
         const y = snap(Math.min(...boxes.map(b => b.y)) - GROUP_PADDING.top);
@@ -494,15 +590,23 @@ function fitAndSeparate(tree: Tree, components: Placed[], moved: Map<string, { x
         fitted.set(g, { x, y, w: snap(right - x), h: snap(bottom - y) });
     };
 
-    type Block = { cards: Placed[]; groups: string[]; isGroup: boolean; box: () => Box };
+    type Block = { cards: Placed[]; groups: string[]; isGroup: boolean; locked: boolean; box: () => Box };
     const blocksIn = (container: string | undefined): Block[] => [
         ...directGroups(container).map(g => ({
             cards: components.filter(c => holds(g, tree.cardParent.get(c.id))),
             groups: [...fitted.keys()].filter(inner => holds(g, inner)),
             isGroup: true,
+            // a group that is or holds a locked one never moves
+            locked: [...fitted.keys()].some(inner => holds(g, inner) && tree.lockedGroup(inner)),
             box: () => fitted.get(g)!,
         })),
-        ...directCards(container).map(c => ({ cards: [c], groups: [], isGroup: false, box: () => tree.cardBox(c, moved.get(c.id)!) })),
+        ...directCards(container).map(c => ({
+            cards: [c],
+            groups: [],
+            isGroup: false,
+            locked: tree.lockedCard(c.id),
+            box: () => tree.cardBox(c, moved.get(c.id)!),
+        })),
     ];
 
     const shift = (block: Block, dx: number, dy: number) => {
@@ -529,8 +633,9 @@ function fitAndSeparate(tree: Tree, components: Placed[], moved: Map<string, { x
             for (let i = 0; i < order.length && !clash; i++) {
                 for (let j = i + 1; j < order.length && !clash; j++) {
                     const withGroup = order[i]!.isGroup || order[j]!.isGroup;
-                    if (overlap(order[i]!.box(), order[j]!.box(), withGroup ? GROUP_GAP : -1)) {
-                        clash = [order[i]!, order[j]!];
+                    if (!(order[i]!.locked && order[j]!.locked) && overlap(order[i]!.box(), order[j]!.box(), withGroup ? GROUP_GAP : -1)) {
+                        // a locked block stays: the other one moves away from it
+                        clash = order[j]!.locked ? [order[j]!, order[i]!] : [order[i]!, order[j]!];
                     }
                 }
             }
@@ -554,7 +659,7 @@ function fitAndSeparate(tree: Tree, components: Placed[], moved: Map<string, { x
             if (!after && (b.y >= a.y + a.h / 2 || up < right)) {
                 shift(later, 0, -up);
             } else {
-                for (const block of blocks.filter(other => other !== first && other.box().x >= b.x)) {
+                for (const block of blocks.filter(other => other !== first && !other.locked && other.box().x >= b.x)) {
                     shift(block, right, 0);
                 }
             }
@@ -564,7 +669,9 @@ function fitAndSeparate(tree: Tree, components: Placed[], moved: Map<string, { x
     // innermost groups first: pull apart what is inside, then fit the group around it; the canvas level last
     const withCards = tree.groups.map(g => g.id).filter(hasCards);
     for (const g of [...withCards].sort((a, b) => depth(b) - depth(a))) {
-        separate(blocksIn(g));
+        if (!tree.lockedGroup(g)) {
+            separate(blocksIn(g));
+        }
         fit(g);
     }
 

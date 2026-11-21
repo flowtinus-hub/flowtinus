@@ -120,7 +120,8 @@
             "required": ["width", "height"],
             "additionalProperties": false,
             "properties": { "width": { "type": "number" }, "height": { "type": "number" } }
-          }
+          },
+          "locked": { "type": "boolean" }
         }
       }
     }

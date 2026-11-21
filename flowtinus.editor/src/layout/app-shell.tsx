@@ -2,6 +2,7 @@ import { Outlet } from 'react-router';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
 import { ConnectionStatus } from './connection-status';
+import { SourceControlBar } from './source-control-bar';
 import { ThemeToggle } from './theme-toggle';
 
 // the sidebar component writes this cookie when it opens or closes; reading it here keeps the choice across reloads
@@ -16,6 +17,7 @@ export function AppShell() {
                 <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
                     {/* on a phone the sidebar is a drawer: its button here (on a wide screen it is in the sidebar) */}
                     <SidebarTrigger className="-ml-1 md:hidden" />
+                    <SourceControlBar />
                     <div className="ml-auto flex items-center gap-1">
                         <ConnectionStatus />
                         <ThemeToggle />

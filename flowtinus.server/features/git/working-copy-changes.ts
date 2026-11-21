@@ -183,8 +183,9 @@ function withDependents(items: Item[], chosen: Item[]): Item[] {
     const all = new Set(chosen);
     for (let grew = true; grew;) {
         grew = false;
+        const needed = [...all].filter(c => c.change !== 'modified');
         for (const item of items.filter(i => !all.has(i))) {
-            if (item.requires.some(r => [...all].some(c => c.path === r.path))) {
+            if (item.requires.some(r => needed.some(c => c.path === r.path))) {
                 all.add(item);
                 grew = true;
             }

@@ -40,7 +40,14 @@ export type FlowFileNode = {
 
 export type Size = { width: number; height: number };
 
-export type FlowFileGroup = { id: string; title: string; color: string; position: Point; size: { width: number; height: number } };
+export type FlowFileGroup = {
+    id: string;
+    title: string;
+    color: string;
+    position: Point;
+    size: { width: number; height: number };
+    locked?: boolean;
+};
 
 export type FlowFile = {
     version: typeof FLOW_FILE_VERSION;
@@ -246,6 +253,7 @@ export function validateFlowFile(data: unknown): FlowFileResult {
                       color: typeof g.color === 'string' ? g.color : '',
                       position: g.position as Point,
                       size: g.size as FlowFileGroup['size'],
+                      ...(g.locked === true ? { locked: true } : {}),
                   })),
               }
             : {}),

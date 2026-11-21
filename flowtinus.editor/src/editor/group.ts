@@ -1,7 +1,10 @@
 import type { Node } from '@xyflow/react';
 
-/** a group on the canvas (group-node.tsx): a title and a color, only to organize the components visually */
-export type GroupData = { title: string; color: string };
+/**
+ * a group on the canvas (group-node.tsx): a title and a color, only to organize the components visually; locked, the
+ * Arrange leaves it and the cards in it where they are
+ */
+export type GroupData = { title: string; color: string; locked?: boolean };
 
 export type GroupNode = Node<GroupData, 'group'>;
 

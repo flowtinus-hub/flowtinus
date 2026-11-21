@@ -5,7 +5,7 @@ import { useParams } from 'react-router';
 import { ProjectResourcesContext, ScriptGlobalsContext, useLoadProjectResources } from '@/editor/project-resources';
 import { Button } from '@/components/ui/button';
 import '@xyflow/react/dist/style.css';
-import { CARD_HEIGHT, CARD_WIDTH, cardWidth, COMPONENT_TYPE, componentSettings, connectionProblem, flowCalls, type FlowCall, dataTypeFromSamples, END, fixedOnError, inputVariables, scriptGlobals, settingsDefaults, START, startParameters, systemVariables, type EnvelopeData, type KnownVariables } from '@flowtinus/core';
+import { CARD_HEIGHT, CARD_WIDTH, cardWidth, COMPONENT_TYPE, componentSettings, connectionProblem, flowCalls, flowScriptUses, scriptCodeOf, type FlowCall, type ScriptUse, dataTypeFromSamples, END, fixedOnError, inputVariables, scriptGlobals, settingsDefaults, START, startParameters, systemVariables, type EnvelopeData, type KnownVariables } from '@flowtinus/core';
 import { arrange } from '@/editor/arrange';
 import { bridges, edgesAfterDelete } from '@/editor/bridge-delete';
 import { CATEGORIES, componentInfo, isFixedType } from '@/editor/catalog';
@@ -36,6 +36,7 @@ import { preloadCodeEditor } from '@/editor/code-editor-loader';
 import { ComponentPalette, PALETTE_RAIL, PALETTE_WIDTH } from './component-palette';
 import { FIT_TO_SCREEN } from '@/editor/fit';
 import { ZoomControls } from './zoom-controls';
+import { ShortcutsDialog } from './shortcuts-dialog';
 
 /** the grid: a small dot every DOT_GAP px (--grid on --canvas in index.css) */
 const DOT_GAP = 16;
@@ -52,6 +53,8 @@ const SCISSORS_CURSOR = (() => {
         `<g stroke="white" stroke-width="4">${shapes}</g><g stroke="black" stroke-width="2">${shapes}</g></svg>`;
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
 })();
+
+const NO_CALLS = JSON.stringify({ calls: [], scripts: [] });
 
 const NODE_TYPES = { component: ComponentNodeMemo, group: GroupNodeMemo, [LOOP_TYPE]: LoopNodeMemo, [LOOP_END_TYPE]: LoopEndNodeMemo };
 
@@ -148,11 +151,17 @@ export function FlowCanvas(props: {
     onRunFrom?: (nodeId: string) => void;
     /** B: opens or closes the run's panel */
     onToggleRunPanel?: () => void;
-    /** this flow's calls (its Flow Invokers), each time one is added, removed or changed (the top bar's Calls) */
+    /** D: opens or closes the Calls panel (`toolsBefore`) */
+    onToggleCalls?: () => void;
+    /** this flow's calls (its Flow Invokers), each time one is added, removed or changed (the Calls panel) */
     onCalls?: (calls: FlowCall[]) => void;
+    /** the scripts this flow's components import, as the canvas has them now (the Calls panel's Scripts) */
+    onScriptUses?: (uses: ScriptUse[]) => void;
     /** an archived flow: shown to read (pan, zoom), nothing changes and nothing is saved */
     readOnly?: boolean;
     onHeldEdit?: () => void;
+    /** the tools before Group (Calls), shown on a read-only flow too */
+    toolsBefore?: ReactNode;
     /** the first of the tools on the right (the flow's worker tag) */
     tools?: ReactNode;
     /** the tools on the right after it (Deploy, Schedules, Webhooks) */
@@ -167,9 +176,12 @@ export function FlowCanvas(props: {
         inputSamples,
         onRunFrom = noRunFrom,
         onToggleRunPanel,
+        onToggleCalls,
         onCalls,
+        onScriptUses,
         readOnly = false,
         onHeldEdit,
+        toolsBefore,
         tools,
         toolsAfter,
     } = props;
@@ -180,6 +192,8 @@ export function FlowCanvas(props: {
         setPaletteOpen(open);
         savePaletteOpen(open);
     };
+    // the strip of tools starts after the drawer (none on a read-only flow)
+    const palette = readOnly ? 0 : PALETTE_RAIL + (paletteOpen ? PALETTE_WIDTH : 0);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
     // what the page's Download takes: the canvas as it is now
     const [flow, setFlow] = useState<ReactFlowInstance<FlowNode, Edge> | null>(null);
@@ -269,11 +283,18 @@ export function FlowCanvas(props: {
     const redo = useCallback(() => restore(stack.redo(snapshot())), [restore, stack, snapshot]);
     const history = useMemo(() => ({ record, recordEdit }), [record, recordEdit]);
 
-    // the Flow Invokers' calls, told again only when they change (not on a move)
+    // the Flow Invokers' calls and the scripts the components import, told again only when they change (not on a move)
     const callsKey = useMemo(() => {
-        const invokers = nodes.filter(isComponent).filter(n => n.data.type === COMPONENT_TYPE.flowInvoker);
-        if (invokers.length === 0) {
-            return '[]';
+        const relevant = nodes
+            .filter(isComponent)
+            .some(
+                n =>
+                    n.data.type === COMPONENT_TYPE.flowInvoker ||
+                    scriptCodeOf(n.data.type, n.data.config) !== undefined ||
+                    componentSettings(n.data.type).some(f => f.kind === 'script-type'),
+            );
+        if (!relevant) {
+            return NO_CALLS;
         }
 
         const executable = {
@@ -288,11 +309,14 @@ export function FlowCanvas(props: {
             })),
             edges: edges.map(portEdge),
         };
-        return JSON.stringify(flowCalls([{ ...executable, id: flowId }]));
+        const own = { ...executable, id: flowId };
+        return JSON.stringify({ calls: flowCalls([own]), scripts: flowScriptUses([own]) });
     }, [nodes, edges, flowId]);
     useEffect(() => {
-        onCalls?.(JSON.parse(callsKey) as FlowCall[]);
-    }, [onCalls, callsKey]);
+        const { calls, scripts } = JSON.parse(callsKey) as { calls: FlowCall[]; scripts: ScriptUse[] };
+        onCalls?.(calls);
+        onScriptUses?.(scripts);
+    }, [onCalls, onScriptUses, callsKey]);
 
     const pinnedKey = nodes
         .filter(n => (isComponent(n) || n.type === LOOP_TYPE) && n.data.pinned)
@@ -560,9 +584,11 @@ export function FlowCanvas(props: {
     };
 
     // ---- the canvas' keys: A arranges, C opens or closes the components, G adds a group, F fits the flow to the screen,
-    // B opens or closes the run's panel; X held arms the cut (below). Not while typing in a field or in a window, nor with
-    // Ctrl, Alt, Shift or Cmd (those are other shortcuts). A read-only flow takes only F and B
+    // B opens or closes the run's panel, D the Calls panel, K shows the shortcuts; X held arms the cut (below). Not while
+    // typing in a field or in a window, nor with Ctrl, Alt, Shift or Cmd (those are other shortcuts). A read-only flow
+    // takes only F, B, D and K
     const [cutArmed, setCutArmed] = useState(false);
+    const [shortcutsOpen, setShortcutsOpen] = useState(false);
     // the cut going on (the button down): where the pointer was last (canvas coordinates), and whether Ctrl+Z has its step
     const cut = useRef<{ last: XYPosition; recorded: boolean } | null>(null);
     const actionsNow = () => ({
@@ -571,6 +597,8 @@ export function FlowCanvas(props: {
         palette: () => togglePalette(!paletteOpen),
         fit: () => void flow?.fitView(FIT_TO_SCREEN),
         runPanel: () => onToggleRunPanel?.(),
+        calls: () => onToggleCalls?.(),
+        shortcuts: () => setShortcutsOpen(open => !open),
     });
     const keyActions = useRef(actionsNow());
     useEffect(() => {
@@ -583,7 +611,7 @@ export function FlowCanvas(props: {
             }
 
             const key = event.key.toLowerCase();
-            if (readOnly && key !== 'f' && key !== 'b') {
+            if (readOnly && !['f', 'b', 'd', 'k'].includes(key)) {
                 return;
             }
 
@@ -593,7 +621,7 @@ export function FlowCanvas(props: {
                 return;
             }
 
-            const action = { a: 'arrange', c: 'palette', g: 'group', f: 'fit', b: 'runPanel' }[key] as
+            const action = { a: 'arrange', c: 'palette', g: 'group', f: 'fit', b: 'runPanel', d: 'calls', k: 'shortcuts' }[key] as
                 keyof typeof keyActions.current | undefined;
             if (action) {
                 event.preventDefault();
@@ -925,75 +953,79 @@ export function FlowCanvas(props: {
                                     >
                                         <Background variant={BackgroundVariant.Dots} gap={DOT_GAP} size={DOT_SIZE} color="var(--grid)" />
                                         {!readOnly && <ComponentPalette open={paletteOpen} onToggle={() => togglePalette(!paletteOpen)} />}
-                                        {!readOnly && (
-                                            // one strip from the components' rail (pushed along by their drawer when it is open) to the right edge:
-                                            // editing on the left, running on the right; when both do not fit, the running group goes whole
-                                            // to the line below
-                                            <Panel
-                                                position="top-left"
-                                                className="pointer-events-none flex flex-wrap items-start gap-2"
-                                                style={{
-                                                    margin: 12,
-                                                    marginLeft: PALETTE_RAIL + (paletteOpen ? PALETTE_WIDTH : 0) + 12,
-                                                    width: `calc(100% - ${PALETTE_RAIL + (paletteOpen ? PALETTE_WIDTH : 0) + 24}px)`,
-                                                    // along with the drawer
-                                                    transition: 'margin-left 200ms, width 200ms',
-                                                }}
-                                            >
-                                                <div className="nopan nowheel nodrag pointer-events-auto flex flex-wrap gap-2">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="bg-card shadow-md"
-                                                        onClick={addGroup}
-                                                        title="Group: a colored rectangle behind the components (G)"
-                                                    >
-                                                        <SquareDashed /> Group
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="bg-card shadow-md"
-                                                        onClick={arrangeFlow}
-                                                        title="Arrange from left to right, the cards glued (A)"
-                                                    >
-                                                        <Network className="-rotate-90" /> Arrange
-                                                    </Button>
-                                                    <div className="flex rounded-md bg-card shadow-md">
+                                        {/* one strip from the components' rail (pushed along by their drawer when it is open) to the right edge:
+                                            Calls, then editing on the left, running on the right; when both do not fit, the running group goes
+                                            whole to the line below. A read-only flow has no drawer and only Calls */}
+                                        <Panel
+                                            position="top-left"
+                                            className="pointer-events-none flex flex-wrap items-start gap-2"
+                                            style={{
+                                                margin: 12,
+                                                marginLeft: palette + 12,
+                                                width: `calc(100% - ${palette + 24}px)`,
+                                                // along with the drawer
+                                                transition: 'margin-left 200ms, width 200ms',
+                                            }}
+                                        >
+                                            <div className="nopan nowheel nodrag pointer-events-auto flex flex-wrap gap-2">
+                                                {toolsBefore}
+                                                {!readOnly && (
+                                                    <>
                                                         <Button
                                                             variant="outline"
-                                                            size="icon-sm"
-                                                            className="rounded-r-none"
-                                                            disabled={!steps.undo}
-                                                            onClick={undo}
-                                                            title="Undo (Ctrl+Z)"
-                                                            aria-label="Undo"
+                                                            size="sm"
+                                                            className="bg-card shadow-md"
+                                                            onClick={addGroup}
+                                                            title="Group: a colored rectangle behind the components (G)"
                                                         >
-                                                            <Undo2 />
+                                                            <SquareDashed /> Group
                                                         </Button>
                                                         <Button
                                                             variant="outline"
-                                                            size="icon-sm"
-                                                            className="-ml-px rounded-l-none"
-                                                            disabled={!steps.redo}
-                                                            onClick={redo}
-                                                            title="Redo (Ctrl+Y)"
-                                                            aria-label="Redo"
+                                                            size="sm"
+                                                            className="bg-card shadow-md"
+                                                            onClick={arrangeFlow}
+                                                            title="Arrange from left to right, the cards glued (A)"
                                                         >
-                                                            <Redo2 />
+                                                            <Network className="-rotate-90" /> Arrange
                                                         </Button>
-                                                    </div>
-                                                </div>
-                                                {(tools || toolsAfter) && (
-                                                    // the worker tag, Deploy, Schedules, Webhooks
-                                                    <div className="nopan nowheel nodrag pointer-events-auto ml-auto flex flex-wrap justify-end gap-2">
-                                                        {tools}
-                                                        {toolsAfter}
-                                                    </div>
+                                                        <div className="flex rounded-md bg-card shadow-md">
+                                                            <Button
+                                                                variant="outline"
+                                                                size="icon-sm"
+                                                                className="rounded-r-none"
+                                                                disabled={!steps.undo}
+                                                                onClick={undo}
+                                                                title="Undo (Ctrl+Z)"
+                                                                aria-label="Undo"
+                                                            >
+                                                                <Undo2 />
+                                                            </Button>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="icon-sm"
+                                                                className="-ml-px rounded-l-none"
+                                                                disabled={!steps.redo}
+                                                                onClick={redo}
+                                                                title="Redo (Ctrl+Y)"
+                                                                aria-label="Redo"
+                                                            >
+                                                                <Redo2 />
+                                                            </Button>
+                                                        </div>
+                                                    </>
                                                 )}
-                                            </Panel>
-                                        )}
+                                            </div>
+                                            {!readOnly && (tools || toolsAfter) && (
+                                                // the worker tag, Deploy, Schedules, Webhooks
+                                                <div className="nopan nowheel nodrag pointer-events-auto ml-auto flex flex-wrap justify-end gap-2">
+                                                    {tools}
+                                                    {toolsAfter}
+                                                </div>
+                                            )}
+                                        </Panel>
                                         <ZoomControls />
+                                        <ShortcutsDialog open={shortcutsOpen} readOnly={readOnly} onClose={() => setShortcutsOpen(false)} />
                                         {/* the whole flow in small, bottom right: drag on it to pan, scroll on it to zoom */}
                                         <MiniMap<FlowNode>
                                             pannable

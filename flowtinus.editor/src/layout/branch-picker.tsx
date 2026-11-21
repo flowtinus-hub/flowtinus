@@ -1,11 +1,12 @@
 import { Check, ChevronsUpDown, GitBranch, GitBranchPlus, GitMerge, GitPullRequestArrow, Lock, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { projectsPath } from '@/app/paths';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
+import { Button } from '@/components/ui/button';
 import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
+import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { cn } from '@/lib/utils';
+import { landingAfterSwitch, noteBranchSwitch } from './branch-landing';
 import { CreateBranchDialog } from './create-branch-dialog';
 import { PullRequestDialog } from './pull-request-dialog';
 import { UpdateDialog } from './update-dialog';
@@ -45,7 +46,6 @@ function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: 
 }
 
 export function BranchPicker({ slug }: { slug: string }) {
-    const { isMobile } = useSidebar();
     const [current, setCurrent] = useState<{ slug: string; value: CurrentBranch } | null>(null);
     const [branches, setBranches] = useState<{
         slug: string;
@@ -61,6 +61,7 @@ export function BranchPicker({ slug }: { slug: string }) {
     const [updating, setUpdating] = useState(false);
     const { state } = useMe();
     const { canEdit } = useWorkspace();
+    const unsaved = useUnsavedWork();
     const handle = state.status === 'ready' ? state.me.handle : null;
 
     useEffect(() => {
@@ -101,8 +102,9 @@ export function BranchPicker({ slug }: { slug: string }) {
             setError(result.error.message);
             return;
         }
-        // every page read so far was the other branch's: the projects again, from scratch, on this one
-        window.location.assign(projectsPath(slug));
+        noteBranchSwitch();
+        // every page read so far was the other branch's: the page again, from scratch, on this one
+        window.location.assign(await landingAfterSwitch(slug));
     };
 
     const list = branches?.slug === slug ? branches.list : [];
@@ -120,12 +122,17 @@ export function BranchPicker({ slug }: { slug: string }) {
     const proposable = canEdit && environment && branches?.mode !== 'protected' ? (updatable ?? pushable) : null;
 
     return (
-        <SidebarMenuItem>
+        <>
             <DropdownMenu onOpenChange={load}>
-                <DropdownMenuTrigger asChild>
-                    <SidebarMenuButton
-                        tooltip={label}
-                        className="text-muted-foreground"
+                <DropdownMenuTrigger asChild disabled={!!unsaved}>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        title={unsaved ? `${label}. ${unsaved} to switch branches` : label}
+                        className={cn(
+                            'min-w-0 max-w-72 text-muted-foreground',
+                            unsaved && 'disabled:pointer-events-auto disabled:cursor-not-allowed',
+                        )}
                         aria-label={`Current branch: ${value.branch}. Pick a branch`}
                     >
                         <GitBranch />
@@ -135,10 +142,10 @@ export function BranchPicker({ slug }: { slug: string }) {
                         ) : (
                             !value.editable && <Lock className="size-3 shrink-0" aria-label="Read only" />
                         )}
-                        <ChevronsUpDown className="ml-auto group-data-[collapsible=icon]:hidden" />
-                    </SidebarMenuButton>
+                        <ChevronsUpDown />
+                    </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-80" side={isMobile ? 'bottom' : 'right'} align="start">
+                <DropdownMenuContent className="w-80" side="bottom" align="start">
                     {branches?.slug !== slug && (
                         <DropdownMenuLabel className="text-xs text-muted-foreground">Loading branches...</DropdownMenuLabel>
                     )}
@@ -197,10 +204,11 @@ export function BranchPicker({ slug }: { slug: string }) {
                     )}
                 </DropdownMenuContent>
             </DropdownMenu>
-            {value.removed && (
-                <p className="px-2 text-xs text-destructive group-data-[collapsible=icon]:hidden">{removedBranchText(value.lostTip)}</p>
+            {error && (
+                <span className="max-w-64 truncate text-xs text-destructive" title={error}>
+                    {error}
+                </span>
             )}
-            {error && <p className="px-2 text-xs text-destructive group-data-[collapsible=icon]:hidden">{error}</p>}
             {proposing && proposable && environment && (
                 <PullRequestDialog
                     slug={slug}
@@ -220,6 +228,6 @@ export function BranchPicker({ slug }: { slug: string }) {
                     onClose={() => setCreating(false)}
                 />
             )}
-        </SidebarMenuItem>
+        </>
     );
 }

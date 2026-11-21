@@ -22,7 +22,7 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/ag
 
 `main` takes changes only through a pull request (a GitHub ruleset: no direct push, force push or deletion). Work on a branch and open a PR to `main`.
 
-Branches are named by issue id only: `feature/<id>` for a spec or a standalone issue, cut from `main`, and `subtask/<id>` for a spec's ticket, cut from its spec's `feature/<id>`. Switch to the ticket's `subtask/<id>` before committing it.
+Branches are named by issue id only: `feature/<id>` for a spec or a standalone issue, cut from `main`; `fix/<id>` for a bug issue, cut from `main`; and `subtask/<id>` for a spec's ticket, cut from its spec's `feature/<id>`. Switch to the ticket's `subtask/<id>` before committing it.
 
 An agent leaves its change uncommitted on its branch: it commits, pushes or opens a PR only when the maintainer says so for that change, whatever a skill's steps say (`/implement` commits). The maintainer reviews the change before it is committed. This holds for every branch, fixes to an open PR included, and above all for changes to the engine (`flowtinus.core`).
 

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Archive, ArchiveRestore, Trash, Users } from 'lucide-react';
 import { WORKSPACES_PATH } from '@/app/paths';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import { useResource } from '@/data/use-resource';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { ROLE_LABEL, type Member, type Workspace, type WorkspaceRole } from '@/data/workspaces/workspace';
@@ -23,30 +24,62 @@ const ROLE_HELP: Record<WorkspaceRole, string> = {
     admin: 'also changes the workspace and its members',
 };
 
+const TABS = [
+    { tab: 'general', label: 'General' },
+    { tab: 'members', label: 'Members' },
+    { tab: 'git', label: 'Git' },
+    { tab: 'danger', label: 'Danger Zone' },
+] as const;
+
 /**
- * A workspace's settings (/w/:ws/settings): its name and description (its ID never changes), archiving it (only once all
- * its projects are archived) or restoring it, and its members with their roles. Only its admins change anything here.
+ * A workspace's settings (/w/:ws/settings, a tab per ?tab=): General (its name and description; its ID never changes),
+ * Members (with their roles), Git, and the Danger Zone (archiving it, only once all its projects are archived, or
+ * restoring it). Only its admins change anything here, and only they see the Danger Zone.
  */
 export function WorkspaceSettingsPage() {
     // the role from the workspace itself: an archived one is not in /me, and its admins restore it here
     const { slug } = useWorkspace();
     const workspace = useResource(`workspace:${slug}`, () => getWorkspace(slug));
+    const [params] = useSearchParams();
 
     return (
         <WorkspacePage title="Settings">
             <ResourceView state={workspace.state} onRetry={workspace.reload} empty={{ icon: Users, text: '' }} isEmpty={() => false}>
-                {value => (
-                    <div className="grid max-w-3xl gap-10">
-                        <WorkspaceFields
-                            workspace={value}
-                            readOnly={value.role !== 'admin' || value.archivedAt !== null}
-                            onSaved={workspace.reload}
-                        />
-                        <Members slug={slug} readOnly={value.role !== 'admin' || value.archivedAt !== null} />
-                        <GitSection slug={slug} readOnly={value.role !== 'admin' || value.archivedAt !== null} />
-                        {value.role === 'admin' && <ArchiveSection workspace={value} onChanged={workspace.reload} />}
-                    </div>
-                )}
+                {value => {
+                    const readOnly = value.role !== 'admin' || value.archivedAt !== null;
+                    const tabs = TABS.filter(item => item.tab !== 'danger' || value.role === 'admin');
+                    const active = tabs.find(item => item.tab === params.get('tab'))?.tab ?? 'general';
+                    return (
+                        <div className="grid max-w-3xl gap-6">
+                            {/* the line under the tabs is an inset shadow, so the active tab's underline covers it without overflowing */}
+                            <nav
+                                aria-label="Settings"
+                                className="flex gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] shadow-[inset_0_-1px_0_var(--border)]"
+                            >
+                                {tabs.map(item => (
+                                    <Link
+                                        key={item.tab}
+                                        to={item.tab === 'general' ? '?' : `?tab=${item.tab}`}
+                                        replace
+                                        aria-current={item.tab === active ? 'page' : undefined}
+                                        className={cn(
+                                            'flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
+                                            item.tab === active
+                                                ? 'border-primary text-foreground'
+                                                : 'border-transparent text-muted-foreground hover:text-foreground',
+                                        )}
+                                    >
+                                        {item.label}
+                                    </Link>
+                                ))}
+                            </nav>
+                            {active === 'general' && <WorkspaceFields workspace={value} readOnly={readOnly} onSaved={workspace.reload} />}
+                            {active === 'members' && <Members slug={slug} readOnly={readOnly} />}
+                            {active === 'git' && <GitSection slug={slug} readOnly={readOnly} />}
+                            {active === 'danger' && <ArchiveSection workspace={value} onChanged={workspace.reload} />}
+                        </div>
+                    );
+                }}
             </ResourceView>
         </WorkspacePage>
     );

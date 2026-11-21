@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Copy, LoaderCircle, TriangleAlert, Undo2 } from 'lucide-react';
+import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -50,6 +51,7 @@ export function ConflictDialog({
     const [pick, setPick] = useState<ConflictResolution>({});
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
+    const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
 
     useEffect(() => {
         let gone = false;
@@ -133,7 +135,24 @@ export function ConflictDialog({
                             variant="outline"
                             disabled={busy || !view}
                             title="Your change goes; the file takes what git has"
-                            onClick={() => void act(() => discardChanges(slug, { paths: [path] }))}
+                            onClick={() =>
+                                setConfirm({
+                                    title: `Discard the changes of ${shortPath(slug, path)}?`,
+                                    description: "The file takes git's content; your change is lost.",
+                                    confirmLabel: 'Discard mine',
+                                    busyLabel: 'Discarding…',
+                                    destructive: true,
+                                    onConfirm: async () => {
+                                        const result = await discardChanges(slug, { paths: [path] });
+                                        if (result.ok) {
+                                            window.dispatchEvent(new Event(CHANGES_CHANGED));
+                                            onResolved();
+                                            onClose();
+                                        }
+                                        return result;
+                                    },
+                                })
+                            }
                         >
                             <Undo2 /> Discard mine
                         </Button>
@@ -162,6 +181,7 @@ export function ConflictDialog({
                     </div>
                 </DialogFooter>
             </DialogContent>
+            <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
         </Dialog>
     );
 }

@@ -172,7 +172,7 @@ function CalledFlowParameters(props: {
     const { id, field, flowId, values, onChange } = props;
     const start = useCalledStart(flowId);
     const { projectId = '', flowId: selfId } = useParams();
-    // a chain from the called flow back to this one: each call would fail (the same calls the top bar's Calls shows)
+    // a chain from the called flow back to this one: each call would fail (the same calls the canvas's Calls shows)
     const project = useProjectCalls(projectId);
     const back =
         selfId && project

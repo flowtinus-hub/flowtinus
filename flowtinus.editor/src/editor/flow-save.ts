@@ -267,7 +267,13 @@ export function useFlowDraft(
             return;
         }
 
-        if (!at || readOnly || draftFingerprint(fileNow()) === at.saved) {
+        if (!at || readOnly) {
+            return;
+        }
+        // back to what the server has (dragged away and back): nothing to save, and the save waiting goes
+        if (draftFingerprint(fileNow()) === at.saved) {
+            clearTimeout(timer.current);
+            setState(current => (current.status === 'pending' || current.status === 'error' ? { status: 'saved' } : current));
             return;
         }
         if (heldRef.current) {

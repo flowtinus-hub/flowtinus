@@ -10,6 +10,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
 import { deployFlow, deployVersion, discardDraft, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
 import { getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
+import { useUnsavedWork } from '@/data/git/unsaved-work';
+import { CommitFiles } from './commit-files';
 import { ConflictDialog } from '@/layout/conflict-dialog';
 import type { FlushResult } from '@/editor/flow-save';
 import type { ApiResult } from '@/lib/api';
@@ -80,6 +82,7 @@ export function DeployMenu({
     const [versionsOpen, setVersionsOpen] = useState(false);
     const [compareOpen, setCompareOpen] = useState(false);
     const [resolving, setResolving] = useState<string | null>(null);
+    const unsaved = useUnsavedWork();
     const [committing, setCommitting] = useState<{ number: number; warnings: string[]; saved: boolean; scripts: string[] } | null>(null);
     const current = deployments?.flowId === flowId ? deployments.value : NO_DEPLOYMENTS;
     const git = current.git;
@@ -328,8 +331,12 @@ export function DeployMenu({
                             <DropdownMenuSeparator />
                         </>
                     )}
-                    <DropdownMenuItem disabled={busy || nothingToDeploy || !!conflict || pullRequestsOnly} onSelect={() => void deploy()}>
+                    <DropdownMenuItem
+                        disabled={busy || nothingToDeploy || !!conflict || pullRequestsOnly || !!unsaved}
+                        onSelect={() => void deploy()}
+                    >
                         {git ? <GitCommitHorizontal /> : <Upload />} {git ? 'Commit' : 'Deploy'} draft as v{nextNumber(current, draftNow())}
+                        {unsaved && <span className="ml-auto text-xs text-muted-foreground">saving…</span>}
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled={current.versions.length === 0} onSelect={() => setVersionsOpen(true)}>
                         <History /> Versions
@@ -358,6 +365,8 @@ export function DeployMenu({
             {committing && (
                 <CommitDialog
                     branch={target}
+                    workspace={workspace}
+                    flowId={flowId}
                     number={committing.number}
                     flowName={draftNow()?.name ?? 'flow'}
                     warnings={committing.warnings}
@@ -381,24 +390,20 @@ function CommitDialog(props: {
     flowName: string;
     warnings: string[];
     saved: boolean;
-    /** the changed scripts the draft imports: checked, they go in the same commit */
+    workspace: string;
+    flowId: string;
+    /** the changed scripts the draft imports: they go in the same commit */
     scripts: string[];
     onCommit: (message: string, scripts: string[]) => Promise<ApiResult<FlowDeployments>>;
     onClose: () => void;
 }) {
-    const { branch, number, flowName, warnings, saved, scripts, onCommit, onClose } = props;
+    const { branch, workspace, flowId, number, flowName, warnings, saved, scripts, onCommit, onClose } = props;
     const [message, setMessage] = useState(`Update ${flowName}`);
-    const [checked, setChecked] = useState(() => new Set(scripts));
     const [busy, setBusy] = useState(false);
     const [outcome, setOutcome] = useState<ApiResult<FlowDeployments> | null>(null);
     const commit = async () => {
         setBusy(true);
-        setOutcome(
-            await onCommit(
-                message.trim(),
-                scripts.filter(s => checked.has(s)),
-            ),
-        );
+        setOutcome(await onCommit(message.trim(), scripts));
         setBusy(false);
     };
     const applied = outcome?.ok ? outcome.value : null;
@@ -437,32 +442,7 @@ function CommitDialog(props: {
                             onKeyDown={e => e.key === 'Enter' && message.trim() && !busy && void commit()}
                             autoFocus
                         />
-                        {scripts.length > 0 && (
-                            <fieldset className="grid gap-1 text-sm">
-                                <legend className="mb-1 text-muted-foreground">Changed scripts it imports, in the same commit:</legend>
-                                {scripts.map(path => (
-                                    <label key={path} className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            checked={checked.has(path)}
-                                            disabled={busy}
-                                            onChange={e =>
-                                                setChecked(current => {
-                                                    const next = new Set(current);
-                                                    if (e.target.checked) {
-                                                        next.add(path);
-                                                    } else {
-                                                        next.delete(path);
-                                                    }
-                                                    return next;
-                                                })
-                                            }
-                                        />
-                                        <span className="font-mono text-xs">{path}.ts</span>
-                                    </label>
-                                ))}
-                            </fieldset>
-                        )}
+                        <CommitFiles workspace={workspace} flowId={flowId} scripts={scripts} />
                         {warnings.length > 0 && (
                             <div className="flex flex-col gap-1 text-sm text-amber-700 dark:text-amber-400">
                                 {warnings.map(w => (

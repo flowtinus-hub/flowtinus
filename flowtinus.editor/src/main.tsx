@@ -5,7 +5,10 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider } from '@/theme/theme-provider';
 import { router } from '@/app/router';
 import { MeProvider } from '@/data/workspaces/use-workspace';
+import { reloadStaleRestores } from '@/layout/branch-landing';
 import './index.css';
+
+reloadStaleRestores();
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>

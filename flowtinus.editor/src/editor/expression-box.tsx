@@ -31,6 +31,10 @@ function issueOf(expression: string, variables: AvailableVariable[], seen: boole
  * arrows move, Enter or Tab insert, Esc closes the list. Leaving the field checks it: syntax (error), a variable not
  * seen in the runs (warning).
  */
+/** the list's tallest, and its gap to the field and to the screen's edges */
+const LIST_HEIGHT = 240;
+const LIST_GAP = 4;
+
 export function ExpressionBox(props: {
     id: string;
     nodeId?: string;
@@ -45,8 +49,9 @@ export function ExpressionBox(props: {
     const { of, seen } = useExpressionVariables();
     const variables = nodeId ? of(nodeId) : [];
     const [token, setToken] = useState<{ start: number; text: string } | null>(null);
-    // the list goes to the body, fixed under the field: the window would clip it
-    const [place, setPlace] = useState<{ top: number; left: number; width: number } | null>(null);
+    // the list goes to the body, fixed under the field (the window would clip it); above it when the screen has more
+    // room there, as tall as the room it has
+    const [place, setPlace] = useState<{ top?: number; bottom?: number; left: number; width: number; height: number } | null>(null);
     const [active, setActive] = useState(0);
     const [issue, setIssue] = useState<Issue | null>(null);
     const suggestions = token ? suggestionsFor(variables, token.text) : [];
@@ -59,7 +64,15 @@ export function ExpressionBox(props: {
         setToken(tokenAt(element.value, element.selectionStart ?? element.value.length));
         setActive(0);
         const box = element.getBoundingClientRect();
-        setPlace({ top: box.bottom + 4, left: box.left, width: box.width });
+        const below = window.innerHeight - box.bottom - LIST_GAP * 2;
+        const above = box.top - LIST_GAP * 2;
+        const up = below < LIST_HEIGHT && above > below;
+        setPlace({
+            ...(up ? { bottom: window.innerHeight - box.top + LIST_GAP } : { top: box.bottom + LIST_GAP }),
+            left: Math.max(LIST_GAP, Math.min(box.left, window.innerWidth - Math.max(box.width, 240) - LIST_GAP)),
+            width: box.width,
+            height: Math.min(LIST_HEIGHT, up ? above : below),
+        });
     };
 
     const insert = (variable: AvailableVariable) => {
@@ -139,8 +152,8 @@ export function ExpressionBox(props: {
                         ref={list}
                         role="listbox"
                         aria-label="Variables"
-                        style={{ top: place.top, left: place.left, minWidth: place.width }}
-                        className="nodrag nowheel fixed z-[1000] max-h-60 max-w-[480px] overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+                        style={{ top: place.top, bottom: place.bottom, left: place.left, minWidth: place.width, maxHeight: place.height }}
+                        className="nodrag nowheel fixed z-[1000] max-w-[480px] overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
                     >
                         {suggestions.map((v, i) => (
                             <li
