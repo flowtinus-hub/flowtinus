@@ -107,13 +107,49 @@ test("what the script waits for outside goes through the engine's wait: its time
     }
 });
 
-test("the script's context has exactly the globals the core lists (what the code editor types)", async () => {
+test("the script sees exactly the globals the core lists (what the code editor types); its run's own are not on globalThis", async () => {
     const { SCRIPT_RUNTIME_GLOBALS } = await import('@flowtinus/core');
+    const ofTheRun = [
+        '$PARAMETERS',
+        '$SECRETS',
+        '$VARIABLES',
+        '$FLOW_CURRENT_RUN',
+        'log',
+        'console',
+        'fetch',
+        'setTimeout',
+        'clearTimeout',
+        'rethrow',
+    ];
     const process = await prepareScript(
-        `async function process() { return Object.keys(globalThis).filter(k => !k.startsWith('__')); }`,
+        `async function process() {
+  return {
+    onGlobalThis: Object.keys(globalThis).filter(k => !k.startsWith('__')),
+    undefinedOnes: [${SCRIPT_RUNTIME_GLOBALS.map(name => `typeof ${name} === 'undefined' ? '${name}' : ''`).join(', ')}].filter(Boolean),
+  };
+}`,
         globals,
     );
-    expect(((await process({})) as string[]).sort()).toEqual([...SCRIPT_RUNTIME_GLOBALS].sort());
+    const { onGlobalThis, undefinedOnes } = (await process({})) as { onGlobalThis: string[]; undefinedOnes: string[] };
+    expect(undefinedOnes).toEqual([]);
+    expect(onGlobalThis.sort()).toEqual(SCRIPT_RUNTIME_GLOBALS.filter(name => !ofTheRun.includes(name)).sort());
+});
+
+test("each component run starts with fresh top-level state; a write to globalThis is shared by the worker's component runs", async () => {
+    const code = `let calls = 0;
+async function process($input) {
+  calls += 1;
+  if ($input !== null) globalThis.shared = $input;
+  return { calls, shared: globalThis.shared };
+}`;
+    const first = await prepareScript(code, globals);
+    expect(await first(null)).toEqual({ calls: 1, shared: undefined });
+    expect(await first('from the first')).toEqual({ calls: 2, shared: 'from the first' });
+    const second = await prepareScript(code, globals);
+    expect(await second(null)).toEqual({ calls: 1, shared: 'from the first' });
+    await (
+        await prepareScript(`async function process() { delete globalThis.shared; }`, globals)
+    )(null);
 });
 
 test('an error says where it happened in the code as written: its line, or the script and line it is in', async () => {

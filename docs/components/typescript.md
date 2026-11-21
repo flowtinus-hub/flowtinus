@@ -2,7 +2,7 @@
 
 # TypeScript
 
-Runs `async function process($input)` for each envelope ($input is its DATA): the place for logic beyond one short expression (helpers, validation, throw, many fields at once). It can import the project's scripts: `import { f } from '@myproject/scripts/<path>'`. The return value goes to the output key (default `result`); with Override it becomes the whole DATA (object = 1 envelope, list = 1 per item, null = none). A throw is an error of the envelope (rethrow(e): another component's error, naming where it began). Globals: $PARAMETERS, $SECRETS, $VARIABLES, $FLOW_CURRENT_RUN, log(), rethrow().
+Runs `async function process($input)` for each envelope ($input is its DATA). It can import the project's scripts: `import { f } from '@myproject/scripts/<path>'`. Its return goes to the output key (default `result`); with Override it is the whole DATA (object = 1 envelope, list = 1 per item, null = none). A throw is the envelope's error (rethrow(e): another component's, naming where it began). Globals: $PARAMETERS, $SECRETS, $VARIABLES, $FLOW_CURRENT_RUN, log(), rethrow(). Top-level code runs anew per component run (each Loop iteration, called flow); globalThis is shared by the run.
 
 - Type: `typescript` (Scripting)
 - Inputs: `in-0`
