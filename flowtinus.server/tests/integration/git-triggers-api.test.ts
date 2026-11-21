@@ -233,6 +233,96 @@ describe('the reconcile applies the schedules and webhooks in the flow files; wh
         expect(await webhooks()).toEqual([]);
     });
 
+    const runsOf = (scheduleId: string) =>
+        db.query<{ scheduled_for: Date; parameters: unknown; input: unknown }>(
+            'SELECT scheduled_for, parameters, input FROM runs WHERE schedule_id = $1 ORDER BY scheduled_for',
+            [scheduleId],
+        );
+
+    test("a schedule fires with git's values under this environment's overrides; its view gives both", async () => {
+        const { call, commitOrders, schedules } = await newWorkspace();
+        const s = crypto.randomUUID();
+        await commitOrders({ schedules: [{ ...schedule(s, '0 6 * * *'), parameters: { since: '1', limit: '5' } }] });
+
+        const overridden = await call('PUT', `/schedules/${s}/overrides`, { cron: '0 * * * *', parameters: { since: '9' } });
+        expect(overridden.status).toBe(200);
+        expect(overridden.body).toMatchObject({
+            id: s,
+            cron: '0 6 * * *',
+            parameters: { since: '1', limit: '5' },
+            overrides: { cron: '0 * * * *', parameters: { since: '9' } },
+            effective: { cron: '0 * * * *', timezone: 'UTC', parameters: { since: '9', limit: '5' } },
+        });
+        expect(overridden.body.overrides.timezone).toBeUndefined();
+        expect(overridden.body.overrides.input).toBeUndefined();
+
+        await call('PUT', `/schedules/${s}/enabled`, { enabled: true });
+        await db.query("UPDATE flow_schedules SET next_fire_at = '2026-11-07T10:00:00Z' WHERE id = $1", [s]);
+        const fired = await fireDueSchedules(db, new Date('2026-11-07T10:00:02Z'));
+        expect(fired.runs).toEqual([expect.objectContaining({ scheduleId: s, status: 'queued' })]);
+        expect(await runsOf(s)).toEqual([
+            { scheduled_for: new Date('2026-11-07T10:00:00Z'), parameters: { since: '9', limit: '5' }, input: null },
+        ]);
+        expect((await schedules())[0].nextFireAt).toEqual('2026-11-07T11:00:00.000Z');
+    });
+
+    test("an override survives a commit that changes the same field, giving git's new value; it is never written to git", async () => {
+        const { call, ids, paths, onBranch, commitOrders, schedules } = await newWorkspace();
+        const s = crypto.randomUUID();
+        await commitOrders({ schedules: [{ ...schedule(s, '0 6 * * *'), parameters: { since: '1' } }] });
+        await call('PUT', `/schedules/${s}/overrides`, { cron: '15 * * * *', timezone: 'Europe/Lisbon', parameters: { since: '9' } });
+        await call('PUT', `/schedules/${s}/enabled`, { enabled: true });
+
+        await commitOrders({ schedules: [{ ...schedule(s, '30 7 * * *'), timezone: 'America/New_York', parameters: { since: '2' } }] });
+
+        const [changed] = await schedules();
+        expect(changed).toMatchObject({
+            cron: '30 7 * * *',
+            timezone: 'America/New_York',
+            parameters: { since: '2' },
+            enabled: true,
+            overrides: { cron: '15 * * * *', timezone: 'Europe/Lisbon', parameters: { since: '9' } },
+            effective: { cron: '15 * * * *', timezone: 'Europe/Lisbon', parameters: { since: '9' } },
+        });
+        expect(new Date(changed.nextFireAt).getUTCMinutes()).toBe(15);
+
+        expect((await call('PATCH', `/flows/${ids.orders}`, { name: 'Sales orders' })).status).toBe(200);
+        expect((await call('POST', `/flows/${ids.orders}/deploy`)).status).toBe(200);
+        const file = onBranch()[paths.orders.replace('Orders.flow.yaml', 'Sales orders.flow.yaml')]!;
+        const read = repoFlowFromYaml(file, 'Sales orders');
+        expect(read.ok && read.value.schedules).toEqual([
+            { ...schedule(s, '30 7 * * *'), timezone: 'America/New_York', parameters: { since: '2' } },
+        ]);
+    });
+
+    test("an override cleared by hand, field by field, brings git's value back and the next time with it", async () => {
+        const { call, commitOrders } = await newWorkspace();
+        const s = crypto.randomUUID();
+        await commitOrders({ schedules: [{ ...schedule(s, '0 6 * * *'), parameters: { since: '1', limit: '5' } }] });
+        await call('PUT', `/schedules/${s}/overrides`, { cron: '15 * * * *', parameters: { since: '9', limit: '7' }, input: [1] });
+        await call('PUT', `/schedules/${s}/enabled`, { enabled: true });
+
+        const cleared = await call('PUT', `/schedules/${s}/overrides`, { cron: null, parameters: { since: null }, input: null });
+        expect(cleared.status).toBe(200);
+        expect(cleared.body.overrides).toEqual({ parameters: { limit: '7' } });
+        expect(cleared.body.effective).toEqual({ cron: '0 6 * * *', timezone: 'UTC', parameters: { since: '1', limit: '7' } });
+        expect(new Date(cleared.body.nextFireAt).getUTCHours()).toBe(6);
+        expect(new Date(cleared.body.nextFireAt).getUTCMinutes()).toBe(0);
+    });
+
+    test('an override that does not make a valid schedule, or of misfire, is refused; archived, it is not found', async () => {
+        const { call, commitOrders } = await newWorkspace();
+        const s = crypto.randomUUID();
+        await commitOrders({ schedules: [schedule(s)] });
+
+        expect((await call('PUT', `/schedules/${s}/overrides`, { cron: 'every day' })).status).toBe(400);
+        expect((await call('PUT', `/schedules/${s}/overrides`, { timezone: 'Mars/Olympus' })).status).toBe(400);
+        expect((await call('PUT', `/schedules/${s}/overrides`, { misfire: 'strict' })).status).toBe(400);
+
+        await commitOrders({});
+        expect((await call('PUT', `/schedules/${s}/overrides`, { cron: '0 * * * *' })).status).toBe(404);
+    });
+
     test("the triggers stay in the flow's file through a canvas save and a rename, each committed by the app", async () => {
         const { call, ids, paths, onBranch, commitOrders } = await newWorkspace();
         const triggers = { schedules: [schedule(crypto.randomUUID())], webhooks: [webhook(crypto.randomUUID())] };
