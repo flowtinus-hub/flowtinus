@@ -8,13 +8,6 @@ import { loadedProjects, loadScriptContent, projectScripts, useProjectScripts, w
 import { allScripts, scriptByImport, useWorkspaceScripts, watchWorkspaceScripts, workspaceScripts, type WorkspaceScript } from '@/data/scripts/workspace-scripts';
 import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
-/*
- * Monaco, set up once (bundled in, no CDN, with Vite's workers) for every code editor: a component's settings and the
- * project's Scripts tab. A script is a model at file:///w/<workspace>/<project>/scripts/<path>.ts and its import path,
- * `@w/<workspace>/<project>/scripts/<path>`, points there, so a TypeScript component (or a script) imports it with
- * autocomplete, errors and go to definition.
- */
-
 self.MonacoEnvironment = {
     getWorker: (_, label) => (label === 'typescript' || label === 'javascript' ? new tsWorker() : new editorWorker()),
 };
@@ -34,16 +27,14 @@ ts.typescriptDefaults.setCompilerOptions({
     // the scripts by their import path
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
     baseUrl: 'file:///',
-    paths: { [`${SCRIPT_IMPORT_ROOT}*`]: ['w/*'] },
+    paths: { [`${SCRIPT_IMPORT_ROOT}*`]: [`${SCRIPT_IMPORT_ROOT.slice(1)}*`] },
 } as monaco.typescript.CompilerOptions);
 // the TypeScript worker sees every model, not only the ones open in an editor: the scripts a code imports are not open
 ts.typescriptDefaults.setEagerModelSync(true);
 // JavaScript (a MongoDB pipeline or filter) is an expression with the envelope's $variables: not checked
 ts.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
 
-/** the workspace's scripts as the code editors have them now (what auto-import offers) */
 let currentScripts: WorkspaceScript[] = [];
-/** the workspace the open editors are in (the scripts of all its projects are the ones imported) */
 let currentWorkspace = '';
 
 /** what a model may import: every name another script exports, by its import path */

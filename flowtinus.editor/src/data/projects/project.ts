@@ -10,7 +10,6 @@ import { isProjectColor, isProjectIcon, type ProjectColorName, type ProjectIconN
 export type Project = {
     id: string;
     name: string;
-    /** made from the name: its name in import paths */
     handle: string;
     description: string;
     icon: ProjectIconName;

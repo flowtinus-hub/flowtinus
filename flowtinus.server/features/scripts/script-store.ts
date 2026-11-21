@@ -1,10 +1,12 @@
-import { handleOf, insideScriptFolder, repoPath, movedScriptPath, normalizeScriptPath, pathCaseClash, scriptAddress, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type FlowFile, type ScriptExport } from '@flowtinus/core';
+import { handleOf, insideScriptFolder, repoPath, movedScriptPath, normalizeScriptPath, onlyThisWorkspace, pathCaseClash, scriptAddress, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type FlowFile, type ScriptExport } from '@flowtinus/core';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { inArray } from 'drizzle-orm';
 import { flows as flowsTable, type Flow } from '#features/flows/flow';
 import { loadDraft } from '#features/flows/flow-draft';
 import { FlowRepository } from '#features/folders/project-tree';
 import { bestRows, ENVIRONMENT_BRANCH, fileRow, removeFile, scriptFileId, writeFile, type WorkingRow } from '#features/git/working-copy';
 import type { Database } from '#shared/database/database';
+import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { branchScripts, type WorkBranch } from '#features/git/branch-read';
 import { refuseOffEditableBranch } from '#features/git/current-branch';
 
@@ -150,33 +152,35 @@ export type ScriptUser = { label: string; code: string };
 
 export type ScriptSource = 'editing' | 'deployed' | { branch: WorkBranch };
 
-/** the projects an import path can name: those of the workspace, archived ones left out */
-export type ScriptScope = { workspace: string; projectOf: Map<string, string>; handleOf: Map<string, string> };
+export type ScriptScope = { workspace: string; projects: Map<string, { name: string; handle: string }> };
+
+export const editingSource = (branch: WorkBranch | null): ScriptSource => (branch ? { branch } : 'editing');
+
+export const editingScope = (ctx: UseCaseContext, branch: WorkBranch | null) => scriptScope(ctx.db, ctx.workspaceId, editingSource(branch));
 
 export async function scriptScope(db: Database, workspaceId: string, source: ScriptSource = 'editing'): Promise<ScriptScope> {
     const [workspace, projects] =
         typeof source === 'object'
             ? [source.branch.handle, source.branch.projects.filter(p => p.deletedAt === null)]
             : await Promise.all([
-                  db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [workspaceId]).then(rows => rows[0]!.handle),
+                  workspaceHandleIn(db, workspaceId),
                   db.query<{ id: string; name: string }>('SELECT id, name FROM projects WHERE workspace_id = $1 AND deleted_at IS NULL', [
                       workspaceId,
                   ]),
               ]);
-    return {
-        workspace,
-        projectOf: new Map(projects.map(p => [handleOf(p.name), p.id])),
-        handleOf: new Map(projects.map(p => [p.id, handleOf(p.name)])),
-    };
+    return { workspace, projects: new Map(projects.map(p => [p.id, { name: p.name, handle: handleOf(p.name) }])) };
 }
 
 export const importPathIn = (scope: ScriptScope, projectId: string, path: string) =>
-    scriptImport(scope.workspace, scope.handleOf.get(projectId)!, path);
+    scriptImport(scope.workspace, scope.projects.get(projectId)!.handle, path);
 
 function scriptAt(scope: ScriptScope, importPath: string): { projectId: string; path: string } | null {
     const address = scriptAddress(importPath);
-    const projectId = address?.workspace === scope.workspace ? scope.projectOf.get(address.project) : undefined;
-    return projectId ? { projectId, path: address!.path } : null;
+    if (address?.workspace !== scope.workspace) {
+        return null;
+    }
+    const project = [...scope.projects].find(([, p]) => p.handle === address.project);
+    return project ? { projectId: project[0], path: address.path } : null;
 }
 
 async function projectScriptContents(
@@ -203,15 +207,22 @@ async function projectScriptContents(
     );
 }
 
-/** the scripts of the workspace the import paths name (all of them without), by import path */
 export async function scriptContents(
     db: Database,
     workspaceId: string,
     source: ScriptSource,
     importPaths?: string[],
-    scope?: ScriptScope,
 ): Promise<{ path: string; content: string }[]> {
-    const within = scope ?? (await scriptScope(db, workspaceId, source));
+    return contentsIn(db, workspaceId, source, await scriptScope(db, workspaceId, source), importPaths);
+}
+
+export async function contentsIn(
+    db: Database,
+    workspaceId: string,
+    source: ScriptSource,
+    within: ScriptScope,
+    importPaths?: string[],
+): Promise<{ path: string; content: string }[]> {
     const wanted = new Map<string, string[] | undefined>();
     if (importPaths) {
         for (const at of importPaths.map(p => scriptAt(within, p))) {
@@ -220,7 +231,7 @@ export async function scriptContents(
             }
         }
     } else {
-        within.handleOf.forEach((_, projectId) => wanted.set(projectId, undefined));
+        within.projects.forEach((_, projectId) => wanted.set(projectId, undefined));
     }
     const found: { path: string; content: string }[] = [];
     for (const [projectId, paths] of wanted) {
@@ -231,10 +242,6 @@ export async function scriptContents(
     return found;
 }
 
-/**
- * The scripts the users' code reaches, through every project of the workspace, saved as blobs: their hashes by import
- * path. An import of another workspace is left to the bundle, which refuses it.
- */
 export async function scriptsForRun(
     db: Database,
     workspaceId: string,
@@ -242,14 +249,17 @@ export async function scriptsForRun(
     source: ScriptSource,
 ): Promise<{ scripts: Record<string, string>; error?: string }> {
     const scope = await scriptScope(db, workspaceId, source);
-    const importsOf = (code: string) =>
-        scriptImports(code).filter(path => (scriptAddress(path)?.workspace ?? scope.workspace) === scope.workspace);
     const contents = new Map<string, string>();
     for (const user of users) {
-        let wanted = importsOf(user.code).map(path => ({ path, from: null as string | null }));
+        let wanted = scriptImports(user.code).map(path => ({ path, from: null as string | null }));
         while (wanted.length > 0) {
+            const foreign = wanted.find(w => scriptAddress(w.path)?.workspace !== scope.workspace);
+            if (foreign) {
+                const through = foreign.from ? ` (through ${foreign.from})` : '';
+                return { scripts: {}, error: `"${user.label}" imports ${foreign.path}${through}: ${onlyThisWorkspace(scope.workspace)}` };
+            }
             const fresh = wanted.filter(w => !contents.has(w.path));
-            const rows = fresh.length ? await scriptContents(db, workspaceId, source, [...new Set(fresh.map(w => w.path))], scope) : [];
+            const rows = fresh.length ? await contentsIn(db, workspaceId, source, scope, [...new Set(fresh.map(w => w.path))]) : [];
             rows.forEach(r => contents.set(r.path, r.content));
             const missing = fresh.find(w => !contents.has(w.path));
             if (missing) {
@@ -257,7 +267,7 @@ export async function scriptsForRun(
                 return { scripts: {}, error: `"${user.label}" imports ${missing.path}${through}, which does not exist.` };
             }
 
-            wanted = rows.flatMap(r => importsOf(r.content).map(path => ({ path, from: r.path }))).filter(w => !contents.has(w.path));
+            wanted = rows.flatMap(r => scriptImports(r.content).map(path => ({ path, from: r.path }))).filter(w => !contents.has(w.path));
         }
     }
 
@@ -332,17 +342,10 @@ export async function scriptUsage(
     path: string,
     branch: WorkBranch | null = null,
 ): Promise<ScriptUsage> {
-    const scope = await scriptScope(db, workspaceId, branch ? { branch } : 'editing');
+    const scope = await scriptScope(db, workspaceId, editingSource(branch));
     const imported = importPathIn(scope, projectId, path);
     const imports = (code: string) => scriptImports(code).some(p => insideScriptFolder(p, imported));
-    const names = new Map(
-        branch
-            ? branch.projects.map(p => [p.id, p.name])
-            : (await db.query<{ id: string; name: string }>('SELECT id, name FROM projects WHERE workspace_id = $1', [workspaceId])).map(
-                  p => [p.id, p.name],
-              ),
-    );
-    const projects = [projectId, ...[...scope.handleOf.keys()].filter(id => id !== projectId)];
+    const projects = [projectId, ...[...scope.projects.keys()].filter(id => id !== projectId)];
     const flows: (Flow & { file?: FlowFile })[] = branch
         ? branch.flows.filter(f => projects.includes(f.projectId))
         : await new FlowRepository(db, workspaceId).findMany(inArray(flowsTable.projectId, projects));
@@ -353,7 +356,11 @@ export async function scriptUsage(
         }
         const file = flow.file ?? (await loadDraft(db, workspaceId, flow)).flow;
         if (imports(file.nodes.map(n => scriptCodeOf(n.type, n.config ?? {}) ?? '').join('\n'))) {
-            users.push({ id: flow.id, name: flow.name, ...(flow.projectId === projectId ? {} : { project: names.get(flow.projectId)! }) });
+            users.push({
+                id: flow.id,
+                name: flow.name,
+                ...(flow.projectId === projectId ? {} : { project: scope.projects.get(flow.projectId)!.name }),
+            });
         }
     }
     const scripts: string[] = [];
@@ -368,7 +375,6 @@ export async function scriptUsage(
     return { flows: users, scripts };
 }
 
-/** who imports a script or a folder: flows and scripts of other projects name their project, by name and import path */
 export type ScriptUsage = { flows: { id: string; name: string; project?: string }[]; scripts: string[] };
 
 export async function moveScriptPath(db: Database, workspaceId: string, projectId: string, from: string, to: string, userId: string) {
@@ -397,7 +403,6 @@ export async function deleteScriptPath(db: Database, workspaceId: string, projec
     );
 }
 
-/** the code of the script the import path names and of the scripts it imports, by import path */
 export async function typeSources(
     db: Database,
     workspaceId: string,
@@ -413,7 +418,7 @@ export async function typeSources(
             continue;
         }
 
-        const [script] = await scriptContents(db, workspaceId, source, [next], scope);
+        const [script] = await contentsIn(db, workspaceId, source, scope, [next]);
         if (!script) {
             continue;
         }

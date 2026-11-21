@@ -2,7 +2,7 @@ import { COMPONENT_TYPE, dynamicTargets, flowPath, inputTypeRef, isFolderVisible
 import { deployedDefinitions } from '#features/deployments/deployments';
 import { loadDraft } from '#features/flows/flow-draft';
 import type { ProjectTree } from '#features/folders/project-tree';
-import { typeSources, type ScriptSource } from '#features/scripts/script-store';
+import { editingSource, typeSources, type ScriptSource } from '#features/scripts/script-store';
 import { branchDraft, branchFlow, type WorkBranch } from '#features/git/branch-read';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 
@@ -55,7 +55,7 @@ export async function calledFlows(
     source: 'draft' | 'deployed',
     branch: WorkBranch | null = null,
 ): Promise<CalledFlow[]> {
-    const scripts: ScriptSource = branch ? { branch } : 'editing';
+    const scripts = editingSource(branch);
     const found = new Map<string, CalledFlow>();
     const deployed =
         source === 'deployed'

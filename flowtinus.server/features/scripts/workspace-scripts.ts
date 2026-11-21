@@ -3,7 +3,7 @@ import { branchScripts, workBranch } from '#features/git/branch-read';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { success, type UseCaseResult } from '#shared/use-cases/use-case-result';
-import { importPathIn, scriptScope, workingScripts } from './script-store';
+import { editingScope, importPathIn, workingScripts } from './script-store';
 
 export type WorkspaceScripts = {
     projects: { id: string; name: string; handle: string; scripts: { path: string; importPath: string; exports: ScriptExport[] }[] }[];
@@ -12,22 +12,13 @@ export type WorkspaceScripts = {
 export class ListWorkspaceScriptsHandler implements UseCaseHandler<WorkspaceScripts> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<WorkspaceScripts>> {
         const branch = await workBranch(ctx);
-        const scope = await scriptScope(ctx.db, ctx.workspaceId, branch ? { branch } : 'editing');
-        const names = new Map(
-            branch
-                ? branch.projects.map(p => [p.id, p.name])
-                : (
-                      await ctx.db.query<{ id: string; name: string }>('SELECT id, name FROM projects WHERE workspace_id = $1', [
-                          ctx.workspaceId,
-                      ])
-                  ).map(p => [p.id, p.name]),
-        );
+        const scope = await editingScope(ctx, branch);
         const projects: WorkspaceScripts['projects'] = [];
-        for (const [id, handle] of scope.handleOf) {
+        for (const [id, { name, handle }] of scope.projects) {
             const scripts = branch ? branchScripts(branch, id) : await workingScripts(ctx.db, ctx.workspaceId, id);
             projects.push({
                 id,
-                name: names.get(id) ?? handle,
+                name,
                 handle,
                 scripts: scripts.map(s => ({
                     path: s.path,

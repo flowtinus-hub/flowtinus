@@ -77,7 +77,6 @@ export function itemsOf(rows: WorkingRow[], userId: string): Item[] {
 
 export const changeCount = (rows: WorkingRow[]) => itemsOf(rows, '').length;
 
-/** the scripts of the workspace in the files, by import path */
 function workspaceScripts(files: RepoFiles, workspace: string): Map<string, string> {
     const scripts = new Map<string, string>();
     for (const [path, text] of Object.entries(files)) {

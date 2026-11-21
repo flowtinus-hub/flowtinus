@@ -436,10 +436,8 @@ async function process($input: IItem) {
             'Foreign import',
             `import { x } from '@w/elsewhere/shared-lib/scripts/math/round';\nasync function process() { return x; }`,
         );
-        const refused = await finished(foreign.body.id);
-        expect(refused.status).toBe('failed');
-        expect(refused.error).toContain(
-            `"@w/elsewhere/shared-lib/scripts/math/round" cannot be imported: only scripts of this workspace (@w/${ws}/<project>/scripts/<path>).`,
+        expect((foreign.body.error as { message: string }).message).toBe(
+            `The flow cannot run: "Price" imports @w/elsewhere/shared-lib/scripts/math/round: only scripts of this workspace (@w/${ws}/<project>/scripts/<path>).`,
         );
     });
 

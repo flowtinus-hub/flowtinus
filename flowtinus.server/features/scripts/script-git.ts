@@ -72,7 +72,7 @@ export async function rewriteMovedScript(ctx: UseCaseContext, projectId: string,
     const { db, workspaceId } = ctx;
     const scope = await scriptScope(db, workspaceId);
     [from, to] = [importPathIn(scope, projectId, from), importPathIn(scope, projectId, to)];
-    const projects = [...scope.handleOf.keys()];
+    const projects = [...scope.projects.keys()];
     for (const id of projects) {
         for (const script of await workingScripts(db, workspaceId, id)) {
             const content = movedScriptImports(script.content, from, to);

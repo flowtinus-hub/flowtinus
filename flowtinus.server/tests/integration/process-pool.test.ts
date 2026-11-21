@@ -65,6 +65,7 @@ describe('process pool', () => {
             variables: {},
             connections: {},
             workspaceName: 'Workspace',
+            workspaceHandle: 'workspace',
             projectName: 'Project',
             flowName: 'Pool',
         };

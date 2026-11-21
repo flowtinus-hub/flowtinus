@@ -140,5 +140,11 @@ describe('move a project to another workspace', () => {
         const draft = (await call(to, 'GET', `/flows/${flowId}/draft`)).body as { flow: { nodes: Node[] } };
         expect(draft.flow.nodes.find(n => n.id === 'ts')!.config.code).toBe(rewired);
         expect(draft.flow.nodes.find(n => n.id === 'fn')!.config.function).toBe(`${now}/rewired/scripts/lib/b#b`);
+
+        await db.query(`INSERT INTO supervisors (id, tags, workers, host) VALUES ('sup-move', '{default}', 1, 'test')`);
+        const run = await call(to, 'POST', `/flows/${flowId}/runs`, { mode: 'validation' });
+        expect(run.body.error.message).toBe(
+            `The flow cannot run: "TypeScript" imports ${old}/toolbox/scripts/util: only scripts of this workspace (${now}/<project>/scripts/<path>).`,
+        );
     });
 });

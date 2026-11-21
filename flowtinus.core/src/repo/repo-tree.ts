@@ -13,7 +13,6 @@ export type WorkspaceTree = {
     workspace: string;
     files: Record<string, string>;
     environment: { connections: string[]; secrets: string[]; variables: string[] };
-    /** the names of the workspace's archived projects, which keep their handles */
     archivedProjects?: string[];
 };
 

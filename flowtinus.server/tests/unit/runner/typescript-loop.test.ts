@@ -1,14 +1,18 @@
 import { expect, test } from 'bun:test';
-import { flowRunner, type ExecutableFlow } from '@flowtinus/core';
+import { flowRunner, type ExecutableFlow, type RunRecord } from '@flowtinus/core';
 import { evaluate } from '#shared/runner/evaluate';
 import { prepareScript } from '#shared/runner/prepare-script';
 
 const CODE = `let calls = 0;
 async function process($input) {
   calls += 1;
-  const run = $FLOW_CURRENT_RUN;
+  return { calls };
+}`;
+
+const LOGS = `async function process($input) {
   await new Promise(resolve => setTimeout(resolve, (4 - $input.n) * 3));
-  return { calls, sameRun: run === $FLOW_CURRENT_RUN };
+  log('item ' + $input.n);
+  return {};
 }`;
 
 const loopWithScript = (code: string, parallel: boolean): ExecutableFlow => ({
@@ -29,27 +33,32 @@ const loopWithScript = (code: string, parallel: boolean): ExecutableFlow => ({
     ],
 });
 
-const run = async (parallel: boolean) => {
-    const reached: { result: { calls: number; sameRun: boolean } }[] = [];
-    const record = await flowRunner(loopWithScript(CODE, parallel), {
+const run = async (code: string, parallel: boolean) => {
+    const reached: { result: { calls: number } }[] = [];
+    const record = await flowRunner(loopWithScript(code, parallel), {
         mode: 'execution',
         id: 'r',
         evaluate,
         input: [{ n: 1 }, { n: 2 }, { n: 3 }],
         onReachEnd: async doc => void reached.push(doc.DATA as (typeof reached)[number]),
-        prepareScript: (code, globals) => prepareScript(code, globals),
+        prepareScript: (code, globals) => prepareScript(code, globals, { scripts: {}, hashes: {}, workspace: 'acme' }),
     });
     return { record, results: reached.map(d => d.result) };
 };
 
 test("a TypeScript step's top-level state starts fresh on every Loop iteration", async () => {
-    const { record, results } = await run(false);
+    const { record, results } = await run(CODE, false);
     expect(record.status).toBe('completed');
     expect(results.map(r => r.calls)).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1]);
 });
 
-test('parallel iterations each keep their own $FLOW_CURRENT_RUN while they await', async () => {
-    const { record, results } = await run(true);
+test('parallel iterations: what each logs after an await lands in its own run of the step', async () => {
+    const { record } = await run(LOGS, true);
     expect(record.status).toBe('completed');
-    expect(results).toEqual(Array.from({ length: 9 }, () => ({ calls: 1, sameRun: true })));
+    const iterations = record.components.find(c => c.nodeId === 'loop')!.subRuns!;
+    expect(iterations).toHaveLength(9);
+    for (const iteration of iterations) {
+        const step = (iteration.record as RunRecord).components.find(c => c.nodeId === 'ts')!;
+        expect(step.logs.map(l => l.message).filter(m => m.startsWith('item'))).toEqual([`item ${iteration.iteration!.envelope}`]);
+    }
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, flowWithScriptsMoved, handleOf, movedScriptImports, scriptImport, type FlowFile } from '@flowtinus/core';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
+import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, flowWithScriptsMoved, handleOf, movedScriptImports, scriptImportPrefix, type FlowFile } from '@flowtinus/core';
 import { FlowRepository, longRepoPath } from '#features/folders/project-tree';
 import { loadDraft, writeDraft } from '#features/flows/flow-draft';
 import { scriptFileId } from '#features/git/working-copy';
@@ -164,12 +165,9 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
             );
         }
 
-        const [{ handle: oldHandle }] = await ctx.db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [
-            ctx.workspaceId,
-        ]);
         const ownScripts = {
-            from: scriptImport(oldHandle, handleOf(project.name), '').slice(0, -1),
-            to: scriptImport(toWorkspace, handleOf(project.name), '').slice(0, -1),
+            from: scriptImportPrefix(await workspaceHandleIn(ctx.db, ctx.workspaceId), handleOf(project.name)).slice(0, -1),
+            to: scriptImportPrefix(toWorkspace, handleOf(project.name)).slice(0, -1),
         };
         const flowIds = flows.map(f => f.id);
         const deployed = flows.filter(f => f.deployed).length;

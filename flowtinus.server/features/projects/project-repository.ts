@@ -12,7 +12,6 @@ export class ProjectRepository extends WorkspaceRepository<typeof projects> {
         super(db, projects, workspaceId);
     }
 
-    /** the project, archived ones included, that has the handle `name` makes */
     async handleHolder(name: string, exceptId?: string): Promise<Project | undefined> {
         return handleHolder(
             name,

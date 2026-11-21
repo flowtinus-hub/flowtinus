@@ -32,7 +32,7 @@ test('in the metrics, what a script waits for is Waiting; only its own work is A
         id: 'm1',
         evaluate,
         input: [{ a: 1 }],
-        prepareScript: (code, globals) => prepareScript(code, globals),
+        prepareScript: (code, globals) => prepareScript(code, globals, { scripts: {}, hashes: {}, workspace: 'acme' }),
     });
     const ts = record.components.find(c => c.nodeId === 'ts')!;
     expect(record.status).toBe('completed');

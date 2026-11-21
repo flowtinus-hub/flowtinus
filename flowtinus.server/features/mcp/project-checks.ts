@@ -1,11 +1,12 @@
-import { COMPONENT_TYPE, CONNECTION_KEY, componentSettings, DYNAMIC_CONNECTION, DYNAMIC_TARGET, dynamicConnection, findProfile, inputTypeRef, isFolderVisible, scriptExports, scriptImports, START, startParameters, type ConnectionProfileData, type FlowFile, type FlowIssue, type SettingField } from '@flowtinus/core';
+import { COMPONENT_TYPE, CONNECTION_KEY, componentSettings, DYNAMIC_CONNECTION, DYNAMIC_TARGET, dynamicConnection, findProfile, inputTypeRef, isFolderVisible, onlyThisWorkspace, scriptAddress, scriptExports, scriptImports, START, startParameters, type ConnectionProfileData, type FlowFile, type FlowIssue, type SettingField } from '@flowtinus/core';
 import { eq } from 'drizzle-orm';
 import { connections as connectionsTable } from '#features/connections/connection';
 import { loadTree } from '#features/folders/project-tree';
 import { branchTree, workBranch } from '#features/git/branch-read';
 import { secrets as secretsTable } from '#features/secrets/secret';
 import { variables as variablesTable } from '#features/variables/variable';
-import { scriptContents } from '#features/scripts/script-store';
+import { editingSource, scriptContents } from '#features/scripts/script-store';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { evaluate } from '#shared/runner/evaluate';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 
@@ -71,8 +72,9 @@ export async function projectIssues(ctx: UseCaseContext, projectId: string, flow
             .select({ name: variablesTable.name, value: variablesTable.value })
             .from(variablesTable)
             .where(eq(variablesTable.workspaceId, ctx.workspaceId)),
-        scriptContents(ctx.db, ctx.workspaceId, branch ? { branch } : 'editing'),
+        scriptContents(ctx.db, ctx.workspaceId, editingSource(branch)),
     ]);
+    const workspace = branch?.handle ?? (await workspaceHandleIn(ctx.db, ctx.workspaceId));
     const connectionById = new Map(connections.map(c => [c.id, c]));
     // by id or by name (whatever the case), as the run finds a dynamic one
     const profiles: Record<string, ConnectionProfileData> = Object.fromEntries(
@@ -161,7 +163,9 @@ export async function projectIssues(ctx: UseCaseContext, projectId: string, flow
 
         const code = typeof node.config.code === 'string' && node.type === COMPONENT_TYPE.typescript ? node.config.code : '';
         for (const path of scriptImports(code)) {
-            if (!exportsOf.has(path)) {
+            if (scriptAddress(path)?.workspace !== workspace) {
+                issue('code', `imports the script ${path}: ${onlyThisWorkspace(workspace)}`);
+            } else if (!exportsOf.has(path)) {
                 issue('code', `imports the script ${path}, which this workspace does not have (list_scripts lists a project's).`);
             }
         }

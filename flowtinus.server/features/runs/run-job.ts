@@ -81,8 +81,7 @@ export type RunJob = {
     scripts?: Record<string, string>;
     scriptHashes?: Record<string, string>;
     workspaceName: string;
-    /** what an import path names its workspace by: an import of another is refused */
-    workspaceHandle?: string;
+    workspaceHandle: string;
     projectName: string;
     flowName: string;
 };
@@ -223,7 +222,12 @@ export async function runJob(
             ...(job.chain ? { chain: job.chain, rootName: job.rootName } : {}),
             ...(job.maxFireAndForgetRuns !== undefined ? { maxFireAndForgetRuns: job.maxFireAndForgetRuns } : {}),
             ...(options.queueFlow ? { queueFlow: options.queueFlow } : {}),
-            prepareScript: (code, globals) => prepareScript(code, globals, job.scripts ?? {}, job.scriptHashes ?? {}, job.workspaceHandle),
+            prepareScript: (code, globals) =>
+                prepareScript(code, globals, {
+                    scripts: job.scripts ?? {},
+                    hashes: job.scriptHashes ?? {},
+                    workspace: job.workspaceHandle,
+                }),
             signal: options.signal,
             ...(options.oauthTokens ? { oauthTokens: options.oauthTokens } : {}),
         });

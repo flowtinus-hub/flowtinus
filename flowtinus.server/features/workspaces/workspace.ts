@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import type { Database } from '#shared/database/database';
 
 /** The handle (unique, never changed) is what the urls carry (/w/<handle>/...). */
 export const workspaces = pgTable('workspaces', {
@@ -14,3 +15,8 @@ export const workspaces = pgTable('workspaces', {
 });
 
 export type Workspace = typeof workspaces.$inferSelect;
+
+export async function workspaceHandleIn(db: Database, workspaceId: string): Promise<string> {
+    const [row] = await db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [workspaceId]);
+    return row?.handle ?? '';
+}

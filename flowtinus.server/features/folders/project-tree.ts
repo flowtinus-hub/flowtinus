@@ -4,7 +4,7 @@ import { folderPath, projectRepoPaths, repoPathIssue, siblingNames, validateName
 import { flows, type Flow } from '#features/flows/flow';
 import { ProjectRepository } from '#features/projects/project-repository';
 import { listScripts } from '#features/scripts/script-store';
-import { workspaces } from '#features/workspaces/workspace';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { WorkspaceRepository } from '#shared/database/repository';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -150,10 +150,8 @@ export const nameTaken = (kind: 'folder' | 'flow', name: string) =>
 
 export const invalidName = (error: string) => fail('validation', 'The request has invalid fields.', { name: error });
 
-export async function workspaceHandle(ctx: UseCaseContext, workspaceId = ctx.workspaceId): Promise<string> {
-    const [row] = await ctx.db.orm.select({ handle: workspaces.handle }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
-    return row?.handle ?? '';
-}
+export const workspaceHandle = (ctx: UseCaseContext, workspaceId = ctx.workspaceId): Promise<string> =>
+    workspaceHandleIn(ctx.db, workspaceId);
 
 export type ProjectChange = { tree?: TreeContents; project?: string; scripts?: ProjectScripts; workspaceId?: string };
 

@@ -48,7 +48,6 @@ export function ScriptTypePicker({ id, value, onChange }: { id: string; value: s
 export function useTypeShape(typeRef: string): { shape: TypeShape | null; loading: boolean } {
     const workspace = useWorkspaceScripts();
     const contents = useSyncExternalStore(watchScripts, loadedContents, loadedContents);
-    // by import path, as code imports them
     const sources = useMemo(
         () =>
             Object.fromEntries(
