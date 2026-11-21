@@ -4,7 +4,9 @@ import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';
 import tsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 import { boundNames, SCRIPT_IMPORT_ROOT, scriptImportLine, scriptImportOfModule, scriptImports, scriptModuleUri } from '@flowtinus/core';
-import { loadScriptContent, projectScripts, useProjectScripts, watchScripts, type ProjectScripts, type ScriptEntry } from '@/data/scripts/scripts-store';
+import { loadedProjects, loadScriptContent, projectScripts, useProjectScripts, watchScripts } from '@/data/scripts/scripts-store';
+import { allScripts, scriptByImport, useWorkspaceScripts, watchWorkspaceScripts, workspaceScripts, type WorkspaceScript } from '@/data/scripts/workspace-scripts';
+import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
 /*
  * Monaco, set up once (bundled in, no CDN, with Vite's workers) for every code editor: a component's settings and the
@@ -39,10 +41,10 @@ ts.typescriptDefaults.setEagerModelSync(true);
 // JavaScript (a MongoDB pipeline or filter) is an expression with the envelope's $variables: not checked
 ts.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
 
-/** the project's scripts as the code editors have them now (what auto-import offers) */
-let currentScripts: ScriptEntry[] = [];
-/** the project the open editors are in (its scripts are the ones imported) */
-let currentProject = '';
+/** the workspace's scripts as the code editors have them now (what auto-import offers) */
+let currentScripts: WorkspaceScript[] = [];
+/** the workspace the open editors are in (the scripts of all its projects are the ones imported) */
+let currentWorkspace = '';
 
 /** what a model may import: every name another script exports, by its import path */
 const importable = (model: monaco.editor.ITextModel) => {
@@ -67,7 +69,7 @@ function importEdit(model: monaco.editor.ITextModel, path: string, name: string,
     return [{ range: new monaco.Range(after + 1, 1, after + 1, 1), text: `${scriptImportLine(path, name, typeOnly)}\n` }];
 }
 
-// auto-import: typing a name a project script exports offers it, and choosing it adds its import at the top
+// auto-import: typing a name a script of the workspace exports offers it, and choosing it adds its import at the top
 monaco.languages.registerCompletionItemProvider('typescript', {
     provideCompletionItems(model, position) {
         const word = model.getWordUntilPosition(position);
@@ -183,18 +185,18 @@ monaco.languages.registerCodeActionProvider('typescript', {
 
 /**
  * Loads the scripts some code imports that are not loaded yet (their models come with them, and the scripts they import
- * then): only what is open and what it needs, never every script of the project.
+ * then): only what is open and what it needs, never every script of the workspace.
  */
 function loadImports(model: monaco.editor.ITextModel) {
-    if (!currentProject || model.isDisposed() || model.getLanguageId() !== 'typescript') {
+    if (!currentWorkspace || model.isDisposed() || model.getLanguageId() !== 'typescript') {
         return;
     }
 
-    const project = projectScripts(currentProject);
+    const workspace = workspaceScripts(currentWorkspace);
     for (const importPath of scriptImports(model.getValue())) {
-        const script = project.scripts.find(s => s.importPath === importPath);
-        if (script && !project.contents[script.path]) {
-            void loadScriptContent(currentProject, script.path);
+        const script = scriptByImport(workspace, importPath);
+        if (script && !projectScripts(script.projectId).contents[script.path]) {
+            void loadScriptContent(script.projectId, script.path);
         }
     }
 }
@@ -210,29 +212,52 @@ monaco.editor.onDidCreateModel(model => {
 });
 
 /** the scripts' models as the page has them: one per script loaded, kept as typed, gone with the script */
-export function syncScriptModels(project: ProjectScripts) {
-    currentScripts = project.scripts;
-    const listed = new Set(project.scripts.map(s => scriptModuleUri(s.importPath)));
-    for (const model of monaco.editor.getModels()) {
-        const uri = model.uri.toString();
-        if (scriptImportOfModule(uri) && !listed.has(uri)) {
-            model.dispose();
+export function syncScriptModels() {
+    const workspace = workspaceScripts(currentWorkspace);
+    currentScripts = allScripts(workspace);
+    const importOf = new Map(
+        currentScripts.map(s => [
+            `${s.projectId}
+${s.path}`,
+            s.importPath,
+        ]),
+    );
+    for (const projectId of loadedProjects()) {
+        for (const s of projectScripts(projectId).scripts) {
+            importOf.set(
+                `${projectId}
+${s.path}`,
+                s.importPath,
+            );
+        }
+    }
+
+    if (workspace.status === 'ready') {
+        const listed = new Set([...importOf.values()].map(scriptModuleUri));
+        for (const model of monaco.editor.getModels()) {
+            const uri = model.uri.toString();
+            if (scriptImportOfModule(uri) && !listed.has(uri)) {
+                model.dispose();
+            }
         }
     }
 
     let created = false;
-    for (const [path, content] of Object.entries(project.contents)) {
-        const script = project.scripts.find(s => s.path === path);
-        if (!script) {
-            continue;
-        }
-        const uri = monaco.Uri.parse(scriptModuleUri(script.importPath));
-        const model = monaco.editor.getModel(uri);
-        if (!model) {
-            monaco.editor.createModel(content.code, 'typescript', uri);
-            created = true;
-        } else if (model.getValue() !== content.code) {
-            model.setValue(content.code);
+    for (const projectId of loadedProjects()) {
+        for (const [path, content] of Object.entries(projectScripts(projectId).contents)) {
+            const importPath = importOf.get(`${projectId}
+${path}`);
+            if (!importPath) {
+                continue;
+            }
+            const uri = monaco.Uri.parse(scriptModuleUri(importPath));
+            const model = monaco.editor.getModel(uri);
+            if (!model) {
+                monaco.editor.createModel(content.code, 'typescript', uri);
+                created = true;
+            } else if (model.getValue() !== content.code) {
+                model.setValue(content.code);
+            }
         }
     }
 
@@ -246,12 +271,19 @@ export function syncScriptModels(project: ProjectScripts) {
     monaco.editor.getModels().forEach(loadImports);
 }
 
-/** keeps the project's scripts (the ones loaded) as Monaco models while an editor that uses them is open */
+/** keeps the workspace's scripts (the ones loaded) as Monaco models while an editor that uses them is open */
 export function useScriptModels(projectId: string) {
     useProjectScripts(projectId);
+    useWorkspaceScripts();
+    const workspace = useWorkspaceHandle();
     useEffect(() => {
-        currentProject = projectId;
-        syncScriptModels(projectScripts(projectId));
-        return watchScripts(() => syncScriptModels(projectScripts(projectId)));
-    }, [projectId]);
+        currentWorkspace = workspace;
+        syncScriptModels();
+        const stopScripts = watchScripts(syncScriptModels);
+        const stopWorkspace = watchWorkspaceScripts(syncScriptModels);
+        return () => {
+            stopScripts();
+            stopWorkspace();
+        };
+    }, [workspace]);
 }

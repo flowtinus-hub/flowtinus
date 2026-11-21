@@ -15,6 +15,7 @@ import { ListVariablesHandler } from '#features/variables/list-variables/list-va
 import { UpdateVariableHandler } from '#features/variables/update-variable/update-variable-handler';
 import { CommitScriptsHandler, DiscardScriptHandler } from '#features/scripts/script-git';
 import { CreateScriptPathHandler, DeleteScriptPathHandler, GetScriptHandler, ListScriptsHandler, MoveScriptPathHandler, SaveScriptHandler, ScriptUsageHandler } from '#features/scripts/scripts-handlers';
+import { ListWorkspaceScriptsHandler } from '#features/scripts/workspace-scripts';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
 import { bodyWith, jsonBody } from './request-input';
@@ -60,6 +61,7 @@ export function projectResourcesRoutes() {
             )
 
             // scripts: a path has slashes (folders), so it goes in the body or the query, not the URL's path
+            .get('/scripts', async c => toHttpResult(c, await new ListWorkspaceScriptsHandler().handle({}, c.get('useCase'))))
             .get('/projects/:id/scripts', async c =>
                 toHttpResult(c, await new ListScriptsHandler().handle({ projectId: c.req.param('id') }, c.get('useCase'))),
             )
