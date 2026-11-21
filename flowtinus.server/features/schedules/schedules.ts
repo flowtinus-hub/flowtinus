@@ -13,6 +13,10 @@ export const SCHEDULES_CHANNEL = 'schedules_changed';
 
 export type LastFire = { at: Date; runId: string; status: string };
 
+export type ScheduleOverrides = { cron?: string; timezone?: string; input?: unknown; parameters: Record<string, string> };
+
+export type ScheduleValues = { cron: string; timezone: string; parameters: Record<string, string>; input?: unknown };
+
 export type ScheduleView = {
     id: string;
     flowId: string;
@@ -23,6 +27,8 @@ export type ScheduleView = {
     misfire: MisfireMode;
     parameters: Record<string, string>;
     input?: unknown;
+    overrides: ScheduleOverrides;
+    effective: ScheduleValues;
     nextFireAt: Date | null;
     last: LastFire | null;
     lastError: string | null;
@@ -41,6 +47,10 @@ type Row = {
     misfire: MisfireMode;
     parameters: Record<string, string>;
     input: unknown;
+    cron_override: string | null;
+    timezone_override: string | null;
+    input_override: unknown;
+    parameter_overrides: Record<string, string> | null;
     next_fire_at: Date | null;
     last_fired_at: Date | null;
     last_run_id: string | null;
@@ -50,29 +60,56 @@ type Row = {
     updated_by: string | null;
 };
 
-const SELECT = `SELECT s.id, s.flow_id, s.cron, s.timezone, s.enabled, s.arrived_disabled, s.misfire, s.parameters, s.input, s.next_fire_at, s.last_fired_at,
+const SELECT = `SELECT s.id, s.flow_id, s.cron, s.timezone, s.enabled, s.arrived_disabled, s.misfire, s.parameters, s.input, s.cron_override,
+       s.timezone_override, s.input_override, s.parameter_overrides, s.next_fire_at, s.last_fired_at,
        s.last_run_id, r.status AS last_status, s.last_error, s.created_at, s.updated_by
   FROM flow_schedules s LEFT JOIN runs r ON r.id = s.last_run_id`;
 
-const toView = (row: Row): ScheduleView => ({
-    id: row.id,
-    flowId: row.flow_id,
-    cron: row.cron,
-    timezone: row.timezone,
-    enabled: row.enabled,
-    arrivedDisabled: row.arrived_disabled,
-    misfire: row.misfire,
-    parameters: row.parameters ?? {},
-    ...(row.input !== null && row.input !== undefined ? { input: row.input } : {}),
-    nextFireAt: row.next_fire_at ? new Date(row.next_fire_at) : null,
-    last:
-        row.last_fired_at && row.last_run_id
-            ? { at: new Date(row.last_fired_at), runId: row.last_run_id, status: row.last_status ?? 'queued' }
-            : null,
-    lastError: row.last_error,
-    createdAt: new Date(row.created_at),
-    updatedBy: row.updated_by,
-});
+const given = (value: unknown) => value !== null && value !== undefined;
+
+export function effectiveValues(git: ScheduleValues, overrides: ScheduleOverrides): ScheduleValues {
+    const input = given(overrides.input) ? overrides.input : git.input;
+    return {
+        cron: overrides.cron ?? git.cron,
+        timezone: overrides.timezone ?? git.timezone,
+        parameters: { ...git.parameters, ...overrides.parameters },
+        ...(given(input) ? { input } : {}),
+    };
+}
+
+const toView = (row: Row): ScheduleView => {
+    const git = { cron: row.cron, timezone: row.timezone, parameters: row.parameters ?? {}, input: row.input };
+    const overrides: ScheduleOverrides = {
+        ...(row.cron_override !== null ? { cron: row.cron_override } : {}),
+        ...(row.timezone_override !== null ? { timezone: row.timezone_override } : {}),
+        ...(given(row.input_override) ? { input: row.input_override } : {}),
+        parameters: row.parameter_overrides ?? {},
+    };
+    return {
+        id: row.id,
+        flowId: row.flow_id,
+        cron: row.cron,
+        timezone: row.timezone,
+        enabled: row.enabled,
+        arrivedDisabled: row.arrived_disabled,
+        misfire: row.misfire,
+        parameters: git.parameters,
+        ...(given(row.input) ? { input: row.input } : {}),
+        overrides,
+        effective: effectiveValues(git, overrides),
+        nextFireAt: row.next_fire_at ? new Date(row.next_fire_at) : null,
+        last:
+            row.last_fired_at && row.last_run_id
+                ? { at: new Date(row.last_fired_at), runId: row.last_run_id, status: row.last_status ?? 'queued' }
+                : null,
+        lastError: row.last_error,
+        createdAt: new Date(row.created_at),
+        updatedBy: row.updated_by,
+    };
+};
+
+export const EFFECTIVE_COLUMNS = `coalesce(s.cron_override, s.cron) AS cron, coalesce(s.timezone_override, s.timezone) AS timezone,
+       s.parameters || s.parameter_overrides AS parameters, coalesce(s.input_override, s.input) AS input`;
 
 export async function listFlowSchedules(db: Database, workspaceId: string, flowId: string): Promise<ScheduleView[]> {
     const rows = await db.query<Row>(

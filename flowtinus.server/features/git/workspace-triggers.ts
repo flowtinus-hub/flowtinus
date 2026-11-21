@@ -59,8 +59,8 @@ async function importSchedule(db: Database, ctx: Ctx, place: Place, schedule: Re
         schedule.input === undefined ? null : pgJson(schedule.input),
         ctx.userId,
     ];
-    const [was] = await db.query<{ archived: boolean }>(
-        'SELECT archived_at IS NOT NULL AS archived FROM flow_schedules WHERE workspace_id = $1 AND id = $2',
+    const [was] = await db.query<{ archived: boolean; cron_override: string | null; timezone_override: string | null }>(
+        'SELECT archived_at IS NOT NULL AS archived, cron_override, timezone_override FROM flow_schedules WHERE workspace_id = $1 AND id = $2',
         [ctx.workspaceId, schedule.id],
     );
     if (!was) {
@@ -89,7 +89,7 @@ async function importSchedule(db: Database, ctx: Ctx, place: Place, schedule: Re
      WHERE id = $1 AND workspace_id = $2
        AND (project_id, flow_id, cron, timezone, misfire, parameters, input) IS DISTINCT FROM ($3::uuid, $4::uuid, $5::text, $6::text, $7::text, $8::text::jsonb, $9::text::jsonb)
      RETURNING id`,
-        [...values, nextTime(schedule.cron, schedule.timezone, new Date())],
+        [...values, nextTime(was.cron_override ?? schedule.cron, was.timezone_override ?? schedule.timezone, new Date())],
     );
     return updated.length > 0;
 }
