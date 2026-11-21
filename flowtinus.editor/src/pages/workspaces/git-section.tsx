@@ -587,9 +587,12 @@ function TurnOnPanel({
     const notes = (changes: FileChange[]) => changes.flatMap(c => (c.note ? [` ${c.note}`] : [])).join('');
     const triggers = (changes: TriggerChange[]) => {
         const count = (change: TriggerChange['change']) => changes.filter(t => t.change === change).length;
-        const said = (n: number, what: string) =>
-            n === 0 ? [] : [`${n} ${n === 1 ? 'schedule or webhook' : 'schedules or webhooks'} ${what}`];
-        const parts = [...said(count('arrives-disabled'), 'arrive disabled'), ...said(count('archived'), 'stop and are archived')];
+        const said = (n: number, one: string, many: string) =>
+            n === 0 ? [] : [n === 1 ? `1 schedule or webhook ${one}` : `${n} schedules or webhooks ${many}`];
+        const parts = [
+            ...said(count('arrives-disabled'), 'arrives disabled', 'arrive disabled'),
+            ...said(count('archived'), 'stops and is archived', 'stop and are archived'),
+        ];
         return parts.length ? ` ${parts.join('; ')}.` : '';
     };
 

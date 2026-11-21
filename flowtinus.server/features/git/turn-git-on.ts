@@ -1,5 +1,6 @@
 import { repoEntry, repoPath, type TreeIssue, type TriggerKind } from '@flowtinus/core';
 import { workspaceHandle } from '#features/folders/project-tree';
+import { draftsTakeEnvironmentTriggers } from '#features/flows/flow-draft';
 import { foldOverrides } from '#features/schedules/schedules';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
@@ -223,6 +224,7 @@ async function turnOnInTransaction(
         warnings = validation.warnings;
     }
 
+    await draftsTakeEnvironmentTriggers(ctx.db, ctx.workspaceId);
     await saveGitConfig(ctx, state.config, true);
     const changes = branchChanges(onBranch, await exportWorkspace(ctx.db, ctx.workspaceId, 'committed'));
     if (Object.keys(changes).length > 0) {

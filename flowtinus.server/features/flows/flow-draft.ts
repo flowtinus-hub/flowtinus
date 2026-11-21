@@ -60,6 +60,38 @@ export async function draftTriggersChanged(db: Database, workspaceId: string, ro
     return inDraft !== null && triggersText(inDraft) !== triggersText(triggersOf(inRepo));
 }
 
+export async function draftsTakeEnvironmentTriggers(db: Database, workspaceId: string): Promise<void> {
+    const drafts = await db.query<{ path: string; file_id: string; name: string; content: string }>(
+        `SELECT w.path, w.file_id, f.name, w.content FROM working_copy w JOIN flows f ON f.workspace_id = w.workspace_id AND f.id::text = w.file_id
+      WHERE w.workspace_id = $1 AND w.branch = $2 AND NOT w.deleted AND w.content IS NOT NULL`,
+        [workspaceId, ENVIRONMENT_BRANCH],
+    );
+    const inRepo = new Map(
+        (
+            await flowsInRepo(
+                db,
+                workspaceId,
+                drafts.map(d => d.file_id),
+            )
+        ).map(f => [f.flow_id, f]),
+    );
+    for (const draft of drafts) {
+        const read = repoFlowFromYaml(draft.content, draft.name);
+        if (!read.ok) {
+            continue;
+        }
+        const text = repoFlowToYaml(read.value.flow, { ...read.value, ...triggersOf(inRepo.get(draft.file_id)) });
+        if (text !== draft.content) {
+            await db.query('UPDATE working_copy SET content = $4 WHERE workspace_id = $1 AND branch = $2 AND path = $3', [
+                workspaceId,
+                ENVIRONMENT_BRANCH,
+                draft.path,
+                text,
+            ]);
+        }
+    }
+}
+
 export async function flowRepoPath(db: Database, workspaceId: string, row: Flow): Promise<string> {
     const [[names], tree] = await Promise.all([
         db.query<{ handle: string; project: string }>(

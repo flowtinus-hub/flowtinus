@@ -252,6 +252,35 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         );
         expect(onBranch()[ordersPath]).toContain(fresh);
     });
+
+    test("a draft saved with git off takes the environment's triggers when git is turned on: none shows as removed in the file", async () => {
+        const { call, repo, config, deployedOrders, newSchedule, newWebhook, triggersInGit } = await newWorkspace();
+        createBranch(repo, 'dev');
+        const orders = await deployedOrders();
+        const saveDraft = async () => {
+            const { flow, revision } = (await call('GET', `/flows/${orders}/draft`)).body;
+            expect((await call('PUT', `/flows/${orders}/draft`, { revision, flow })).status).toBe(200);
+        };
+        await saveDraft();
+        await newSchedule(orders, { cron: '0 6 * * *' });
+        await newWebhook(orders, 'Shop');
+        const fileTriggers = async (): Promise<unknown> => {
+            const { schedules, webhooks } = (await call('GET', `/flows/${orders}/triggers`)).body;
+            return { schedules, webhooks };
+        };
+
+        expect((await call('POST', '/git/on', {})).body).toMatchObject({ outcome: 'exported' });
+        expect(await fileTriggers()).toEqual(triggersInGit());
+        expect((await call('GET', `/flows/${orders}/deployments`)).body.triggersChanged).toBeFalsy();
+
+        expect((await call('DELETE', '/git')).status).toBe(200);
+        await saveDraft();
+        await newSchedule(orders, { cron: '0 * * * *' });
+        expect((await call('PUT', '/git', config)).status).toBe(200);
+        expect((await call('POST', '/git/on', { choice: 'git' })).body).toMatchObject({ outcome: 'git-replaced-server' });
+        expect(await fileTriggers()).toEqual(triggersInGit());
+    });
+
     test("turning git off folds each schedule's overrides into its values; every trigger keeps its enabled", async () => {
         const { handle, call, repo, ordersPath, schedules, webhooks } = await newWorkspace();
         const ids = {
