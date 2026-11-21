@@ -30,10 +30,10 @@ Every component a flow can use, by palette section. Each page has its ports, set
 
 ## Scripting
 
-| Component                   | Type         | What it does                                                                                                                                                                     |
-| --------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Script Invoker](script.md) | `script`     | Calls, for each envelope, a function a project script exports (`path#name`), its arguments in the order of its parameters, each a value or an expression on the envelope.        |
-| [TypeScript](typescript.md) | `typescript` | Runs `async function process($input)` for each envelope ($input is its DATA): the place for logic beyond one short expression (helpers, validation, throw, many fields at once). |
+| Component                   | Type         | What it does                                                                                                                                                              |
+| --------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Script Invoker](script.md) | `script`     | Calls, for each envelope, a function a project script exports (`path#name`), its arguments in the order of its parameters, each a value or an expression on the envelope. |
+| [TypeScript](typescript.md) | `typescript` | Runs `async function process($input)` for each envelope ($input is its DATA).                                                                                             |
 
 ## Transformation
 
