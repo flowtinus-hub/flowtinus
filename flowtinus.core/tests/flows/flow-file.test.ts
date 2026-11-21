@@ -84,6 +84,9 @@ test('a broken file says what is wrong and gives nothing', () => {
 test('the file name comes from the flow name; the runner gets the flow without layout, the parameters from the Start', () => {
     expect(flowFileName('Orders Load (ERP)!')).toBe('orders-load-erp.yaml');
     expect(flowFileName('***')).toBe('flow.yaml');
+    expect(flowFileName('Monthly Close Reconciliation For Every Subsidiary')).toBe(
+        'monthly-close-reconciliation-for-every-subsidiary.yaml',
+    );
     const executable = toExecutableFlow(FLOW, 'Sales');
     expect(executable.parameters).toEqual([{ name: 'since', type: 'number', default: '10' }]);
     expect(executable.nodes.find(n => n.id === 'sql')).toEqual({

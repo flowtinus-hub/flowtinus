@@ -1,5 +1,5 @@
 import { parse, stringify } from 'yaml';
-import { handleOf } from '../names/handle';
+import { slugOf } from '../names/handle';
 import { END, START } from '#engine/constants';
 import type { ExecutableEdge } from '#types/executable-edge.type';
 import type { EnvelopeData } from '#types/envelope-data.type';
@@ -60,7 +60,7 @@ export type FlowFile = {
 };
 
 export function flowFileName(name: string): string {
-    return `${handleOf(name) || 'flow'}.yaml`;
+    return `${slugOf(name) || 'flow'}.yaml`;
 }
 
 export function flowToYaml(file: FlowFile): string {
