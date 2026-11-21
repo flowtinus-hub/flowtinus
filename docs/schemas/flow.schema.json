@@ -124,6 +124,52 @@
           "locked": { "type": "boolean" }
         }
       }
+    },
+    "schedules": {
+      "type": "array",
+      "description": "when the deployed flow runs by itself; whether it runs, and any value overridden, is set on each server",
+      "items": {
+        "type": "object",
+        "required": ["id", "cron", "timezone"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "the identity, a UUID in lower case: stays the same across renames and moves"
+          },
+          "cron": { "type": "string", "minLength": 1, "description": "5 fields (minute hour day month weekday) or 6 (the second first)" },
+          "timezone": { "type": "string", "minLength": 1, "description": "an IANA time zone, such as Europe/Lisbon" },
+          "misfire": {
+            "enum": ["relaxed", "strict", "ignorable"],
+            "description": "times missed: run once (relaxed, the default), each one (strict), or none"
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "the Start's parameters for its runs"
+          },
+          "input": { "description": "the flow's input for its runs" }
+        }
+      }
+    },
+    "webhooks": {
+      "type": "array",
+      "description": "addresses (/wh/<id>) other systems call to run the deployed flow; whether it runs, and its token, are each server's",
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "the identity, a UUID in lower case: stays the same across renames and moves"
+          },
+          "name": { "type": "string", "pattern": "\\S" },
+          "response": { "enum": ["async", "wait"], "description": "answer at once (async, the default) or when the run ends (wait)" }
+        }
+      }
     }
   }
 }

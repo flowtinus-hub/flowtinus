@@ -59,6 +59,16 @@ describe('the validation of a whole workspace tree', () => {
 
 const NOTIFY_PATH = 'acme/projects/Sales/flows/Notify.flow.yaml';
 
+const EVERY_HOUR = {
+    id: '00000000-0000-4000-8000-0000000000a1',
+    cron: '0 * * * *',
+    timezone: 'UTC',
+    misfire: 'relaxed' as const,
+    parameters: {},
+};
+
+const HOOK = { id: '00000000-0000-4000-8000-0000000000b1', name: 'Shop', response: 'async' as const };
+
 const errorsOf = (changes: Record<string, string | undefined>, here = HERE) => {
     const files = { ...validTree(), ...changes };
     for (const [path, text] of Object.entries(changes)) {
@@ -294,6 +304,51 @@ describe('errors, which refuse the tree', () => {
         ]);
     });
 
+    test("a schedule's cron or time zone that is not valid", () => {
+        expect(
+            errorsOf({
+                [NOTIFY_PATH]: repoFlowToYaml(NOTIFY, {
+                    schedules: [
+                        { ...EVERY_HOUR, cron: '0 * * *' },
+                        { ...EVERY_HOUR, id: '00000000-0000-4000-8000-0000000000a2', timezone: 'Mars/Olympus' },
+                    ],
+                }),
+            }),
+        ).toEqual([
+            { path: NOTIFY_PATH, message: `Schedule ${EVERY_HOUR.id}: Use 5 fields (minute hour day month weekday) or 6 (second first).` },
+            { path: NOTIFY_PATH, message: 'Schedule 00000000-0000-4000-8000-0000000000a2: Unknown time zone: Mars/Olympus.' },
+        ]);
+    });
+
+    test('a trigger without an id, without a name, or with an unknown misfire or response, as its reader refuses it', () => {
+        const text = repoFlowToYaml(NOTIFY, { webhooks: [HOOK] });
+        expect(errorsOf({ [NOTIFY_PATH]: text.replace('    name: Shop\n', '') })).toEqual([
+            { path: NOTIFY_PATH, message: 'Webhook 1 has no name.' },
+        ]);
+        expect(errorsOf({ [NOTIFY_PATH]: `${text}    response: later\n` })).toEqual([
+            { path: NOTIFY_PATH, message: 'Webhook 1: "response" is one of async, wait.' },
+        ]);
+        expect(errorsOf({ [NOTIFY_PATH]: text.replace(`  - id: ${HOOK.id}\n    name`, '  - name') })).toEqual([
+            { path: NOTIFY_PATH, message: expect.stringMatching(/^Webhook 1 has no id/) },
+        ]);
+    });
+
+    test('a trigger id not a UUID in lower case, or in two places in the workspace, schedules and webhooks alike', () => {
+        const load = 'acme/projects/Sales/flows/Daily/Load orders.flow.yaml';
+        expect(
+            errorsOf({
+                [NOTIFY_PATH]: repoFlowToYaml(NOTIFY, { schedules: [EVERY_HOUR, { ...EVERY_HOUR, id: 'daily' }], webhooks: [HOOK] }),
+                [load]: repoFlowToYaml(LOAD_ORDERS, { webhooks: [{ ...HOOK, id: EVERY_HOUR.id }] }),
+            }),
+        ).toEqual([
+            { path: NOTIFY_PATH, message: `The schedule id "${EVERY_HOUR.id}" is also in ${load}.` },
+            { path: NOTIFY_PATH, message: 'The schedule id "daily" is not a UUID in lower case.' },
+        ]);
+        expect(
+            errorsOf({ [NOTIFY_PATH]: repoFlowToYaml(NOTIFY, { schedules: [EVERY_HOUR], webhooks: [{ ...HOOK, id: EVERY_HOUR.id }] }) }),
+        ).toEqual([{ path: NOTIFY_PATH, message: `The webhook id "${EVERY_HOUR.id}" is used more than once in this file.` }]);
+    });
+
     test('a workspace without its workspace.yaml, a project without its project.yaml', () => {
         expect(errorsOf({ 'acme/workspace.yaml': undefined, 'acme/projects/Sales/project.yaml': undefined })).toEqual([
             { path: 'acme/workspace.yaml', message: 'The workspace has no workspace.yaml.' },
@@ -341,6 +396,23 @@ describe('warnings, which do not refuse the tree', () => {
         expect(warningsOf({ '.gitattributes': undefined })).toEqual([
             { path: '.gitattributes', message: 'The repository has no .gitattributes: a clone on Windows may get CRLF line endings.' },
         ]);
+    });
+
+    test("a schedule's parameter the Start does not declare, or an input on a Start that takes none", () => {
+        const withSince: FlowFile = {
+            ...NOTIFY,
+            nodes: NOTIFY.nodes.map(n => (n.type === 'start' ? { ...n, config: { parameters: [{ name: 'since', type: 'text' }] } } : n)),
+        };
+        const schedule = { ...EVERY_HOUR, parameters: { since: '7', until: '9' }, input: { a: 1 } };
+        expect(warningsOf({ [NOTIFY_PATH]: repoFlowToYaml(withSince, { schedules: [schedule] }) })).toEqual([
+            { path: NOTIFY_PATH, message: `Schedule ${schedule.id} gives the parameter "until", which the Start does not declare.` },
+            { path: NOTIFY_PATH, message: `Schedule ${schedule.id} gives an input, which the Start does not take.` },
+        ]);
+        const takesInput = {
+            ...withSince,
+            nodes: withSince.nodes.map(n => (n.type === 'start' ? { ...n, config: { acceptsInput: true } } : n)),
+        };
+        expect(warningsOf({ [NOTIFY_PATH]: repoFlowToYaml(takesInput, { schedules: [{ ...EVERY_HOUR, input: { a: 1 } }] }) })).toEqual([]);
     });
 
     test('a file of the workspace that is not part of the format', () => {

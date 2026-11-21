@@ -1,9 +1,9 @@
-import { deployContent, isFolderVisible, type FlowFile } from '@flowtinus/core';
+import { deployContent, isFolderVisible, type FlowFile, type TriggerKind } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { pgJson } from '#shared/database/jsonb';
 import { eq } from 'drizzle-orm';
 import { flows, type Flow } from '#features/flows/flow';
-import { loadDraft } from '#features/flows/flow-draft';
+import { draftTriggersChanged, loadDraft } from '#features/flows/flow-draft';
 import { FlowRepository, loadTree } from '#features/folders/project-tree';
 import { gitBranch, isGitOn } from '#features/git/git-config';
 import type { Mode } from '#features/git/topology';
@@ -11,6 +11,7 @@ import { changedImports } from '#features/scripts/script-git';
 import { withUpdatedByName } from '#features/users/user-names';
 import { SCHEDULES_CHANNEL } from '#features/schedules/schedules';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
+import { fail } from '#shared/use-cases/use-case-result';
 
 /*
  * A flow's deploys in its own environment (a promotion to another environment is apart): a deploy freezes the draft as
@@ -55,6 +56,7 @@ export type FlowDeploymentsView = {
     draftConflict?: string;
     /** with git on: the changed scripts the draft imports, directly or through another script, which a Commit can take along */
     changedScripts?: string[];
+    triggersChanged?: true;
 };
 
 /** what makes two versions the same flow (core's deployContent): not its name, nor where its components are */
@@ -153,6 +155,7 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
         ...(git ? { git } : {}),
         ...(draft?.conflict ? { draftConflict: draft.conflict } : {}),
         ...(draft && flow ? { changedScripts: await changedImports(db, workspaceId, flow.projectId, draft.flow) } : {}),
+        ...(git && flow && (await draftTriggersChanged(db, workspaceId, flow)) ? { triggersChanged: true as const } : {}),
     };
 }
 
@@ -168,6 +171,14 @@ export async function currentDeployment(
     );
     return row ? { id: row.id, number: row.number, hash: row.content_hash } : null;
 }
+
+const UNDEPLOYED: Record<TriggerKind, string> = {
+    schedule: 'Deploy the flow first: only a deployed flow runs on a schedule.',
+    webhook: 'Deploy the flow first: a webhook runs its deployed version.',
+};
+
+export const refuseUndeployed = async (db: Database, workspaceId: string, flowId: string, kind: TriggerKind) =>
+    (await currentDeployment(db, workspaceId, flowId)) ? null : fail('validation', UNDEPLOYED[kind]);
 
 /** one flow's changes of what is deployed, one at a time (two deploys at once would take the same number) */
 export const lockFlowDeployments = (db: Database, flowId: string) =>
@@ -275,7 +286,7 @@ export async function undeployArchived(db: Database, ctx: Actor, flowIds: string
     }
 }
 
-async function turnOffTriggers(db: Database, ctx: Actor, flowIds: string[]): Promise<void> {
+export async function turnOffTriggers(db: Database, ctx: Actor, flowIds: string[]): Promise<void> {
     const schedules = await db.query<{ flow_id: string }>(
         `UPDATE flow_schedules SET enabled = false, next_fire_at = NULL, updated_by = $3, updated_at = now()
      WHERE workspace_id = $1 AND flow_id = ANY($2::uuid[]) AND enabled RETURNING flow_id`,

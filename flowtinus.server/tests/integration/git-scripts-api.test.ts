@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
-import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
+import { commitAll, commitFiles, createBranch, git, webhookInGit } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
@@ -103,11 +103,17 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
             return scriptsOf(started.body.id);
         };
         const webhookOf = async (flowId: string) => {
-            const { webhook, token } = (await call('POST', `/flows/${flowId}/webhooks`, { name: 'Shop' })).body;
+            const { id: webhook, token } =
+                options.git === false
+                    ? await (async () => {
+                          const { webhook, token } = (await call('POST', `/flows/${flowId}/webhooks`, { name: 'Shop' })).body;
+                          return { id: webhook.id as string, token: token as string };
+                      })()
+                    : await webhookInGit(call, repo, flowId);
             return async () => {
                 // the worker seen just now: a long run of the suite would leave the one inserted at the start lost
                 await db.query('UPDATE supervisors SET last_seen = now()');
-                const response = await app.request(`/wh/${webhook.id}`, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
+                const response = await app.request(`/wh/${webhook}`, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
                 expect(response.status).toBe(202);
                 return scriptsOf(((await response.json()) as { runId: string }).runId);
             };

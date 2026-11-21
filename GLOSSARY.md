@@ -122,6 +122,38 @@ _Avoid_: Failed deploy, broken commit
 The state of an environment whose branch has a commit the server has not applied: refused, or not reconciled yet.
 _Avoid_: Out of sync, drift, behind
 
+**Trigger**:
+A schedule or a webhook of a flow: what makes its deployed version run by itself. With git on, what a trigger is lives in the flow's file; whether it runs, and an environment's own values for it, live in that environment.
+_Avoid_: Job, hook (the git provider's webhook is not a trigger)
+
+**Arrived disabled**:
+The state of a trigger the reconcile created or brought back: it is in the environment but does not run until someone there turns it on, in every environment, the one where it was written included.
+_Avoid_: Pending, inactive, new
+
+**Environment override**:
+An environment's own value for a field of a schedule (its cron, time zone, a parameter or the input), used there over git's value and never written back to git.
+_Avoid_: Local setting, environment config
+
+**Working copy**:
+The uncommitted changes of one branch on one server: changed files in the repo format, each with the blob it was based on and its last editor. With git on, a flow's draft is its file in the working copy of the branch open.
+_Avoid_: Draft (with git on), stash, local changes
+
+**Work branch**:
+Any branch that is not an environment's branch and not one of the app's own (`promote/`, `backport/`, `hotfix/`): a user's branch or a shared one.
+_Avoid_: Feature branch, dev branch
+
+**User branch**:
+A work branch named `users/<user handle>/…`, where only that user writes from the app.
+_Avoid_: Personal branch, private branch
+
+**User handle**:
+The name a user goes by in their user branches: made from their email when the user is created, in lowercase letters, digits and underscores, and never changed.
+_Avoid_: Handle (alone, it is a workspace's or a project's), username
+
+**Pending merge**:
+An Update that met conflicts: the conflicted files marked in the working copy and the second parent kept, until it is committed whole or aborted.
+_Avoid_: Merge in progress, unfinished update
+
 ### Scripts
 
 **Handle**:

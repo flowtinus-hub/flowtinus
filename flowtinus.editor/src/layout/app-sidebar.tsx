@@ -1,6 +1,6 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, CirclePause } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { arrivedCount, CHANGES_CHANGED, getGitStatus, GIT_STATUS_CHANGED, gitAhead, listArrivedDisabled, ONLY_PULL_REQUESTS, TRIGGERS_SWITCHED, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -74,8 +74,7 @@ function WorkspaceSwitcher({
 /** looked at again on this interval, and on each page */
 const GIT_STATUS_MS = 60_000;
 
-/** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the git section */
-function GitAheadItem({ handle, pathname }: { handle: string; pathname: string }) {
+function GitItems({ handle, pathname }: { handle: string; pathname: string }) {
     const [status, setStatus] = useState<{ handle: string; value: GitStatus } | null>(null);
     useEffect(() => {
         let gone = false;
@@ -91,11 +90,21 @@ function GitAheadItem({ handle, pathname }: { handle: string; pathname: string }
     }, [handle, pathname]);
 
     const value = status?.handle === handle ? status.value : null;
-    if (value?.on && !gitAhead(value) && value.mode !== 'direct') {
+    return value?.on ? (
+        <>
+            <GitAheadItem handle={handle} value={value} />
+            <ArrivedDisabledItem handle={handle} pathname={pathname} />
+        </>
+    ) : null;
+}
+
+/** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the git section */
+function GitAheadItem({ handle, value }: { handle: string; value: Extract<GitStatus, { on: true }> }) {
+    if (!gitAhead(value) && value.mode !== 'direct') {
         return (
             <SidebarMenuItem>
                 <SidebarMenuButton tooltip={ONLY_PULL_REQUESTS} asChild className="text-muted-foreground">
-                    <NavLink to={`${workspaceSettingsPath(handle)}#git`} title={ONLY_PULL_REQUESTS}>
+                    <NavLink to={`${workspaceSettingsPath(handle)}?tab=git#git`} title={ONLY_PULL_REQUESTS}>
                         <GitPullRequest />
                         <span>Pull requests only</span>
                     </NavLink>
@@ -103,15 +112,49 @@ function GitAheadItem({ handle, pathname }: { handle: string; pathname: string }
             </SidebarMenuItem>
         );
     }
-    if (!value || !gitAhead(value) || !value.on) {
+    if (!gitAhead(value)) {
         return null;
     }
     const label = value.refused ? 'Git is ahead: commit refused' : 'Git unreachable';
     return (
         <SidebarMenuItem>
             <SidebarMenuButton tooltip={label} asChild className="text-amber-700 dark:text-amber-400">
-                <NavLink to={`${workspaceSettingsPath(handle)}#git`}>
+                <NavLink to={`${workspaceSettingsPath(handle)}?tab=git#git`}>
                     <TriangleAlert />
+                    <span>{label}</span>
+                </NavLink>
+            </SidebarMenuButton>
+        </SidebarMenuItem>
+    );
+}
+
+function ArrivedDisabledItem({ handle, pathname }: { handle: string; pathname: string }) {
+    const [count, setCount] = useState<{ handle: string; value: number } | null>(null);
+    useEffect(() => {
+        let gone = false;
+        const read = () =>
+            void listArrivedDisabled(handle).then(result => !gone && result.ok && setCount({ handle, value: arrivedCount(result.value) }));
+        read();
+        const timer = setInterval(read, GIT_STATUS_MS);
+        const events = [GIT_STATUS_CHANGED, CHANGES_CHANGED, TRIGGERS_SWITCHED];
+        events.forEach(event => window.addEventListener(event, read));
+        return () => {
+            gone = true;
+            clearInterval(timer);
+            events.forEach(event => window.removeEventListener(event, read));
+        };
+    }, [handle, pathname]);
+
+    const value = count?.handle === handle ? count.value : 0;
+    if (value === 0) {
+        return null;
+    }
+    const label = `${value} trigger${value === 1 ? '' : 's'} arrived disabled`;
+    return (
+        <SidebarMenuItem>
+            <SidebarMenuButton tooltip={label} asChild className="text-sky-700 dark:text-sky-400">
+                <NavLink to={`${workspaceSettingsPath(handle)}?tab=git#git`} title="Off until turned on in this environment">
+                    <CirclePause />
                     <span>{label}</span>
                 </NavLink>
             </SidebarMenuButton>
@@ -163,7 +206,7 @@ export function AppSidebar() {
                     // with git off every item renders nothing: the group and its lines go too
                     <SidebarGroup className="mx-2 w-auto border-y border-sidebar-border px-0 has-[>ul:empty]:hidden">
                         <SidebarMenu>
-                            <GitAheadItem handle={current.handle} pathname={pathname} />
+                            <GitItems handle={current.handle} pathname={pathname} />
                         </SidebarMenu>
                     </SidebarGroup>
                 )}

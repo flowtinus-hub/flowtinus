@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { isFolderVisible, repoFlowToYaml } from '@flowtinus/core';
 import { workBranch } from '#features/git/branch-read';
-import { cloneFlowOnBranch } from '#features/git/branch-edits';
+import { cloneFlowOnBranch, withNewTriggerIds } from '#features/git/branch-edits';
+import { gitBranch } from '#features/git/git-config';
 import { changeTree } from '#features/git/git-first';
 import { writeFile } from '#features/git/working-copy';
 import { FlowRepository, loadTree, nameInTree, requireActiveProject } from '#features/folders/project-tree';
@@ -10,7 +11,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { flowRepoPath, loadDraft } from '../flow-draft';
+import { draftTriggers, flowRepoPath, loadDraft } from '../flow-draft';
 
 export const CloneFlowCommand = z.object({
     id: z.uuid('Invalid'),
@@ -59,6 +60,9 @@ export class CloneFlowHandler implements UseCaseHandler<{ id: string }> {
 
         const name = named.value;
         const { flow } = await loadDraft(ctx.db, ctx.workspaceId, source);
+        const triggers = (await gitBranch(ctx.db, ctx.workspaceId))
+            ? withNewTriggerIds(await draftTriggers(ctx.db, ctx.workspaceId, source))
+            : {};
         await changeTree(ctx, async db => {
             const copy = await new FlowRepository(db, ctx.workspaceId).insert({
                 id,
@@ -68,7 +72,7 @@ export class CloneFlowHandler implements UseCaseHandler<{ id: string }> {
                 workerTag: source.workerTag,
                 updatedBy: ctx.userId,
             });
-            const content = repoFlowToYaml({ ...flow, id, name });
+            const content = repoFlowToYaml({ ...flow, id, name }, triggers);
             await writeFile(db, ctx.workspaceId, {
                 path: await flowRepoPath(db, ctx.workspaceId, copy),
                 content,

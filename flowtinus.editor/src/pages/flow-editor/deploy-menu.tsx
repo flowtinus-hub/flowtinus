@@ -9,9 +9,11 @@ import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
 import { deployFlow, deployVersion, discardDraft, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
-import { getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
+import { CHANGES_CHANGED, getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { CommitFiles } from './commit-files';
+import { ArrivedDisabledList } from '@/components/arrived-disabled-list';
+import { useTriggersChanged } from './use-triggers-changed';
 import { ConflictDialog } from '@/layout/conflict-dialog';
 import type { FlushResult } from '@/editor/flow-save';
 import type { ApiResult } from '@/lib/api';
@@ -97,6 +99,12 @@ export function DeployMenu({
             gone = true;
         };
     }, [flowId]);
+    useTriggersChanged(async () => {
+        const result = await getDeployments(flowId);
+        if (result.ok) {
+            setDeployments({ flowId, value: result.value });
+        }
+    });
 
     // compared again when the deployments change and each time the draft is saved (saveMark)
     const state = useMemo(() => {
@@ -120,6 +128,9 @@ export function DeployMenu({
         setBusy(false);
         if (fresh.ok) {
             setDeployments({ flowId, value: fresh.value });
+        }
+        if (result.ok && git) {
+            window.dispatchEvent(new Event(CHANGES_CHANGED));
         }
 
         return result;
@@ -269,7 +280,7 @@ export function DeployMenu({
             onConfirm: () => act(() => undeployFlow(flowId)),
         });
 
-    const nothingToDeploy = state.kind === 'deployed' && !state.changed && !current.changedScripts?.length;
+    const nothingToDeploy = state.kind === 'deployed' && !state.changed && !current.changedScripts?.length && !current.triggersChanged;
 
     return (
         <>
@@ -421,17 +432,27 @@ function CommitDialog(props: {
                     </DialogDescription>
                 </DialogHeader>
                 {applied ? (
-                    <p className="flex items-center gap-2 text-sm">
-                        <CircleCheck className="size-4 text-emerald-600" />
-                        {applied.commit ? (
-                            <span>
-                                <span className="font-mono">{shortSha(applied.commit)}</span> applied
-                                {deployedNow && ` · v${deployedNow.number} deployed`}
-                            </span>
-                        ) : (
-                            'Nothing changed in the branch.'
+                    <div className="grid gap-3">
+                        <p className="flex items-center gap-2 text-sm">
+                            <CircleCheck className="size-4 text-emerald-600" />
+                            {applied.commit ? (
+                                <span>
+                                    <span className="font-mono">{shortSha(applied.commit)}</span> applied
+                                    {deployedNow && ` · v${deployedNow.number} deployed`}
+                                </span>
+                            ) : (
+                                'Nothing changed in the branch.'
+                            )}
+                        </p>
+                        {applied.arrived && applied.arrived.length > 0 && (
+                            <div className="grid gap-2">
+                                <p className="text-sm text-muted-foreground">
+                                    These triggers arrived disabled: none runs until it is turned on in this environment.
+                                </p>
+                                <ArrivedDisabledList handle={workspace} items={applied.arrived} className="max-h-[50vh] overflow-y-auto" />
+                            </div>
                         )}
-                    </p>
+                    </div>
                 ) : (
                     <>
                         <Input

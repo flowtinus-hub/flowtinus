@@ -469,7 +469,7 @@ async function committedText(ctx: UseCaseContext, row: WorkingRow): Promise<stri
 export function deployedText(path: string, text: string): string {
     const entry = repoEntry(path);
     const read = entry.kind === 'flow' ? repoFlowFromYaml(text, entry.name) : null;
-    return read?.ok ? repoFlowToYaml(read.value.flow) : text;
+    return read?.ok ? repoFlowToYaml(read.value.flow, { ...read.value, deployed: true }) : text;
 }
 
 export type CreatedBranch = { branch: string; taken: string[]; cutFrom?: string };

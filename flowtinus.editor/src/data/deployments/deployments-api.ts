@@ -1,4 +1,5 @@
 import { api, type ApiResult } from '@/lib/api';
+import { toArrived, type ArrivedDisabledDto } from '@/data/git/git-api';
 import type { FlowDeployments } from './deployment';
 
 /*
@@ -14,8 +15,10 @@ type DeploymentsDto = {
     warnings?: string[];
     git?: { branch: string | null; mode: 'direct' | 'pull-request' | 'protected' };
     commit?: string;
+    arrived?: ArrivedDisabledDto[];
     draftConflict?: string;
     changedScripts?: string[];
+    triggersChanged?: true;
 };
 
 export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
@@ -25,8 +28,10 @@ export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
     ...(dto.warnings ? { warnings: dto.warnings } : {}),
     ...(dto.git ? { git: dto.git } : {}),
     ...(dto.commit ? { commit: dto.commit } : {}),
+    ...(dto.arrived ? { arrived: dto.arrived.map(toArrived) } : {}),
     ...(dto.draftConflict ? { draftConflict: dto.draftConflict } : {}),
     ...(dto.changedScripts ? { changedScripts: dto.changedScripts } : {}),
+    ...(dto.triggersChanged ? { triggersChanged: dto.triggersChanged } : {}),
 });
 
 async function deployments(path: string, method = 'POST', body?: unknown): Promise<ApiResult<FlowDeployments>> {

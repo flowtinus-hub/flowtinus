@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { KeyRound, LoaderCircle, Pencil, Plus, Trash2, Webhook as WebhookIcon } from 'lucide-react';
-import { START, startConfig } from '@flowtinus/core';
+import { START, startConfig, type WebhookResponse } from '@flowtinus/core';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
 import { CopyButton } from '@/components/copy-button';
 import { Button } from '@/components/ui/button';
@@ -9,18 +9,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type { FlowVersion } from '@/data/deployments/deployment';
-import { WEBHOOK_RESPONSES, webhookCurl, webhookMethods, webhookUrl, type Webhook, type WebhookFields, type WebhookResponse } from '@/data/webhooks/webhook';
-import { createWebhook, deleteWebhook, listWebhooks, regenerateToken, updateWebhook } from '@/data/webhooks/webhooks-api';
+import { WEBHOOK_RESPONSE_OPTIONS, webhookCurl, webhookMethods, webhookUrl, type Webhook, type WebhookFields } from '@/data/webhooks/webhook';
+import { createWebhook, deleteWebhook, listWebhooks, regenerateToken, switchWebhook, updateWebhook } from '@/data/webhooks/webhooks-api';
+import { TRIGGERS_SWITCHED } from '@/data/git/git-api';
+import { useTriggersChanged } from './use-triggers-changed';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
 
-const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
+export const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 
 /** where the server answers (in development the editor's /api, which Vite sends to it) */
-const serverOrigin = () => `${window.location.origin}/api`;
-
-const fieldsOf = (w: Webhook): WebhookFields => ({ name: w.name, enabled: w.enabled, response: w.response });
+export const serverOrigin = () => `${window.location.origin}/api`;
 
 type Props = {
     flowId: string;
@@ -57,19 +57,23 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
             gone = true;
         };
     }, [flowId]);
+    useTriggersChanged(load);
 
     const active = items.filter(w => w.enabled).length;
     // a flow whose Start takes no input may be called with GET too
     const acceptsInput = deployed ? startConfig(deployed.definition.nodes.find(n => n.type === START)?.config ?? {}).acceptsInput : true;
     const methods = webhookMethods(acceptsInput);
     const toggle = async (webhook: Webhook) => {
-        await updateWebhook(webhook.id, { ...fieldsOf(webhook), enabled: !webhook.enabled });
-        await load();
+        const result = await switchWebhook(webhook.id, !webhook.enabled);
+        if (result.ok && result.value.token) {
+            setShown({ webhook: result.value.webhook, token: result.value.token });
+        }
+        window.dispatchEvent(new Event(TRIGGERS_SWITCHED));
     };
     const newToken = (webhook: Webhook) =>
         confirm({
             title: `New token for ${webhook.name}?`,
-            description: `The token ${webhook.tokenHint}… stops working at once.`,
+            description: webhook.tokenHint ? `The token ${webhook.tokenHint}… stops working at once.` : 'It has no token yet.',
             confirmLabel: 'New token',
             busyLabel: 'Making…',
             destructive: true,
@@ -168,6 +172,9 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
                         const result = await updateWebhook(editing.id, fields);
                         if (result.ok) {
                             setEditing(null);
+                            if (result.value.token) {
+                                setShown({ webhook: result.value.webhook, token: result.value.token });
+                            }
                             await load();
                         }
 
@@ -182,7 +189,16 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
     );
 }
 
-const callTone = (status: number) => (status < 300 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive');
+export const TokenHint = ({ hint }: { hint: string | null }) =>
+    hint === null ? (
+        <span>no token yet: made when first turned on</span>
+    ) : (
+        <span>
+            token <span className="font-mono">{hint}…</span>
+        </span>
+    );
+
+export const callTone = (status: number) => (status < 300 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive');
 
 function WebhookRow(props: {
     webhook: Webhook;
@@ -210,8 +226,7 @@ function WebhookRow(props: {
                     </span>
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
-                    {WEBHOOK_RESPONSES.find(r => r.value === webhook.response)?.label} · token{' '}
-                    <span className="font-mono">{webhook.tokenHint}…</span>
+                    {WEBHOOK_RESPONSE_OPTIONS.find(r => r.value === webhook.response)?.label} · <TokenHint hint={webhook.tokenHint} />
                     {webhook.last && (
                         <>
                             {' · '}
@@ -243,12 +258,13 @@ function WebhookRow(props: {
 }
 
 /** the name, how it answers, on or off */
-function WebhookForm(props: {
-    webhook: Webhook | null;
+export function WebhookForm(props: {
+    webhook: (Omit<WebhookFields, 'enabled'> & { enabled?: boolean }) | null;
+    switchable?: boolean;
     onClose: () => void;
     onSave: (fields: WebhookFields) => Promise<{ ok: true } | { ok: false; error: { message: string; fields?: Record<string, string> } }>;
 }) {
-    const { webhook, onClose, onSave } = props;
+    const { webhook, switchable = true, onClose, onSave } = props;
     const [name, setName] = useState(webhook?.name ?? '');
     const [response, setResponse] = useState<WebhookResponse>(webhook?.response ?? 'async');
     const [enabled, setEnabled] = useState(webhook?.enabled ?? true);
@@ -269,10 +285,12 @@ function WebhookForm(props: {
             <DialogContent className="sm:max-w-md">
                 <DialogHeader className="flex-row items-center gap-3 pr-8">
                     <DialogTitle className="flex-1">{webhook ? 'Edit webhook' : 'New webhook'}</DialogTitle>
-                    <label className="flex items-center gap-2 text-sm font-normal">
-                        <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="On" />
-                        {enabled ? 'On' : 'Off'}
-                    </label>
+                    {switchable && (
+                        <label className="flex items-center gap-2 text-sm font-normal">
+                            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="On" />
+                            {enabled ? 'On' : 'Off'}
+                        </label>
+                    )}
                 </DialogHeader>
                 <div className="grid gap-4">
                     <div className="grid gap-1.5">
@@ -287,7 +305,7 @@ function WebhookForm(props: {
                             value={response}
                             onChange={e => setResponse(e.target.value as WebhookResponse)}
                         >
-                            {WEBHOOK_RESPONSES.map(r => (
+                            {WEBHOOK_RESPONSE_OPTIONS.map(r => (
                                 <option key={r.value} value={r.value}>
                                     {r.label}
                                 </option>
@@ -310,7 +328,7 @@ function WebhookForm(props: {
 }
 
 /** the token, shown this once, its address and a call to try it */
-function TokenDialog({
+export function TokenDialog({
     webhook,
     token,
     acceptsInput,

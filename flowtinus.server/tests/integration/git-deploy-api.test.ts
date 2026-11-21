@@ -227,6 +227,22 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect((await call('GET', `/flows/${orders}/deployments`)).body.deployed).toBeNull();
     });
 
+    test("an undeploy keeps the schedules and webhooks git has in the flow's file", async () => {
+        const { call, repo, newFlow, flowPath } = await newWorkspace();
+        const orders = await newFlow('Orders');
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
+        const files = onBranch(repo);
+        const path = flowPath('Orders');
+        const schedule = `schedules:\n  - cron: 0 6 * * *\n    id: ${crypto.randomUUID()}\n    timezone: UTC\n`;
+        const webhook = `webhooks:\n  - id: ${crypto.randomUUID()}\n    name: Shop\n`;
+        commitFiles(repo, 'dev', { ...files, [path]: `${files[path]!.trimEnd()}\n${schedule}${webhook}` }, 'Triggers in git');
+
+        expect((await call('POST', `/flows/${orders}/undeploy`)).status).toBe(200);
+        const file = show(repo, path);
+        expect(file).toContain(`id: ${orders}\ndeployed: false\n`);
+        expect(file).toEndWith(`${schedule}${webhook}`.trimEnd());
+    });
+
     test('when the branch moved with a change to the same file, the Commit is refused and nothing changes', async () => {
         const { call, repo, newFlow, flowPath } = await newWorkspace();
         const orders = await newFlow('Orders');

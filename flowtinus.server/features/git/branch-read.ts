@@ -1,4 +1,4 @@
-import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, type ConnectionTypeName, type FlowFile, type RepoFlow } from '@flowtinus/core';
+import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, type ConnectionTypeName, type FlowFile, type RepoFlow, type RepoTriggers } from '@flowtinus/core';
 import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { activeFlow } from '#features/deployments/deployments';
 import type { Flow } from '#features/flows/flow';
@@ -15,7 +15,15 @@ import { GitError, withWorkspaceClone, type GitRemote } from './git-remote';
 import type { RepoFiles } from './workspace-export';
 import { overlayRows, workingRows, type WorkingRow } from './working-copy';
 
-export type BranchFlow = Flow & { archivedAt: null; file: FlowFile; deployed: boolean; path: string; revision: number; conflict?: string };
+export type BranchFlow = Flow & {
+    archivedAt: null;
+    file: FlowFile;
+    deployed: boolean;
+    triggers: RepoTriggers;
+    path: string;
+    revision: number;
+    conflict?: string;
+};
 
 export type BranchFolder = Folder & { archivedAt: null };
 
@@ -269,6 +277,7 @@ async function buildBranch(
                 archivedAt: null,
                 file: { ...read.flow, name: entry.name },
                 deployed: read.deployed,
+                triggers: { schedules: read.schedules, webhooks: read.webhooks },
                 path,
                 revision: row?.revision ?? 0,
                 ...(row?.conflict ? { conflict: row.conflict } : {}),

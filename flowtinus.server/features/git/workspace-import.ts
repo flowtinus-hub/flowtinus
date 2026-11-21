@@ -1,8 +1,8 @@
 import { inArray } from 'drizzle-orm';
 import { workspaceHandleIn } from '#features/workspaces/workspace';
-import { connectionFromYaml, isRepoId, nameKey, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
+import { connectionFromYaml, isRepoId, nameKey, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type TriggerKind, type WorkspaceTree } from '@flowtinus/core';
 import { ConnectionRepository } from '#features/connections/connection-store';
-import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, undeployArchived, type Actor } from '#features/deployments/deployments';
+import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, turnOffTriggers, undeployArchived, type Actor } from '#features/deployments/deployments';
 import { flows as flowsTable } from '#features/flows/flow';
 import { flowRepoPath } from '#features/flows/flow-draft';
 import { FlowRepository, FolderRepository, loadTree } from '#features/folders/project-tree';
@@ -14,6 +14,7 @@ import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { ENVIRONMENT_BRANCH, followGit, overlay, scriptFileId, writeFile, type RenamedDraft } from './working-copy';
 import type { GitRemote } from './git-remote';
 import { flowsInRepo, type RepoFiles } from './workspace-export';
+import { importTriggers } from './workspace-triggers';
 
 export const readBranchWorkspace = (remote: GitRemote, commit: string, handle: string): Promise<RepoFiles> =>
     remote.files(commit, [handle, '.gitattributes']);
@@ -71,6 +72,20 @@ function idsOf(files: RepoFiles, handle: string): { path: string; id: string }[]
     ].filter((e): e is { path: string; id: string } => e.id !== undefined && isRepoId(e.id));
 }
 
+export type TriggerId = { path: string; id: string; kind: TriggerKind };
+
+export function triggerIdsOf(files: RepoFiles, handle: string): TriggerId[] {
+    return entriesOf(files, handle).flows.flatMap(({ path, text, entry }) => {
+        const read = repoFlowFromYaml(text, entry.name);
+        return read.ok
+            ? [
+                  ...read.value.schedules.map(s => ({ path, id: s.id, kind: 'schedule' as const })),
+                  ...read.value.webhooks.map(w => ({ path, id: w.id, kind: 'webhook' as const })),
+              ].filter(t => isRepoId(t.id))
+            : [];
+    });
+}
+
 export async function validateImport(db: Database, workspaceId: string, handle: string, files: RepoFiles): Promise<TreeValidation> {
     const ids = idsOf(files, handle);
     const inTree = new Set(ids.map(e => e.id));
@@ -102,7 +117,20 @@ export async function validateImport(db: Database, workspaceId: string, handle: 
     const errors = ids
         .filter(e => taken.has(e.id))
         .map(e => ({ path: e.path, message: `The id "${e.id}" is already used by another workspace.` }));
-    return { errors: [...validation.errors, ...errors], warnings: validation.warnings };
+    const triggers = triggerIdsOf(files, handle);
+    const takenTriggers = new Set(
+        (
+            await db.query<{ id: string }>(
+                `SELECT id FROM flow_schedules WHERE id = ANY($2::uuid[]) AND workspace_id <> $1
+         UNION SELECT id FROM flow_webhooks WHERE id = ANY($2::uuid[]) AND workspace_id <> $1`,
+                [workspaceId, triggers.map(t => t.id)],
+            )
+        ).map(row => row.id),
+    );
+    const triggerErrors = triggers
+        .filter(t => takenTriggers.has(t.id))
+        .map(t => ({ path: t.path, message: `The ${t.kind} id "${t.id}" is already used by another workspace on this server.` }));
+    return { errors: [...validation.errors, ...errors, ...triggerErrors], warnings: validation.warnings };
 }
 
 const nfc = (name: string) => name.normalize('NFC');
@@ -206,6 +234,14 @@ export async function importWorkspace(
         await keepOnlyDrafts(ctx);
     }
     await importDeployed(ctx, handle, files, options);
+    await importTriggers(
+        ctx.db,
+        ctx,
+        entriesOf(files, handle).flows.map(({ text, entry }) => {
+            const { flow, schedules, webhooks } = read(repoFlowFromYaml(text, nfc(entry.name)));
+            return { flowId: flow.id!, schedules, webhooks };
+        }),
+    );
     return { renamedDrafts };
 }
 
@@ -515,6 +551,7 @@ async function deployAsInTree(
 
     if (current) {
         await setDeployed(db, by, flowId, 'undeploy', current.id, null, commit);
+        await turnOffTriggers(db, by, [flowId]);
     }
     const [inRepo] = await flowsInRepo(db, workspaceId, [flowId]);
     if (inRepo?.content_hash !== contentHash(flow)) {

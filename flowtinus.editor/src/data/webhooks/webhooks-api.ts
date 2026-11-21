@@ -6,7 +6,7 @@ import type { Webhook, WebhookFields } from './webhook';
  * once), one changed, a new token (answered once), one removed. Dates come as ISO text and become Date here.
  */
 
-type WebhookDto = Omit<Webhook, 'last' | 'createdAt' | 'updatedBy'> & {
+export type WebhookDto = Omit<Webhook, 'last' | 'createdAt' | 'updatedBy'> & {
     last: (Omit<NonNullable<Webhook['last']>, 'at'> & { at: string }) | null;
     createdAt: string;
     updatedBy: string | null;
@@ -46,13 +46,18 @@ export async function listWebhooks(flowId: string): Promise<ApiResult<Webhook[]>
 /** a new webhook (refused while the flow is not deployed), with its token: shown once */
 export const createWebhook = (flowId: string, fields: WebhookFields) => withToken(`/flows/${flowId}/webhooks`, fields);
 
-export async function updateWebhook(id: string, fields: WebhookFields): Promise<ApiResult<Webhook>> {
-    const result = fieldErrors(await api<WebhookDto>(`/webhooks/${id}`, { method: 'PUT', body: fields }));
-    return result.ok ? { ok: true, value: toWebhook(result.value) } : result;
+export async function updateWebhook(id: string, fields: WebhookFields): Promise<ApiResult<{ webhook: Webhook; token?: string }>> {
+    const result = fieldErrors(await api<{ webhook: WebhookDto; token?: string }>(`/webhooks/${id}`, { method: 'PUT', body: fields }));
+    return result.ok ? { ok: true, value: { webhook: toWebhook(result.value.webhook), token: result.value.token } } : result;
 }
 
 /** a new token (the old one stops working at once), shown once */
 export const regenerateToken = (id: string) => withToken(`/webhooks/${id}/token`);
+
+export async function switchWebhook(id: string, enabled: boolean): Promise<ApiResult<{ webhook: Webhook; token?: string }>> {
+    const result = await api<{ webhook: WebhookDto; token?: string }>(`/webhooks/${id}/enabled`, { method: 'PUT', body: { enabled } });
+    return result.ok ? { ok: true, value: { webhook: toWebhook(result.value.webhook), token: result.value.token } } : result;
+}
 
 export function deleteWebhook(id: string): Promise<ApiResult<{ id: string }>> {
     return api<{ id: string }>(`/webhooks/${id}`, { method: 'DELETE' });

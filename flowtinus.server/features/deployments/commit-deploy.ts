@@ -1,4 +1,5 @@
-import { repoFlowToYaml, type FlowFile } from '@flowtinus/core';
+import type { ArrivedDisabled } from '#features/git/arrived-disabled';
+import { repoFlowFromYaml, repoFlowToYaml, type FlowFile } from '@flowtinus/core';
 import type { Flow } from '#features/flows/flow';
 import { flowRepoPath } from '#features/flows/flow-draft';
 import { commitTree } from '#features/git/git-first';
@@ -8,7 +9,7 @@ import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { success, type UseCaseError, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { loadDeployments, lockFlowDeployments, type FlowDeploymentsView } from './deployments';
 
-export type CommittedDeployments = FlowDeploymentsView & { commit?: string };
+export type CommittedDeployments = FlowDeploymentsView & { commit?: string; arrived?: ArrivedDisabled[] };
 
 export type FlowToCommit = { definition: FlowFile; deployed: boolean };
 
@@ -29,7 +30,9 @@ export async function commitDeploy(
             return to;
         }
         const path = Object.keys(tip).find(p => idOfFile(p, tip[p]!) === flow.id) ?? (await flowRepoPath(db, ctx.workspaceId, flow));
-        return { changes: { [path]: repoFlowToYaml({ ...to.definition, id: flow.id }, { deployed: to.deployed }) } };
+        const inTip = path in tip ? repoFlowFromYaml(tip[path]!, flow.name) : null;
+        const triggers = inTip?.ok ? inTip.value : {};
+        return { changes: { [path]: repoFlowToYaml({ ...to.definition, id: flow.id }, { ...triggers, deployed: to.deployed }) } };
     });
     if (!committed.ok) {
         return committed;

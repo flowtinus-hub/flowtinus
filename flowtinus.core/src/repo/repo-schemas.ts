@@ -2,6 +2,7 @@ import { END, START } from '#engine/constants';
 import { COMPONENTS } from '../components';
 import { CONNECTION_TYPES } from '../connections/types/connection-types';
 import { FLOW_FILE_VERSION } from '../flows/flow-file';
+import { MISFIRE_MODES, WEBHOOK_RESPONSES } from '../triggers/triggers';
 import { REPO_FORMAT, REPO_ID } from './repo-files';
 
 export type JsonSchema = Record<string, unknown>;
@@ -76,6 +77,45 @@ const flowSchema: JsonSchema = {
                 required: ['id', 'position', 'size'],
                 additionalProperties: false,
                 properties: { id: text, title: text, color: text, position: point, size, locked: { type: 'boolean' } },
+            },
+        },
+        schedules: {
+            type: 'array',
+            description: 'when the deployed flow runs by itself; whether it runs, and any value overridden, is set on each server',
+            items: {
+                type: 'object',
+                required: ['id', 'cron', 'timezone'],
+                additionalProperties: false,
+                properties: {
+                    id,
+                    cron: { type: 'string', minLength: 1, description: '5 fields (minute hour day month weekday) or 6 (the second first)' },
+                    timezone: { type: 'string', minLength: 1, description: 'an IANA time zone, such as Europe/Lisbon' },
+                    misfire: {
+                        enum: MISFIRE_MODES,
+                        description: 'times missed: run once (relaxed, the default), each one (strict), or none',
+                    },
+                    parameters: {
+                        type: 'object',
+                        additionalProperties: { type: 'string' },
+                        description: "the Start's parameters for its runs",
+                    },
+                    input: { description: "the flow's input for its runs" },
+                },
+            },
+        },
+        webhooks: {
+            type: 'array',
+            description:
+                "addresses (/wh/<id>) other systems call to run the deployed flow; whether it runs, and its token, are each server's",
+            items: {
+                type: 'object',
+                required: ['id', 'name'],
+                additionalProperties: false,
+                properties: {
+                    id,
+                    name: { type: 'string', pattern: '\\S' },
+                    response: { enum: WEBHOOK_RESPONSES, description: 'answer at once (async, the default) or when the run ends (wait)' },
+                },
             },
         },
     },

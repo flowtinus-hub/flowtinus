@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
-import { startConfig, START } from '@flowtinus/core';
+import { cronError, nextTimes, startConfig, START, type FlowFile, type MisfireMode } from '@flowtinus/core';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -9,23 +9,19 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { FlowVersion } from '@/data/deployments/deployment';
-import { browserTimeZone, cronError, CRON_PRESETS, describeCron, MISFIRE_MODES, nextTimes, timeZones, type MisfireMode, type Schedule, type ScheduleFields } from '@/data/schedules/schedule';
-import { createSchedule, deleteSchedule, listSchedules, updateSchedule } from '@/data/schedules/schedules-api';
+import { browserTimeZone, CRON_PRESETS, describeCron, MISFIRE_OPTIONS, timeZones, type Schedule, type ScheduleFields } from '@/data/schedules/schedule';
+import { createSchedule, deleteSchedule, listSchedules, switchSchedule, updateSchedule } from '@/data/schedules/schedules-api';
+import { TRIGGERS_SWITCHED } from '@/data/git/git-api';
+import { useTriggersChanged } from './use-triggers-changed';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
 
-/** what a schedule's form sends (to change one field, the others as they are) */
-const fieldsOf = (s: Schedule): ScheduleFields => ({
-    cron: s.cron,
-    timezone: s.timezone,
-    enabled: s.enabled,
-    misfire: s.misfire,
-    parameters: s.parameters,
-    ...(s.input !== undefined ? { input: s.input } : {}),
-});
+export const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 
-const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
+export type StartOf = ReturnType<typeof startConfig>;
+
+export const startOf = (flow: Pick<FlowFile, 'nodes'>): StartOf => startConfig(flow.nodes.find(n => n.type === START)?.config ?? {});
 
 type Props = {
     flowId: string;
@@ -60,11 +56,12 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
             gone = true;
         };
     }, [flowId]);
+    useTriggersChanged(load);
 
     const active = items.filter(s => s.enabled).length;
     const toggle = async (schedule: Schedule) => {
-        await updateSchedule(schedule.id, { ...fieldsOf(schedule), enabled: !schedule.enabled });
-        await load();
+        await switchSchedule(schedule.id, !schedule.enabled);
+        window.dispatchEvent(new Event(TRIGGERS_SWITCHED));
     };
     const remove = (schedule: Schedule) =>
         confirm({
@@ -133,7 +130,7 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
                 <ScheduleForm
                     key={editing === 'new' ? 'new' : editing.id}
                     schedule={editing === 'new' ? null : editing}
-                    version={deployed}
+                    start={startOf(deployed.definition)}
                     onClose={() => setEditing(null)}
                     onSave={async fields => {
                         const result = editing === 'new' ? await createSchedule(flowId, fields) : await updateSchedule(editing.id, fields);
@@ -150,7 +147,7 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
     );
 }
 
-const LAST_TONE: Record<string, string> = {
+export const LAST_TONE: Record<string, string> = {
     failed: 'text-destructive',
     'with-errors': 'text-destructive',
     skipped: 'text-amber-700 dark:text-amber-400',
@@ -209,14 +206,14 @@ function ScheduleRow({
 }
 
 /** the cron expression, its time zone, what to do with missed times, and the Start's parameters and input */
-function ScheduleForm(props: {
-    schedule: Schedule | null;
-    version: FlowVersion;
+export function ScheduleForm(props: {
+    schedule: (Omit<ScheduleFields, 'enabled'> & { enabled?: boolean }) | null;
+    start: StartOf;
+    switchable?: boolean;
     onClose: () => void;
     onSave: (fields: ScheduleFields) => Promise<{ ok: true } | { ok: false; error: { message: string; fields?: Record<string, string> } }>;
 }) {
-    const { schedule, version, onClose, onSave } = props;
-    const start = startConfig(version.definition.nodes.find(n => n.type === START)?.config ?? {});
+    const { schedule, start, switchable = true, onClose, onSave } = props;
     const [preset, setPreset] = useState(schedule ? 'custom' : 'daily');
     const [amount, setAmount] = useState(15);
     const [time, setTime] = useState('09:00');
@@ -266,10 +263,12 @@ function ScheduleForm(props: {
             <DialogContent className="sm:max-w-xl">
                 <DialogHeader className="flex-row items-center gap-3 pr-8">
                     <DialogTitle className="flex-1">{schedule ? 'Edit schedule' : 'New schedule'}</DialogTitle>
-                    <label className="flex items-center gap-2 text-sm font-normal">
-                        <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="On" />
-                        {enabled ? 'On' : 'Off'}
-                    </label>
+                    {switchable && (
+                        <label className="flex items-center gap-2 text-sm font-normal">
+                            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="On" />
+                            {enabled ? 'On' : 'Off'}
+                        </label>
+                    )}
                 </DialogHeader>
                 <div className="grid max-h-[70vh] gap-4 overflow-y-auto pr-1">
                     <div className="grid grid-cols-[1fr_auto] items-end gap-2">
@@ -337,7 +336,7 @@ function ScheduleForm(props: {
                                 value={misfire}
                                 onChange={e => setMisfire(e.target.value as MisfireMode)}
                             >
-                                {MISFIRE_MODES.map(m => (
+                                {MISFIRE_OPTIONS.map(m => (
                                     <option key={m.mode} value={m.mode}>
                                         {m.label}
                                     </option>

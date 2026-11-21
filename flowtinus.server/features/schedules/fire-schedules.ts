@@ -4,7 +4,8 @@ import type { FlowFile } from '@flowtinus/core';
 import { deployedRun } from '#features/runs/deployed-run';
 import { runs, type RunRowStatus } from '#features/runs/run';
 import { CHANNELS, lostRecord, notifyRunEvent } from '#features/runs/run-queue';
-import { dueTimes, nextTime, type MisfireMode } from './schedules';
+import { dueTimes, nextTime, type MisfireMode } from '@flowtinus/core';
+import { EFFECTIVE_COLUMNS } from './schedules';
 
 /*
  * Firing the schedules that are due, by any supervisor (each one calls fireDueSchedules on its timer and its poll):
@@ -149,7 +150,7 @@ export async function fireDueSchedules(db: Database, now?: Date): Promise<FireRe
     for (;;) {
         const count = await db.transaction(async tx => {
             const due = await tx.query<DueRow>(
-                `SELECT s.id, s.workspace_id, s.project_id, s.flow_id, s.cron, s.timezone, s.misfire, s.parameters, s.input, s.next_fire_at,
+                `SELECT s.id, s.workspace_id, s.project_id, s.flow_id, ${EFFECTIVE_COLUMNS}, s.misfire, s.next_fire_at,
            f.name AS flow_name, f.worker_tag, (f.deleted_at IS NOT NULL OR p.deleted_at IS NOT NULL) AS flow_archived,
            (ws.deleted_at IS NOT NULL) AS workspace_archived,
            v.id AS version_id, v.definition

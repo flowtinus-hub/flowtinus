@@ -1,5 +1,9 @@
 import type { FlowFile, TreeIssue } from '@flowtinus/core';
 import { api } from '@/lib/api';
+import type { Schedule } from '@/data/schedules/schedule';
+import { toSchedule, type ScheduleDto } from '@/data/schedules/schedules-api';
+import type { Webhook } from '@/data/webhooks/webhook';
+import { toWebhook, type WebhookDto } from '@/data/webhooks/webhooks-api';
 
 /** pollSeconds: how often the server fetches the environment's branch (60 when absent) */
 export type GitConfig = { repository: string; tokenSecret: string; environment: string; pollSeconds?: number };
@@ -209,8 +213,32 @@ export type UpdateOutcome =
 
 export const updateBranch = (ws: string) => api<UpdateOutcome>(`/w/${ws}/git/update`, { method: 'POST' });
 
-export const commitChanges = (ws: string, paths: string[], message: string) =>
-    api<{ commit: string }>(`/w/${ws}/git/commit`, { method: 'POST', body: { paths, message } });
+export type ArrivedDisabled = { flowId: string; flowName: string; projectId: string; schedules: Schedule[]; webhooks: Webhook[] };
+
+export type ArrivedDisabledDto = Omit<ArrivedDisabled, 'schedules' | 'webhooks'> & { schedules: ScheduleDto[]; webhooks: WebhookDto[] };
+
+export const toArrived = (dto: ArrivedDisabledDto): ArrivedDisabled => ({
+    ...dto,
+    schedules: dto.schedules.map(toSchedule),
+    webhooks: dto.webhooks.map(toWebhook),
+});
+
+export const arrivedCount = (items: ArrivedDisabled[]) => items.reduce((n, item) => n + item.schedules.length + item.webhooks.length, 0);
+
+export const TRIGGERS_SWITCHED = 'flowtinus:triggers-switched';
+
+export async function listArrivedDisabled(ws: string) {
+    const result = await api<{ items: ArrivedDisabledDto[] }>(`/w/${ws}/git/arrived-disabled`);
+    return result.ok ? { ok: true as const, value: result.value.items.map(toArrived) } : result;
+}
+
+export async function commitChanges(ws: string, paths: string[], message: string) {
+    const result = await api<{ commit: string; arrived: ArrivedDisabledDto[] }>(`/w/${ws}/git/commit`, {
+        method: 'POST',
+        body: { paths, message },
+    });
+    return result.ok ? { ok: true as const, value: { commit: result.value.commit, arrived: result.value.arrived.map(toArrived) } } : result;
+}
 
 export const discardChanges = (ws: string, which: { paths: string[] } | { mine: true }) =>
     api<{ discarded: string[] }>(`/w/${ws}/git/discard`, { method: 'POST', body: which });
@@ -255,12 +283,15 @@ export type FileChange = { path: string; change: 'added' | 'changed' | 'removed'
 
 export type { TreeIssue } from '@flowtinus/core';
 
+export type TriggerChange = { kind: 'schedule' | 'webhook'; id: string; path: string; change: 'kept' | 'arrives-disabled' | 'archived' };
+
 export type TurnOnPlan = {
     branch: string;
     branchExists: boolean;
     case: 'export' | 'import' | 'choice';
     toGit: FileChange[];
     toServer: FileChange[];
+    triggersToServer: TriggerChange[];
     errors: TreeIssue[];
     warnings: TreeIssue[];
 };

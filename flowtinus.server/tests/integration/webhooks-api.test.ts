@@ -134,7 +134,8 @@ describe('webhooks', () => {
         expect((await hook('GET', webhook.id, token)).status).toBe(401);
         expect((await hook('GET', webhook.id, renewed.token)).status).toBe(202);
 
-        await call('PUT', `/webhooks/${webhook.id}`, { name: 'Ping', enabled: false });
+        const off = await call('PUT', `/webhooks/${webhook.id}`, { name: 'Ping', enabled: false });
+        expect(off.body).toEqual({ webhook: expect.objectContaining({ id: webhook.id, name: 'Ping', enabled: false }) });
         expect((await hook('GET', webhook.id, renewed.token)).status).toBe(404);
         await call('PUT', `/webhooks/${webhook.id}`, { name: 'Ping', enabled: true });
         await call('POST', `/flows/${flowId}/undeploy`);

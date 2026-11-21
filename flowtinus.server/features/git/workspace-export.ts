@@ -1,4 +1,4 @@
-import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, newFlowFile, projectToYaml, repoFlowFromYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
+import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, newFlowFile, projectToYaml, repoFlowFromYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile, type RepoSchedule, type RepoTriggers, type RepoWebhook } from '@flowtinus/core';
 import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { loadTree } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
@@ -8,13 +8,21 @@ export type RepoFiles = Record<string, string>;
 
 export type GitChanges = Record<string, string | null>;
 
-export type FlowInRepo = { flow_id: string; deployed: boolean; definition: FlowFile; content_hash: string };
+export type FlowInRepo = { flow_id: string; deployed: boolean; definition: FlowFile; content_hash: string } & RepoTriggers;
+
+type TriggerRows = { schedules: (Omit<RepoSchedule, 'input'> & { input: unknown })[]; webhooks: RepoWebhook[] };
 
 // a flow not deployed is at the version last deployed, or at a newer one git brought with deployed: false (a version no
 // deploy ever reached, made with or after the last change of what is deployed)
-export const flowsInRepo = (db: Database, workspaceId: string, flowIds: string[] | null = null) =>
-    db.query<FlowInRepo>(
-        `SELECT f.id AS flow_id, d.flow_version_id IS NOT NULL AS deployed, v.definition, v.content_hash
+export const flowsInRepo = async (db: Database, workspaceId: string, flowIds: string[] | null = null): Promise<FlowInRepo[]> =>
+    (
+        await db.query<Omit<FlowInRepo, keyof RepoTriggers> & TriggerRows>(
+            `SELECT f.id AS flow_id, d.flow_version_id IS NOT NULL AS deployed, v.definition, v.content_hash,
+         (SELECT coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'cron', s.cron, 'timezone', s.timezone, 'misfire', s.misfire,
+             'parameters', s.parameters, 'input', s.input)), '[]'::jsonb)
+           FROM flow_schedules s WHERE s.flow_id = f.id AND s.archived_at IS NULL) AS schedules,
+         (SELECT coalesce(jsonb_agg(jsonb_build_object('id', w.id, 'name', w.name, 'response', w.response)), '[]'::jsonb)
+           FROM flow_webhooks w WHERE w.flow_id = f.id AND w.archived_at IS NULL) AS webhooks
        FROM flows f
        LEFT JOIN deployments d ON d.flow_id = f.id
        JOIN flow_versions v ON v.id = coalesce(
@@ -24,16 +32,20 @@ export const flowsInRepo = (db: Database, workspaceId: string, flowIds: string[]
           ORDER BY n.number DESC LIMIT 1),
          (SELECT coalesce(h.to_version_id, h.from_version_id) FROM deployment_history h WHERE h.flow_id = f.id ORDER BY h.id DESC LIMIT 1))
       WHERE f.workspace_id = $1 AND f.deleted_at IS NULL AND f.removed_at IS NULL AND ($2::uuid[] IS NULL OR f.id = ANY($2::uuid[]))`,
-        [workspaceId, flowIds],
-    );
+            [workspaceId, flowIds],
+        )
+    ).map(row => ({
+        ...row,
+        schedules: row.schedules.map(({ input, ...schedule }) => (input === null ? schedule : { ...schedule, input })),
+    }));
 
 function withDeployed(text: string, name: string, deployed: boolean): string {
     const read = repoFlowFromYaml(text, name);
-    return read.ok ? repoFlowToYaml(read.value.flow, { deployed }) : text;
+    return read.ok ? repoFlowToYaml(read.value.flow, { ...read.value, deployed }) : text;
 }
 
-export const committedFlowText = (flowId: string, inRepo: Pick<FlowInRepo, 'definition' | 'deployed'>) =>
-    repoFlowToYaml({ ...inRepo.definition, id: flowId }, { deployed: inRepo.deployed });
+export const committedFlowText = (flowId: string, inRepo: Omit<FlowInRepo, 'flow_id' | 'content_hash'>) =>
+    repoFlowToYaml({ ...inRepo.definition, id: flowId }, inRepo);
 
 export type Tree = { files: RepoFiles; ids: Record<string, string> };
 

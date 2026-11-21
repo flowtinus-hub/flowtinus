@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { newFlowFile, repoFlowToYaml } from '@flowtinus/core';
+import { newFlowFile, repoFlowFromYaml, repoFlowToYaml } from '@flowtinus/core';
 import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
@@ -225,6 +225,39 @@ describe('work branches: create one taking the changes along, edit and Commit on
         expect(second.body.taken).toEqual([at('projects/Sales/flows/Mine/.gitkeep'), at('projects/Sales/flows/Orders.flow.yaml')]);
         expect((await call('PUT', '/git/current-branch', { branch: first })).status).toBe(200);
         expect(await changes(ANA)).toEqual([]);
+    });
+
+    test("a flow's schedules and webhooks in its file survive an edit, a merge of a moved branch and a Commit", async () => {
+        const { id, call, orders, repo, at, userHandle, show, relabel } = await workspace();
+        const branch = `users/${await userHandle(ANA)}/triggers`;
+        expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
+        expect((await relabel(ANA, orders, 'Before the push')).status).toBe(200);
+
+        const path = at('projects/Sales/flows/Orders.flow.yaml');
+        const read = repoFlowFromYaml(show(branch, 'projects/Sales/flows/Orders.flow.yaml'), 'Orders');
+        if (!read.ok) {
+            throw new Error(read.errors.join('\n'));
+        }
+        const schedule = { id: crypto.randomUUID(), cron: '0 6 * * *', timezone: 'UTC', misfire: 'relaxed' as const, parameters: {} };
+        const webhook = { id: crypto.randomUUID(), name: 'Shop', response: 'wait' as const };
+        const files: Record<string, string> = {};
+        for (const file of git(repo, 'ls-tree', '-r', '--name-only', branch).split('\n').filter(Boolean)) {
+            files[file] = git(repo, 'show', `${branch}:${file}`) + '\n';
+        }
+        files[path] = repoFlowToYaml(read.value.flow, { ...read.value, schedules: [schedule], webhooks: [webhook] });
+        commitFiles(repo, branch, files, 'triggers from a laptop');
+        await app.gitPoller.poll(id);
+
+        expect((await commitAll(call, 'Label')).status).toBe(200);
+        const committed = show(branch, 'projects/Sales/flows/Orders.flow.yaml');
+        expect(committed).toContain('label: Before the push');
+        expect(committed).toContain(`id: ${schedule.id}`);
+        expect(committed).toContain(`id: ${webhook.id}`);
+
+        expect((await relabel(ANA, orders, 'After the push')).status).toBe(200);
+        expect((await commitAll(call, 'Label again')).status).toBe(200);
+        const again = repoFlowFromYaml(show(branch, 'projects/Sales/flows/Orders.flow.yaml'), 'Orders');
+        expect(again).toMatchObject({ ok: true, value: { schedules: [schedule], webhooks: [webhook] } });
     });
 
     test('the tree is validated before a push on a work branch: an invalid one is refused with its errors', async () => {
