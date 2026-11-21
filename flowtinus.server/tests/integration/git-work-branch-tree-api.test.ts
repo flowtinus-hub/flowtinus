@@ -296,12 +296,16 @@ describe('every change of the tree on a work branch goes into its working copy',
         const create = (path: string, content: string) => call('POST', `/projects/${projectId}/scripts`, { path, kind: 'script', content });
         expect((await create('lib/util', 'export const n = 1;\n')).status).toBe(201);
         expect((await create('main', `import { n } from '${sales}lib/util';\nexport const m = n;\n`)).status).toBe(201);
+        const billing = (await call('POST', '/projects', { name: 'Billing' })).body.id as string;
+        const fees = `import { n } from '${sales}lib/util';\n`;
+        expect((await call('POST', `/projects/${billing}/scripts`, { path: 'fees', kind: 'script', content: fees })).status).toBe(201);
         expect((await commitAll(call, 'Scripts')).status).toBe(200);
 
         expect((await call('POST', `/projects/${projectId}/scripts/move`, { from: 'lib', to: 'main' })).status).toBe(409);
         const moved = await call('POST', `/projects/${projectId}/scripts/move`, { from: 'lib', to: 'tools' });
         expect(moved.status).toBe(200);
         expect(await changes()).toEqual([
+            'projects/Billing/scripts/fees.ts',
             'projects/Sales/scripts/lib/util.ts',
             'projects/Sales/scripts/main.ts',
             'projects/Sales/scripts/tools/util.ts',
@@ -311,6 +315,7 @@ describe('every change of the tree on a work branch goes into its working copy',
 
         expect((await commitAll(call, 'Move lib')).status).toBe(200);
         expect(show(branch, 'projects/Sales/scripts/main.ts')).toContain(`from '${sales}tools/util'`);
+        expect(show(branch, 'projects/Billing/scripts/fees.ts')).toContain(`from '${sales}tools/util'`);
         expect(show(branch, 'projects/Sales/scripts/tools/util.ts')).toBe('export const n = 1;');
         expect(tree(branch)).not.toContain('projects/Sales/scripts/lib/util.ts');
 

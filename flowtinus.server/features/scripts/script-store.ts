@@ -1,5 +1,5 @@
 import { handleOf, insideScriptFolder, repoPath, movedScriptPath, normalizeScriptPath, pathCaseClash, scriptAddress, scriptCodeOf, scriptExports, scriptImport, scriptImports, scriptPathIssue, type FlowFile, type ScriptExport } from '@flowtinus/core';
-import { eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { flows as flowsTable, type Flow } from '#features/flows/flow';
 import { loadDraft } from '#features/flows/flow-draft';
 import { FlowRepository } from '#features/folders/project-tree';
@@ -331,25 +331,45 @@ export async function scriptUsage(
     projectId: string,
     path: string,
     branch: WorkBranch | null = null,
-): Promise<{ flows: { id: string; name: string }[]; scripts: string[] }> {
-    const imported = importPathIn(await scriptScope(db, workspaceId, branch ? { branch } : 'editing'), projectId, path);
+): Promise<ScriptUsage> {
+    const scope = await scriptScope(db, workspaceId, branch ? { branch } : 'editing');
+    const imported = importPathIn(scope, projectId, path);
     const imports = (code: string) => scriptImports(code).some(p => insideScriptFolder(p, imported));
-    const scripts = branch ? (branch.scripts.get(projectId) ?? []) : await workingScripts(db, workspaceId, projectId);
+    const names = new Map(
+        branch
+            ? branch.projects.map(p => [p.id, p.name])
+            : (await db.query<{ id: string; name: string }>('SELECT id, name FROM projects WHERE workspace_id = $1', [workspaceId])).map(
+                  p => [p.id, p.name],
+              ),
+    );
+    const projects = [projectId, ...[...scope.handleOf.keys()].filter(id => id !== projectId)];
     const flows: (Flow & { file?: FlowFile })[] = branch
-        ? branch.flows.filter(f => f.projectId === projectId)
-        : await new FlowRepository(db, workspaceId).findMany(eq(flowsTable.projectId, projectId));
-    const users: { id: string; name: string }[] = [];
+        ? branch.flows.filter(f => projects.includes(f.projectId))
+        : await new FlowRepository(db, workspaceId).findMany(inArray(flowsTable.projectId, projects));
+    const users: ScriptUsage['flows'] = [];
     for (const flow of flows) {
+        if (flow.projectId !== projectId && flow.deletedAt) {
+            continue;
+        }
         const file = flow.file ?? (await loadDraft(db, workspaceId, flow)).flow;
         if (imports(file.nodes.map(n => scriptCodeOf(n.type, n.config ?? {}) ?? '').join('\n'))) {
-            users.push({ id: flow.id, name: flow.name });
+            users.push({ id: flow.id, name: flow.name, ...(flow.projectId === projectId ? {} : { project: names.get(flow.projectId)! }) });
         }
     }
-    return {
-        flows: users,
-        scripts: scripts.filter(s => !insideScriptFolder(s.path, path) && imports(s.content)).map(s => s.path),
-    };
+    const scripts: string[] = [];
+    for (const id of projects) {
+        const own = id === projectId;
+        for (const script of branch ? (branch.scripts.get(id) ?? []) : await workingScripts(db, workspaceId, id)) {
+            if (!(own && insideScriptFolder(script.path, path)) && imports(script.content)) {
+                scripts.push(own ? script.path : importPathIn(scope, id, script.path));
+            }
+        }
+    }
+    return { flows: users, scripts };
 }
+
+/** who imports a script or a folder: flows and scripts of other projects name their project, by name and import path */
+export type ScriptUsage = { flows: { id: string; name: string; project?: string }[]; scripts: string[] };
 
 export async function moveScriptPath(db: Database, workspaceId: string, projectId: string, from: string, to: string, userId: string) {
     const { folders } = await listScripts(db, workspaceId, projectId);

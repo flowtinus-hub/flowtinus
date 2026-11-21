@@ -12,7 +12,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { allFolders, deleteScriptPath, getScript, importPathIn, listScripts, moveScriptPath, newPathIssue, scriptScope, scriptUsage, writeScript, type ScriptEntry } from './script-store';
+import { allFolders, deleteScriptPath, getScript, importPathIn, listScripts, moveScriptPath, newPathIssue, scriptScope, scriptUsage, writeScript, type ScriptEntry, type ScriptUsage } from './script-store';
 
 const projectId = z.uuid('Invalid');
 const path = z.string().transform(normalizeScriptPath);
@@ -236,7 +236,7 @@ export class DeleteScriptPathHandler implements UseCaseHandler<{ path: string }>
     }
 }
 
-export class ScriptUsageHandler implements UseCaseHandler<{ flows: { id: string; name: string }[]; scripts: string[] }> {
+export class ScriptUsageHandler implements UseCaseHandler<ScriptUsage> {
     async handle(
         input: unknown,
         ctx: UseCaseContext,
