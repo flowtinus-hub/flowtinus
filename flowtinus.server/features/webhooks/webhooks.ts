@@ -18,8 +18,9 @@ export type WebhookView = {
     path: string;
     name: string;
     enabled: boolean;
+    arrivedDisabled: boolean;
     response: WebhookResponse;
-    tokenHint: string;
+    tokenHint: string | null;
     last: { at: Date; status: number; runId?: string } | null;
     createdAt: Date;
     updatedBy: string | null;
@@ -46,8 +47,9 @@ type Row = {
     flow_id: string;
     name: string;
     enabled: boolean;
+    arrived_disabled: boolean;
     response: WebhookResponse;
-    token_hint: string;
+    token_hint: string | null;
     last_called_at: Date | null;
     last_status: number | null;
     last_run_id: string | null;
@@ -55,7 +57,7 @@ type Row = {
     updated_by: string | null;
 };
 
-const SELECT = `SELECT w.id, w.flow_id, w.name, w.enabled, w.response, w.token_hint, w.last_called_at, w.last_status,
+const SELECT = `SELECT w.id, w.flow_id, w.name, w.enabled, w.arrived_disabled, w.response, w.token_hint, w.last_called_at, w.last_status,
        w.last_run_id, w.created_at, w.updated_by
   FROM flow_webhooks w`;
 
@@ -65,6 +67,7 @@ const toView = (row: Row): WebhookView => ({
     path: webhookPath(row.id),
     name: row.name,
     enabled: row.enabled,
+    arrivedDisabled: row.arrived_disabled,
     response: row.response,
     tokenHint: row.token_hint,
     last:
@@ -76,16 +79,33 @@ const toView = (row: Row): WebhookView => ({
 });
 
 export async function listFlowWebhooks(db: Database, workspaceId: string, flowId: string): Promise<WebhookView[]> {
-    const rows = await db.query<Row>(`${SELECT} WHERE w.workspace_id = $1 AND w.flow_id = $2 ORDER BY w.created_at, w.id`, [
-        workspaceId,
-        flowId,
-    ]);
+    const rows = await db.query<Row>(
+        `${SELECT} WHERE w.workspace_id = $1 AND w.flow_id = $2 AND w.archived_at IS NULL ORDER BY w.created_at, w.id`,
+        [workspaceId, flowId],
+    );
     return withUpdatedByName(db, rows.map(toView));
 }
 
 export async function findWebhook(db: Database, workspaceId: string, id: string): Promise<WebhookView | null> {
-    const [row] = await db.query<Row>(`${SELECT} WHERE w.workspace_id = $1 AND w.id = $2`, [workspaceId, id]);
+    const [row] = await db.query<Row>(`${SELECT} WHERE w.workspace_id = $1 AND w.id = $2 AND w.archived_at IS NULL`, [workspaceId, id]);
     return row ? (await withUpdatedByName(db, [toView(row)]))[0]! : null;
+}
+
+export async function switchWebhook(
+    db: Database,
+    ctx: { workspaceId: string; userId: string },
+    id: string,
+    enabled: boolean,
+): Promise<{ token?: string }> {
+    const minted = enabled ? newToken() : null;
+    const [row] = await db.query<{ minted: boolean }>(
+        `UPDATE flow_webhooks SET enabled = $3, arrived_disabled = arrived_disabled AND NOT $3, token_hash = coalesce(token_hash, $4),
+       token_hint = coalesce(token_hint, $5), updated_by = $6, updated_at = now()
+     FROM (SELECT token_hash IS NULL AS minted FROM flow_webhooks WHERE workspace_id = $1 AND id = $2) was
+     WHERE workspace_id = $1 AND id = $2 RETURNING was.minted`,
+        [ctx.workspaceId, id, enabled, minted?.hash ?? null, minted?.hint ?? null, ctx.userId],
+    );
+    return minted && row?.minted ? { token: minted.token } : {};
 }
 
 export async function webhookCounts(
@@ -95,7 +115,7 @@ export async function webhookCounts(
 ): Promise<Map<string, { total: number; on: number }>> {
     const rows = await db.query<{ flow_id: string; total: number | string; on: number | string }>(
         `SELECT flow_id, count(*) AS total, count(*) FILTER (WHERE enabled) AS "on" FROM flow_webhooks
-     WHERE workspace_id = $1 AND project_id = $2 GROUP BY flow_id`,
+     WHERE workspace_id = $1 AND project_id = $2 AND archived_at IS NULL GROUP BY flow_id`,
         [workspaceId, projectId],
     );
     return new Map(rows.map(r => [r.flow_id, { total: Number(r.total), on: Number(r.on) }]));

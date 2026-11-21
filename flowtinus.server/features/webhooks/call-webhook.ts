@@ -38,7 +38,7 @@ type Row = {
     flow_id: string;
     enabled: boolean;
     response: WebhookResponse;
-    token_hash: string;
+    token_hash: string | null;
     flow_name: string;
     worker_tag: string;
     archived: boolean;
@@ -66,7 +66,7 @@ export async function callWebhook(db: Database, call: WebhookCall, waitMs = WAIT
      WHERE w.id = $1`,
         [call.id],
     );
-    if (!row || !row.enabled) {
+    if (!row || !row.enabled || !row.token_hash) {
         return error(404, 'Webhook not found.');
     }
 

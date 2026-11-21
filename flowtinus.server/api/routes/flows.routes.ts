@@ -24,7 +24,8 @@ import { ListRunsHandler, RunOverviewHandler, RunTreeHandler } from '#features/r
 import { DeleteScheduleHandler } from '#features/schedules/delete-schedule/delete-schedule-handler';
 import { ListSchedulesHandler } from '#features/schedules/list-schedules/list-schedules-handler';
 import { SaveScheduleHandler } from '#features/schedules/save-schedule/save-schedule-handler';
-import { CreateWebhookHandler, DeleteWebhookHandler, ListWebhooksHandler, NewWebhookTokenHandler, UpdateWebhookHandler } from '#features/webhooks/manage-webhooks/manage-webhooks-handlers';
+import { SwitchScheduleHandler } from '#features/schedules/switch-schedule/switch-schedule-handler';
+import { CreateWebhookHandler, DeleteWebhookHandler, ListWebhooksHandler, NewWebhookTokenHandler, SwitchWebhookHandler, UpdateWebhookHandler } from '#features/webhooks/manage-webhooks/manage-webhooks-handlers';
 import { RerunRunHandler } from '#features/runs/rerun-run/rerun-run-handler';
 import { StartRunHandler } from '#features/runs/start-run/start-run-handler';
 import type { RunProgress, RunRecord } from '@flowtinus/core';
@@ -264,6 +265,9 @@ export function schedulesRoutes() {
                 await new SaveScheduleHandler('update').handle({ id: c.req.param('id'), fields: await jsonBody(c) }, c.get('useCase')),
             ),
         )
+        .put('/:id/enabled', async c =>
+            toHttpResult(c, await new SwitchScheduleHandler().handle(await bodyWith(c, { id: c.req.param('id') }), c.get('useCase'))),
+        )
         .delete('/:id', async c => toHttpResult(c, await new DeleteScheduleHandler().handle({ id: c.req.param('id') }, c.get('useCase'))));
 }
 
@@ -274,6 +278,9 @@ export function webhooksRoutes() {
                 c,
                 await new UpdateWebhookHandler().handle({ id: c.req.param('id'), fields: await jsonBody(c) }, c.get('useCase')),
             ),
+        )
+        .put('/:id/enabled', async c =>
+            toHttpResult(c, await new SwitchWebhookHandler().handle(await bodyWith(c, { id: c.req.param('id') }), c.get('useCase'))),
         )
         .post('/:id/token', async c =>
             toHttpResult(c, await new NewWebhookTokenHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
