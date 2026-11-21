@@ -1,6 +1,7 @@
 import { parse, stringify } from 'yaml';
 import { CONNECTION_TYPES, type ConnectionTypeName } from '../connections/types/connection-types';
 import { FLOW_FILE_VERSION, leanFlow, validateFlowFile, type FlowFile } from '../flows/flow-file';
+import { DEFAULT_MISFIRE, DEFAULT_WEBHOOK_RESPONSE, MISFIRE_MODES, WEBHOOK_RESPONSES, type MisfireMode, type WebhookResponse } from '../triggers/triggers';
 
 export const REPO_FORMAT = 1;
 
@@ -12,7 +13,17 @@ export const REPO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 export const isRepoId = (id: string) => REPO_ID.test(id);
 
-export type RepoFlow = { flow: FlowFile; deployed: boolean };
+export type RepoSchedule = {
+    id: string;
+    cron: string;
+    timezone: string;
+    misfire: MisfireMode;
+    parameters: Record<string, string>;
+    input?: unknown;
+};
+export type RepoWebhook = { id: string; name: string; response: WebhookResponse };
+export type RepoTriggers = { schedules: RepoSchedule[]; webhooks: RepoWebhook[] };
+export type RepoFlow = { flow: FlowFile; deployed: boolean } & RepoTriggers;
 export type RepoProject = { id: string; description: string; icon?: string; color?: string };
 export type RepoConnection = { id: string; type: ConnectionTypeName };
 export type RepoWorkspace = { format: typeof REPO_FORMAT };
@@ -132,7 +143,23 @@ const sortedKeys = (value: unknown): unknown =>
             )
           : value;
 
-export function repoFlowToYaml(flow: FlowFile, { deployed = true }: { deployed?: boolean } = {}): string {
+const scheduleToYaml = (s: RepoSchedule) =>
+    sortedKeys({
+        id: s.id,
+        cron: s.cron,
+        timezone: s.timezone,
+        ...(s.misfire === DEFAULT_MISFIRE ? {} : { misfire: s.misfire }),
+        ...(Object.keys(s.parameters).length ? { parameters: s.parameters } : {}),
+        ...(s.input === undefined ? {} : { input: s.input }),
+    });
+
+const webhookToYaml = (w: RepoWebhook) =>
+    sortedKeys({ id: w.id, name: w.name, ...(w.response === DEFAULT_WEBHOOK_RESPONSE ? {} : { response: w.response }) });
+
+export function repoFlowToYaml(
+    flow: FlowFile,
+    { deployed = true, schedules = [], webhooks = [] }: Partial<Omit<RepoFlow, 'flow'>> = {},
+): string {
     const { nodes, edges, groups } = leanFlow(flow);
     return toYaml({
         version: FLOW_FILE_VERSION,
@@ -161,7 +188,76 @@ export function repoFlowToYaml(flow: FlowFile, { deployed = true }: { deployed?:
                       .sort(byKeys(g => g.id)),
               }
             : {}),
+        ...(schedules.length ? { schedules: [...schedules].sort(byKeys(s => s.id)).map(scheduleToYaml) } : {}),
+        ...(webhooks.length ? { webhooks: [...webhooks].sort(byKeys(w => w.id)).map(webhookToYaml) } : {}),
     });
+}
+
+function triggerList<T>(
+    value: unknown,
+    kind: 'schedule' | 'webhook',
+    read: (item: Record<string, unknown>, at: string) => T | string,
+): RepoFileResult<T[]> {
+    if (value === undefined) {
+        return { ok: true, value: [] };
+    }
+    if (!Array.isArray(value)) {
+        return { ok: false, errors: [`"${kind}s" is a list.`] };
+    }
+    const items: T[] = [];
+    const errors: string[] = [];
+    value.forEach((item, i) => {
+        const at = `${kind[0]!.toUpperCase()}${kind.slice(1)} ${i + 1}`;
+        const trigger = isObject(item) ? read(item, at) : `${at} is not a ${kind}.`;
+        if (typeof trigger === 'string') {
+            errors.push(trigger);
+        } else {
+            items.push(trigger);
+        }
+    });
+    return errors.length ? { ok: false, errors } : { ok: true, value: items };
+}
+
+const isText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+
+const noTriggerId = (at: string) => `${at} has no id: add one, such as "id: ${crypto.randomUUID()}".`;
+
+function readSchedule(data: Record<string, unknown>, at: string): RepoSchedule | string {
+    const { id, cron, timezone, misfire = DEFAULT_MISFIRE, parameters = {}, input } = data;
+    if (!isText(id)) {
+        return noTriggerId(at);
+    }
+    if (!isText(cron) || !isText(timezone)) {
+        return `${at} has no cron or no timezone.`;
+    }
+    if (!MISFIRE_MODES.includes(misfire as MisfireMode)) {
+        return `${at}: "misfire" is one of ${MISFIRE_MODES.join(', ')}.`;
+    }
+    if (!isObject(parameters) || Object.values(parameters).some(v => typeof v !== 'string')) {
+        return `${at}: "parameters" are names and texts.`;
+    }
+    return {
+        id,
+        cron,
+        timezone,
+        misfire: misfire as MisfireMode,
+        parameters: parameters as Record<string, string>,
+        ...(input === undefined ? {} : { input }),
+    };
+}
+
+function readWebhook(data: Record<string, unknown>, at: string): RepoWebhook | string {
+    const { id, name, response = DEFAULT_WEBHOOK_RESPONSE } = data;
+    if (!isText(id)) {
+        return noTriggerId(at);
+    }
+    if (!isText(name)) {
+        return `${at} has no name.`;
+    }
+    if (!WEBHOOK_RESPONSES.includes(response as WebhookResponse)) {
+        return `${at}: "response" is one of ${WEBHOOK_RESPONSES.join(', ')}.`;
+    }
+    return { id, name, response: response as WebhookResponse };
 }
 
 export function repoFlowFromYaml(text: string, name: string): RepoFileResult<RepoFlow> {
@@ -169,7 +265,7 @@ export function repoFlowFromYaml(text: string, name: string): RepoFileResult<Rep
     if (!read.ok) {
         return read;
     }
-    const { deployed = true, ...data } = read.value;
+    const { deployed = true, schedules: scheduleData, webhooks: webhookData, ...data } = read.value;
     if (!hasId(data)) {
         return missingId('flow');
     }
@@ -178,5 +274,10 @@ export function repoFlowFromYaml(text: string, name: string): RepoFileResult<Rep
     }
     const nodes = Array.isArray(data.nodes) ? data.nodes.map(n => (isObject(n) ? { ...n, pinned: undefined } : n)) : data.nodes;
     const flow = validateFlowFile({ ...data, nodes, name });
-    return flow.ok ? { ok: true, value: { flow: flow.value, deployed } } : flow;
+    const schedules = triggerList(scheduleData, 'schedule', readSchedule);
+    const webhooks = triggerList(webhookData, 'webhook', readWebhook);
+    const errors = [flow, schedules, webhooks].flatMap(r => (r.ok ? [] : r.errors));
+    return flow.ok && schedules.ok && webhooks.ok
+        ? { ok: true, value: { flow: flow.value, deployed, schedules: schedules.value, webhooks: webhooks.value } }
+        : { ok: false, errors };
 }

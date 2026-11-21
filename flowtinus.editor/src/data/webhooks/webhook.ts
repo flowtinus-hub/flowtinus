@@ -1,13 +1,12 @@
+import type { WebhookResponse } from '@flowtinus/core';
+
 /*
  * A deployed flow's webhooks: an address of the server (POST /wh/{id}) other systems call to run the flow's deployed
  * version. The request's JSON body is the flow's input, its query string the Start's parameters (by name). Each one has
  * a token, shown once when made (only its hash is kept): the caller sends `Authorization: Bearer <token>`.
  */
 
-/** async: answers 202 with the run's id at once; wait: answers what reached the End once the run ends (up to a limit) */
-export type WebhookResponse = 'async' | 'wait';
-
-export const WEBHOOK_RESPONSES: { value: WebhookResponse; label: string; soon?: boolean }[] = [
+export const WEBHOOK_RESPONSE_OPTIONS: { value: WebhookResponse; label: string; soon?: boolean }[] = [
     { value: 'async', label: 'Async (202, the run id)' },
     { value: 'wait', label: 'Wait (its result)' },
 ];

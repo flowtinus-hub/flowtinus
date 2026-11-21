@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
-import { startConfig, START } from '@flowtinus/core';
+import { cronError, nextTimes, startConfig, START, type MisfireMode } from '@flowtinus/core';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { FlowVersion } from '@/data/deployments/deployment';
-import { browserTimeZone, cronError, CRON_PRESETS, describeCron, MISFIRE_MODES, nextTimes, timeZones, type MisfireMode, type Schedule, type ScheduleFields } from '@/data/schedules/schedule';
+import { browserTimeZone, CRON_PRESETS, describeCron, MISFIRE_OPTIONS, timeZones, type Schedule, type ScheduleFields } from '@/data/schedules/schedule';
 import { createSchedule, deleteSchedule, listSchedules, updateSchedule } from '@/data/schedules/schedules-api';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
@@ -337,7 +337,7 @@ function ScheduleForm(props: {
                                 value={misfire}
                                 onChange={e => setMisfire(e.target.value as MisfireMode)}
                             >
-                                {MISFIRE_MODES.map(m => (
+                                {MISFIRE_OPTIONS.map(m => (
                                     <option key={m.mode} value={m.mode}>
                                         {m.label}
                                     </option>

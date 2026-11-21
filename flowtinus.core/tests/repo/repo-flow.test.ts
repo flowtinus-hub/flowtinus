@@ -72,6 +72,8 @@ describe('a flow file in the repository', () => {
                     nodes: FLOW.nodes.map(({ pinned: _pinned, ...n }) => (n.id === 'map' ? { ...n, position: { x: 320, y: 0 } } : n)),
                 },
                 deployed: true,
+                schedules: [],
+                webhooks: [],
             },
         });
         expect(repoFlowFromYaml(repoFlowToYaml(FLOW, { deployed: false }), 'Load orders')).toMatchObject({
@@ -257,5 +259,99 @@ describe("a version's content (what its hash is taken over)", () => {
             content(CANONICAL.replace('message: $error', 'message: "$error\\r\\nnext"')),
         );
         expect(content(CANONICAL.replace('message: $error', 'message: "$error\\nnext"'))).not.toBe(lf);
+    });
+});
+
+describe("a flow's schedules and webhooks", () => {
+    const S1 = '00000000-0000-4000-8000-0000000000a1';
+    const S2 = '00000000-0000-4000-8000-0000000000a2';
+    const W1 = '00000000-0000-4000-8000-0000000000b1';
+
+    test('are written after the groups, each sorted by id, keys a to z, a default left out', () => {
+        const text = repoFlowToYaml(FLOW, {
+            schedules: [
+                {
+                    id: S2,
+                    cron: '0 6 * * *',
+                    timezone: 'Europe/Lisbon',
+                    misfire: 'strict',
+                    parameters: { since: '7', a: '1' },
+                    input: { z: 1, b: 2 },
+                },
+                { id: S1, cron: '*/5 * * * *', timezone: 'UTC', misfire: 'relaxed', parameters: {} },
+            ],
+            webhooks: [{ id: W1, name: 'Orders from the shop', response: 'async' }],
+        });
+        expect(Object.keys(parse(text))).toEqual(['version', 'id', 'nodes', 'edges', 'groups', 'schedules', 'webhooks']);
+        expect(text.slice(text.indexOf('schedules:'))).toBe(
+            [
+                'schedules:',
+                `  - cron: "*/5 * * * *"`,
+                `    id: ${S1}`,
+                '    timezone: UTC',
+                `  - cron: 0 6 * * *`,
+                `    id: ${S2}`,
+                '    input:',
+                '      b: 2',
+                '      z: 1',
+                '    misfire: strict',
+                '    parameters:',
+                '      a: "1"',
+                '      since: "7"',
+                '    timezone: Europe/Lisbon',
+                'webhooks:',
+                `  - id: ${W1}`,
+                '    name: Orders from the shop',
+                '',
+            ].join('\n'),
+        );
+    });
+
+    test('none: neither list is written, and both read back empty', () => {
+        const text = repoFlowToYaml(FLOW, { schedules: [], webhooks: [] });
+        expect(text).toBe(repoFlowToYaml(FLOW));
+        expect(repoFlowFromYaml(text, 'Load orders')).toMatchObject({ ok: true, value: { schedules: [], webhooks: [] } });
+    });
+
+    test('read in any order, with their defaults', () => {
+        const text = `${repoFlowToYaml(FLOW)}webhooks:\n  - { response: wait, name: Hook, id: ${W1} }\nschedules:\n  - { timezone: UTC, cron: 0 * * * *, id: ${S1} }\n`;
+        expect(repoFlowFromYaml(text, 'Load orders')).toMatchObject({
+            ok: true,
+            value: {
+                schedules: [{ id: S1, cron: '0 * * * *', timezone: 'UTC', misfire: 'relaxed', parameters: {} }],
+                webhooks: [{ id: W1, name: 'Hook', response: 'wait' }],
+            },
+        });
+        const read = repoFlowFromYaml(text, 'Load orders');
+        expect(read.ok && read.value.schedules[0]).not.toHaveProperty('input');
+    });
+
+    test('refused: not a list, a trigger without an id, a schedule without a cron, a webhook without a name, an unknown misfire or response', () => {
+        const errors = (extra: string) => {
+            const read = repoFlowFromYaml(`${repoFlowToYaml(FLOW)}${extra}`, 'Load orders');
+            return read.ok ? [] : read.errors;
+        };
+        expect(errors('schedules: daily\n')).toEqual(['"schedules" is a list.']);
+        expect(errors('schedules:\n  - { cron: 0 * * * *, timezone: UTC }\n')[0]).toMatch(
+            /^Schedule 1 has no id: add one, such as "id: [0-9a-f-]{36}"\.$/,
+        );
+        expect(errors(`schedules:\n  - { id: ${S1}, timezone: UTC }\n`)).toEqual(['Schedule 1 has no cron or no timezone.']);
+        expect(errors(`schedules:\n  - { id: ${S1}, cron: 0 * * * *, timezone: UTC, misfire: often }\n`)).toEqual([
+            'Schedule 1: "misfire" is one of relaxed, strict, ignorable.',
+        ]);
+        expect(errors(`webhooks:\n  - { id: ${W1} }\n  - { id: ${S1}, name: Hook, response: later }\n`)).toEqual([
+            'Webhook 1 has no name.',
+            'Webhook 2: "response" is one of async, wait.',
+        ]);
+    });
+
+    test("leave the version's content alone", () => {
+        const withTriggers = repoFlowToYaml(FLOW, {
+            schedules: [{ id: S1, cron: '0 * * * *', timezone: 'UTC', misfire: 'relaxed', parameters: {} }],
+            webhooks: [{ id: W1, name: 'Hook', response: 'async' }],
+        });
+        const read = repoFlowFromYaml(withTriggers, 'Load orders');
+        const without = repoFlowFromYaml(repoFlowToYaml(FLOW), 'Load orders');
+        expect(read.ok && without.ok && deployContent(read.value.flow)).toBe(without.ok ? deployContent(without.value.flow) : '');
     });
 });

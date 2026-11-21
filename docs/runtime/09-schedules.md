@@ -64,7 +64,7 @@ Start's parameters and input for its runs.
 
 | What                  | File                                                                                                                                                    |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cron, firing, misfire | `flowtinus.server/features/schedules/`                                                                                                                  |
+| Cron, firing, misfire | `flowtinus.core/src/triggers/`, `flowtinus.server/features/schedules/`                                                                                  |
 | The timer             | `flowtinus.server/supervisor/supervisor.ts` (`fireSchedules`)                                                                                           |
 | Tests                 | `flowtinus.server/tests/containers/supervisor-schedules.test.ts` (two supervisor processes firing schedules), `tests/integration/schedules-api.test.ts` |
 

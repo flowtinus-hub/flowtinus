@@ -28,6 +28,20 @@ const flow: FlowFile = {
     groups: [{ id: 'g', title: 'G', color: 'red', position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }],
 };
 
+const TRIGGERS = {
+    schedules: [
+        {
+            id: '00000000-0000-4000-8000-0000000000a1',
+            cron: '0 6 * * *',
+            timezone: 'UTC',
+            misfire: 'strict' as const,
+            parameters: { since: '7' },
+            input: { a: [1] },
+        },
+    ],
+    webhooks: [{ id: '00000000-0000-4000-8000-0000000000b1', name: 'Hook', response: 'wait' as const }],
+};
+
 describe('a JSON Schema for each file of the format', () => {
     test('one per file, tied to its file names for an editor', () => {
         expect(REPO_SCHEMAS.map(s => [s.file, s.fileMatch])).toEqual([
@@ -44,6 +58,7 @@ describe('a JSON Schema for each file of the format', () => {
     test('what the app writes is valid', () => {
         expect(valid('flow.schema.json', repoFlowToYaml(flow))).toBe(true);
         expect(valid('flow.schema.json', repoFlowToYaml(flow, { deployed: false }))).toBe(true);
+        expect(valid('flow.schema.json', repoFlowToYaml(flow, TRIGGERS))).toBe(true);
         expect(
             valid(
                 'project.schema.json',
@@ -66,6 +81,13 @@ describe('a JSON Schema for each file of the format', () => {
         expect(valid('flow.schema.json', text.replace('    notes: n\n', '    pinned: {}\n'))).toBe(false);
         expect(valid('flow.schema.json', text.replace('version: 1', 'version: 2'))).toBe(false);
         expect(valid('flow.schema.json', text.replace(id, id.toUpperCase().replace('ID', 'id')))).toBe(false);
+        const triggers = repoFlowToYaml(flow, TRIGGERS);
+        expect(valid('flow.schema.json', triggers.replace('    misfire: strict\n', '    misfire: often\n'))).toBe(false);
+        expect(valid('flow.schema.json', triggers.replace('    response: wait\n', '    response: later\n'))).toBe(false);
+        expect(valid('flow.schema.json', triggers.replace('    name: Hook\n', ''))).toBe(false);
+        expect(valid('flow.schema.json', triggers.replace('    timezone: UTC\n', '    timezone: UTC\n    enabled: true\n'))).toBe(false);
+        expect(valid('flow.schema.json', triggers.replace('      since: "7"\n', '      since: 7\n'))).toBe(false);
+        expect(valid('flow.schema.json', triggers.replace('  - id: 00000000-0000-4000-8000-0000000000b1\n', '  - token: x\n'))).toBe(false);
         expect(valid('project.schema.json', 'description: d\n')).toBe(false);
         expect(valid('project.schema.json', 'id: sales\ndescription: d\n')).toBe(false);
         expect(valid('connection.schema.json', 'id: 00000000-0000-4000-8000-00000000c001\ntype: oracle\n')).toBe(false);

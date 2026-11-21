@@ -1,10 +1,10 @@
-import { END, END_SAMPLE_BYTES, START, startConfig, type FlowFile, type RunRecord } from '@flowtinus/core';
+import { END, END_SAMPLE_BYTES, START, startConfig, type FlowFile, type RunRecord, type WebhookResponse } from '@flowtinus/core';
 import { eq } from 'drizzle-orm';
 import type { Database } from '#shared/database/database';
 import { deployedRun } from '#features/runs/deployed-run';
 import { runs } from '#features/runs/run';
 import { CHANNELS, notifyRunEvent } from '#features/runs/run-queue';
-import { tokenMatches, type WebhookResponse } from './webhooks';
+import { tokenMatches } from './webhooks';
 
 /*
  * A call to a webhook (/wh/{id}, outside the editor's api: no workspace in the address, the token says who may call).

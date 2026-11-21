@@ -1,54 +1,15 @@
-import { Cron } from 'croner';
+import { nextTime, type MisfireMode } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { pgJson } from '#shared/database/jsonb';
 import { withUpdatedByName } from '#features/users/user-names';
 
 /*
  * A deployed flow's schedules (flow_schedules): a cron expression of 5 fields (minute hour day month
- * weekday) or 6 (with the second first), in an IANA time zone, computed with croner (the editor shows the same times).
+ * weekday) or 6 (with the second first), in an IANA time zone, computed by the core (the editor shows the same times).
  * next_fire_at is the next time it is due, null while it is off. The supervisors fire them (fire-schedules.ts).
  */
 
-export type MisfireMode = 'relaxed' | 'strict' | 'ignorable';
-export const MISFIRE_MODES: MisfireMode[] = ['relaxed', 'strict', 'ignorable'];
-
 export const SCHEDULES_CHANNEL = 'schedules_changed';
-
-export function cronError(cron: string, timezone: string): string | undefined {
-    const count = cron.trim().split(/\s+/).filter(Boolean).length;
-    if (count !== 5 && count !== 6) {
-        return 'Use 5 fields (minute hour day month weekday) or 6 (second first).';
-    }
-
-    try {
-        if (new Cron(cron.trim(), { timezone, paused: true }).nextRun() === null) {
-            return 'It never runs (no such date).';
-        }
-    } catch (e) {
-        const message = (e as Error).message;
-        return /timezone/i.test(message) ? `Unknown time zone: ${timezone}.` : message.replace(/^CronPattern: /, '');
-    }
-
-    return undefined;
-}
-
-export function nextTime(cron: string, timezone: string, after: Date): Date | null {
-    return new Cron(cron.trim(), { timezone, paused: true }).nextRun(after);
-}
-
-export function dueTimes(cron: string, timezone: string, first: Date, until: Date, limit: number): Date[] {
-    const times = [first];
-    while (times.length < limit) {
-        const next = nextTime(cron, timezone, times[times.length - 1]!);
-        if (!next || next > until) {
-            break;
-        }
-
-        times.push(next);
-    }
-
-    return times;
-}
 
 export type LastFire = { at: Date; runId: string; status: string };
 

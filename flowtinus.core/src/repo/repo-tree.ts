@@ -1,10 +1,13 @@
 import { parse, parseDocument, visit } from 'yaml';
+import { startConfig } from '../components/built-in/start';
+import { START } from '#engine/constants';
 import { toExecutableFlow, type FlowFile } from '../flows/flow-file';
 import { flowResources } from '../flows/flow-resources';
 import { fileNameIssue, nameKey, REPO_PATH_MAX, type NameKind } from '../names/file-name';
 import { scriptPathIssue } from '../scripts/script-path';
+import { cronError } from '../triggers/triggers';
 import { flowCalls, flowScriptUses, scriptLinks } from '../validation/flow-dependencies';
-import { connectionFromYaml, isRepoId, projectFromYaml, repoFlowFromYaml, workspaceFromYaml, type RepoFileResult } from './repo-files';
+import { connectionFromYaml, isRepoId, projectFromYaml, repoFlowFromYaml, workspaceFromYaml, type RepoFileResult, type RepoFlow } from './repo-files';
 import { repoEntry } from './repo-layout';
 import { REPO_SCHEMAS } from './repo-schemas';
 
@@ -91,6 +94,35 @@ export function validateWorkspaceTree({ workspace, files, environment }: Workspa
         }
     };
 
+    const triggers = new Map<string, string>();
+    const checkTriggers = (path: string, { flow, schedules, webhooks }: RepoFlow) => {
+        const all = [...schedules.map(t => ['schedule', t] as const), ...webhooks.map(t => ['webhook', t] as const)];
+        for (const [kind, { id }] of all) {
+            const first = triggers.get(id);
+            if (first !== undefined) {
+                const where = first === path ? 'used more than once in this file' : `also in ${first}`;
+                errors.push({ path, message: `The ${kind} id "${id}" is ${where}.` });
+            }
+            triggers.set(id, first ?? path);
+            if (!isRepoId(id)) {
+                errors.push({ path, message: `The ${kind} id "${id}" is not a UUID in lower case.` });
+            }
+        }
+        const start = startConfig(flow.nodes.find(n => n.type === START)?.config ?? {});
+        for (const { id, cron, timezone, parameters, input } of schedules) {
+            const issue = cronError(cron, timezone);
+            if (issue) {
+                errors.push({ path, message: `Schedule ${id}: ${issue}` });
+            }
+            for (const name of Object.keys(parameters).filter(name => !start.parameters.some(p => p.name === name))) {
+                warnings.push({ path, message: `Schedule ${id} gives the parameter "${name}", which the Start does not declare.` });
+            }
+            if (input !== undefined && !start.acceptsInput) {
+                warnings.push({ path, message: `Schedule ${id} gives an input, which the Start does not take.` });
+            }
+        }
+    };
+
     const flows: { path: string; project: string; flow: FlowFile }[] = [];
     const projectScripts = new Map<string, Map<string, { path: string; content: string }>>();
     const scriptsOf = (project: string) => {
@@ -171,10 +203,11 @@ export function validateWorkspaceTree({ workspace, files, environment }: Workspa
             identify('project', path);
         } else if (entry.kind === 'flow') {
             checkName(path, entry.name, 'flow');
-            const flow = read(path, repoFlowFromYaml(text, entry.name), 'flow.schema.json')?.flow;
+            const repoFlow = read(path, repoFlowFromYaml(text, entry.name), 'flow.schema.json');
             identify('flow', path);
-            if (flow) {
-                flows.push({ path, project: entry.project, flow });
+            if (repoFlow) {
+                flows.push({ path, project: entry.project, flow: repoFlow.flow });
+                checkTriggers(path, repoFlow);
                 if (hasComment(text)) {
                     warnings.push({
                         path,

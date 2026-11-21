@@ -1,14 +1,13 @@
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { DEFAULT_WEBHOOK_RESPONSE, WEBHOOK_RESPONSES, type WebhookResponse } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { withUpdatedByName } from '#features/users/user-names';
-
-export type WebhookResponse = 'async' | 'wait';
 
 export const WebhookFieldsInput = z.object({
     name: z.string().trim().min(1, 'Required').max(80, 'At most 80 characters'),
     enabled: z.boolean().default(true),
-    response: z.enum(['async', 'wait']).default('async'),
+    response: z.enum(WEBHOOK_RESPONSES).default(DEFAULT_WEBHOOK_RESPONSE),
 });
 
 export type WebhookFields = z.infer<typeof WebhookFieldsInput>;
