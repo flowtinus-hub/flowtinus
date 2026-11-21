@@ -176,8 +176,11 @@ export const importPathIn = (scope: ScriptScope, projectId: string, path: string
 
 function scriptAt(scope: ScriptScope, importPath: string): { projectId: string; path: string } | null {
     const address = scriptAddress(importPath);
-    const project = [...scope.projects].find(([, p]) => address?.workspace === scope.workspace && p.handle === address.project);
-    return project ? { projectId: project[0], path: address!.path } : null;
+    if (address?.workspace !== scope.workspace) {
+        return null;
+    }
+    const project = [...scope.projects].find(([, p]) => p.handle === address.project);
+    return project ? { projectId: project[0], path: address.path } : null;
 }
 
 async function projectScriptContents(
@@ -209,9 +212,17 @@ export async function scriptContents(
     workspaceId: string,
     source: ScriptSource,
     importPaths?: string[],
-    scope?: ScriptScope,
 ): Promise<{ path: string; content: string }[]> {
-    const within = scope ?? (await scriptScope(db, workspaceId, source));
+    return contentsIn(db, workspaceId, source, await scriptScope(db, workspaceId, source), importPaths);
+}
+
+export async function contentsIn(
+    db: Database,
+    workspaceId: string,
+    source: ScriptSource,
+    within: ScriptScope,
+    importPaths?: string[],
+): Promise<{ path: string; content: string }[]> {
     const wanted = new Map<string, string[] | undefined>();
     if (importPaths) {
         for (const at of importPaths.map(p => scriptAt(within, p))) {
@@ -248,7 +259,7 @@ export async function scriptsForRun(
                 return { scripts: {}, error: `"${user.label}" imports ${foreign.path}${through}: ${onlyThisWorkspace(scope.workspace)}` };
             }
             const fresh = wanted.filter(w => !contents.has(w.path));
-            const rows = fresh.length ? await scriptContents(db, workspaceId, source, [...new Set(fresh.map(w => w.path))], scope) : [];
+            const rows = fresh.length ? await contentsIn(db, workspaceId, source, scope, [...new Set(fresh.map(w => w.path))]) : [];
             rows.forEach(r => contents.set(r.path, r.content));
             const missing = fresh.find(w => !contents.has(w.path));
             if (missing) {
@@ -407,7 +418,7 @@ export async function typeSources(
             continue;
         }
 
-        const [script] = await scriptContents(db, workspaceId, source, [next], scope);
+        const [script] = await contentsIn(db, workspaceId, source, scope, [next]);
         if (!script) {
             continue;
         }

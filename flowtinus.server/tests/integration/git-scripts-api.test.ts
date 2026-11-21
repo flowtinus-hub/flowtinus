@@ -41,7 +41,6 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
             expect((await call('POST', '/git/on', { createBranch: true })).status).toBe(200);
         }
 
-        // the import path of a script of the project named so; Sales's, by its path, in what a run took
         const importOf = (path: string, project = 'sales') => `@w/${workspaceHandleOf(id)}/${project}/scripts/${path}`;
         const script = async (path: string, content: string, project = projectId) => {
             expect((await call('POST', `/projects/${project}/scripts`, { kind: 'script', path, content })).status).toBe(201);

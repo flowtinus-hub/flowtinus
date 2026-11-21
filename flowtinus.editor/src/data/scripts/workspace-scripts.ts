@@ -1,8 +1,9 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect } from 'react';
 import type { ScriptExport } from '@flowtinus/core';
 import { api, API_WRITE_DONE } from '@/lib/api';
 import { CHANGES_CHANGED } from '@/data/git/git-api';
 import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
+import { keyedStore } from '@/lib/keyed-store';
 
 export type WorkspaceScript = { projectId: string; path: string; importPath: string; exports: ScriptExport[] };
 
@@ -12,23 +13,17 @@ export type WorkspaceScripts = { status: 'loading' | 'ready' | 'error'; projects
 
 const EMPTY: WorkspaceScripts = { status: 'loading', projects: [] };
 
-const store = new Map<string, WorkspaceScripts>();
-const listeners = new Set<() => void>();
+const store = keyedStore(EMPTY);
 const loaded = new Set<string>();
 const followers = new Map<string, { count: number; reload: () => void }>();
 
-export const workspaceScripts = (workspace: string): WorkspaceScripts => store.get(workspace) ?? EMPTY;
+export const workspaceScripts = store.get;
 
 export const allScripts = (scripts: WorkspaceScripts): WorkspaceScript[] => scripts.projects.flatMap(p => p.scripts);
 
 export const scriptByImport = (scripts: WorkspaceScripts, importPath: string) => allScripts(scripts).find(s => s.importPath === importPath);
 
-export const watchWorkspaceScripts = (listener: () => void) => {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
-};
+export const watchWorkspaceScripts = store.subscribe;
 
 type ListDto = { projects: (Omit<WorkspaceProject, 'scripts'> & { scripts: Omit<WorkspaceScript, 'projectId'>[] })[] };
 
@@ -42,9 +37,8 @@ export async function reloadWorkspaceScripts(workspace: string): Promise<void> {
                   status: 'ready',
                   projects: result.value.projects.map(p => ({ ...p, scripts: p.scripts.map(s => ({ ...s, projectId: p.id })) })),
               }
-            : { ...workspaceScripts(workspace), status: 'error' },
+            : { status: 'error' },
     );
-    listeners.forEach(listener => listener());
 }
 
 export function useWorkspaceScripts(): WorkspaceScripts {
@@ -74,9 +68,5 @@ export function useWorkspaceScripts(): WorkspaceScripts {
             }
         };
     }, [workspace]);
-    return useSyncExternalStore(
-        watchWorkspaceScripts,
-        () => workspaceScripts(workspace),
-        () => workspaceScripts(workspace),
-    );
+    return store.use(workspace);
 }

@@ -2,7 +2,7 @@ import { branchDraft, branchFlow, branchTree, workBranch } from '#features/git/b
 import { z } from 'zod';
 import { COMPONENT_TYPE, callCycles, flowCalls, flowScriptUses, folderPath, isFolderVisible, scriptLinks, toExecutableFlow, type FlowCall, type ScriptUse } from '@flowtinus/core';
 import { loadDraft } from '#features/flows/flow-draft';
-import { editingSource, importPathIn, scriptContents, scriptScope } from '#features/scripts/script-store';
+import { contentsIn, editingSource, importPathIn, scriptScope } from '#features/scripts/script-store';
 import { loadTree } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -63,7 +63,7 @@ export class GetFlowCallsHandler implements UseCaseHandler<FlowCallsResponse> {
         const scope = await scriptScope(ctx.db, ctx.workspaceId, source);
         const prefix = importPathIn(scope, parsed.value.projectId, '');
         const shown = (importPath: string) => (importPath.startsWith(prefix) ? importPath.slice(prefix.length) : importPath);
-        const scripts = await scriptContents(ctx.db, ctx.workspaceId, source, undefined, scope);
+        const scripts = await contentsIn(ctx.db, ctx.workspaceId, source, scope);
         const calls = flowCalls(active).map(c => ({
             ...c,
             nodeLabel: named(c.nodeLabel)!,
