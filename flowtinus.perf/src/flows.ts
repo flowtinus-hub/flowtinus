@@ -79,7 +79,6 @@ export function executableFlows(
     return { main, flows };
 }
 
-/** a scenario's scripts are those of the project "scenario" of the workspace "perf" */
 export const PERF_WORKSPACE = 'perf';
 
 /**

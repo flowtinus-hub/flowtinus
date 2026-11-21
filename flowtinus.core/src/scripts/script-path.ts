@@ -1,6 +1,5 @@
 import { fileNameIssue } from '../names/file-name';
 
-/** every import path starts with it: `@w/<workspace handle>/<project handle>/scripts/<path>` */
 export const SCRIPT_IMPORT_ROOT = '@w/';
 export const MAX_SCRIPT_PATH = 200;
 
@@ -44,26 +43,28 @@ export const scriptImport = (workspace: string, project: string, path: string) =
 export const onlyThisWorkspace = (workspace: string) =>
     `only scripts of this workspace (${scriptImport(workspace, '<project>', '<path>')}).`;
 
+const ROOT = SCRIPT_IMPORT_ROOT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const ADDRESS = new RegExp(`^${ROOT}([^/]+)/([^/]+)/scripts/(.+)$`);
+
 export function scriptAddress(importPath: string): ScriptAddress | null {
-    const match = /^@w\/([^/]+)\/([^/]+)\/scripts\/(.+)$/.exec(importPath);
+    const match = ADDRESS.exec(importPath);
     return match ? { workspace: match[1]!, project: match[2]!, path: match[3]! } : null;
 }
 
 export const scriptModuleUri = (importPath: string) => `file:///${importPath.slice(1)}.ts`;
 
 export function scriptImportOfModule(uri: string): string | null {
-    const match = /^file:\/\/\/(w\/.+)\.ts$/.exec(uri);
-    return match && scriptAddress(`@${match[1]}`) ? `@${match[1]}` : null;
+    const match = /^file:\/\/\/(.+)\.ts$/.exec(uri);
+    const importPath = match && `${SCRIPT_IMPORT_ROOT[0]}${match[1]}`;
+    return importPath && scriptAddress(importPath) ? importPath : null;
 }
 
-const IMPORT_OF = String.raw`((?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"]))(@w\/[^'"]+)\2`;
+const IMPORT_OF = String.raw`((?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"]))(${ROOT}[^'"]+)\2`;
 
-/** the import paths of the scripts some code imports, whatever their workspace */
 export function scriptImports(code: string): string[] {
     return [...new Set([...code.matchAll(new RegExp(IMPORT_OF, 'g'))].map(match => match[3]!))];
 }
 
-/** the code with its imports of scripts under `from` (the import path of a script or a folder) moved to `to` */
 export function movedScriptImports(code: string, from: string, to: string): string {
     return code.replace(new RegExp(IMPORT_OF, 'g'), (whole, head: string, quote: string, path: string) =>
         insideScriptFolder(path, from) ? `${head}${movedScriptPath(path, from, to)}${quote}` : whole,

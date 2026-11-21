@@ -47,7 +47,6 @@ export async function reloadWorkspaceScripts(workspace: string): Promise<void> {
     listeners.forEach(listener => listener());
 }
 
-/** the scripts of every project of the page's workspace, kept up to date while some component follows them */
 export function useWorkspaceScripts(): WorkspaceScripts {
     const workspace = useWorkspaceHandle();
     useEffect(() => {

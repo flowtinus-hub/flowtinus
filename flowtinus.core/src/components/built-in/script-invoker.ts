@@ -11,7 +11,6 @@ import { DYNAMIC_TARGET } from '../dynamic-target';
 
 export type ScriptArgument = ExpressionField & { name: string; type?: string };
 
-/** `<import path>#<function>`: null when it is not one */
 export function scriptFunctionRef(value: unknown): { path: string; name: string } | null {
     const ref = inputTypeRef(value);
     return ref && scriptAddress(ref.path) ? ref : null;

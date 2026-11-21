@@ -60,7 +60,6 @@ export const loadedProjects = (): string[] => [...store.keys()];
 
 let contentsSnapshot = new Map<string, Record<string, ScriptContent>>();
 
-/** the code loaded so far of every project, by project (the same object until a change) */
 export const loadedContents = () => contentsSnapshot;
 
 const subscribe = (listener: () => void) => {

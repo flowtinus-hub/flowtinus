@@ -62,7 +62,6 @@ export class GetFlowCallsHandler implements UseCaseHandler<FlowCallsResponse> {
         const source = editingSource(branch);
         const scope = await scriptScope(ctx.db, ctx.workspaceId, source);
         const prefix = importPathIn(scope, parsed.value.projectId, '');
-        // the project's own scripts by their path, another project's by their import path
         const shown = (importPath: string) => (importPath.startsWith(prefix) ? importPath.slice(prefix.length) : importPath);
         const scripts = await scriptContents(ctx.db, ctx.workspaceId, source, undefined, scope);
         const calls = flowCalls(active).map(c => ({
