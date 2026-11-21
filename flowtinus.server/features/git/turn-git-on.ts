@@ -1,5 +1,6 @@
 import { repoEntry, repoPath, type TreeIssue } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
+import { foldOverrides } from '#features/schedules/schedules';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
@@ -7,8 +8,8 @@ import { gitAuthorOf, readGitState, saveGitConfig, type GitConfig } from './git-
 import { commitFirst } from './git-first';
 import { GitError, type GitRemote } from './git-remote';
 import { applyCommit, lockReconcile } from './reconcile';
-import { exportWorkspace, repoChanges, type GitChanges, type RepoFiles } from './workspace-export';
-import { draftClashes, holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
+import { exportTree, exportWorkspace, repoChanges, type GitChanges, type RepoFiles } from './workspace-export';
+import { draftClashes, holdsWorkspace, ImportConflict, importWorkspace, isWorkspaceEmpty, issueFields, readBranchWorkspace, triggerIdsOf, validateImport } from './workspace-import';
 import { environmentBranch } from './workspace-topology';
 import { fetchAndReconcile } from './git-heads';
 
@@ -22,9 +23,12 @@ export type TurnOnPlan = {
     case: TurnOnCase;
     toGit: FileChange[];
     toServer: FileChange[];
+    triggersToServer: TriggerChange[];
     errors: TreeIssue[];
     warnings: TreeIssue[];
 };
+
+export type TriggerChange = { kind: 'schedule' | 'webhook'; id: string; path: string; change: 'kept' | 'arrives-disabled' | 'archived' };
 
 export type TurnOnChoice = 'git' | 'server';
 
@@ -59,6 +63,36 @@ function serverChanges(before: RepoFiles, changes: GitChanges): FileChange[] {
     });
 }
 
+async function triggerChanges(
+    ctx: UseCaseContext,
+    slug: string,
+    onBranch: RepoFiles,
+    pathOf: Map<string, string>,
+): Promise<TriggerChange[]> {
+    const here = await ctx.db.query<{ kind: 'schedule' | 'webhook'; id: string; flow_id: string; flow_name: string }>(
+        `SELECT 'schedule' AS kind, s.id, s.flow_id, f.name AS flow_name FROM flow_schedules s JOIN flows f ON f.id = s.flow_id
+      WHERE s.workspace_id = $1 AND s.archived_at IS NULL
+     UNION ALL SELECT 'webhook', w.id, w.flow_id, f.name FROM flow_webhooks w JOIN flows f ON f.id = w.flow_id
+      WHERE w.workspace_id = $1 AND w.archived_at IS NULL`,
+        [ctx.workspaceId],
+    );
+    const inGit = triggerIdsOf(onBranch, slug);
+    const kept = new Set(here.map(t => t.id));
+    const stays = new Set(inGit.map(t => t.id));
+    const changes: TriggerChange[] = [
+        ...inGit.map(({ kind, id, path }): TriggerChange => ({ kind, id, path, change: kept.has(id) ? 'kept' : 'arrives-disabled' })),
+        ...here
+            .filter(t => !stays.has(t.id))
+            .map(({ kind, id, flow_id, flow_name }): TriggerChange => ({
+                kind,
+                id,
+                path: pathOf.get(flow_id) ?? flow_name,
+                change: 'archived',
+            })),
+    ];
+    return changes.sort((a, b) => a.path.localeCompare(b.path) || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id));
+}
+
 const inFolder = (files: RepoFiles, slug: string): RepoFiles =>
     Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(`${slug}/`)));
 
@@ -71,7 +105,7 @@ export async function turnOnPlan(ctx: UseCaseContext, remote: GitRemote, config:
     const { branch, tip } = target.value;
     const slug = await workspaceSlug(ctx);
     const onBranch = tip ? await readBranchWorkspace(remote, tip, slug) : {};
-    const exported = await exportWorkspace(ctx.db, ctx.workspaceId, 'committed');
+    const { files: exported, ids } = await exportTree(ctx.db, ctx.workspaceId, 'committed');
     const holds = holdsWorkspace(onBranch, slug);
     const empty = await isWorkspaceEmpty(ctx.db, ctx.workspaceId);
     const serverSide = inFolder(exported, slug);
@@ -83,6 +117,9 @@ export async function turnOnPlan(ctx: UseCaseContext, remote: GitRemote, config:
         case: !holds ? 'export' : empty ? 'import' : 'choice',
         toGit: holds && empty ? [] : fileChanges(onBranch, branchChanges(onBranch, exported)),
         toServer: holds ? serverChanges(serverSide, repoChanges(serverSide, inFormat(inFolder(onBranch, slug)))) : [],
+        triggersToServer: holds
+            ? await triggerChanges(ctx, slug, onBranch, new Map(Object.entries(ids).map(([path, id]) => [id, path])))
+            : [],
         errors: [...checked.errors, ...clashes],
         warnings: checked.warnings,
     });
@@ -161,6 +198,7 @@ async function turnOnInTransaction(
     if (!holds || (!empty && input.choice === 'server')) {
         outcome = holds ? 'server-replaced-git' : 'exported';
         message = holds ? `${state.config.environment} replaces ${slug} in git` : `First export of ${slug}`;
+        await foldOverrides(ctx.db, ctx.workspaceId);
     } else {
         if (!empty && input.choice !== 'git') {
             return fail(
@@ -178,6 +216,7 @@ async function turnOnInTransaction(
             );
         }
 
+        await foldOverrides(ctx.db, ctx.workspaceId);
         await importWorkspace(ctx, slug, onBranch);
         outcome = empty ? 'imported' : 'git-replaced-server';
         message = `Canonical form of ${slug}`;
