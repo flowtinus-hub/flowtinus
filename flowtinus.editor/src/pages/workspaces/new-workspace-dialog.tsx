@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useMe } from '@/data/workspaces/use-workspace';
-import { slugFromName, validateNewWorkspace } from '@/data/workspaces/workspace';
+import { handleOf } from '@flowtinus/core';
+import { validateNewWorkspace } from '@/data/workspaces/workspace';
 import { createWorkspace } from '@/data/workspaces/workspaces-api';
 
 type Props = { open: boolean; onOpenChange: (open: boolean) => void };
@@ -33,7 +34,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
     const [description, setDescription] = useState('');
     // the slug follows the name until the user types one
     const [typedSlug, setTypedSlug] = useState<string | null>(null);
-    const slug = typedSlug ?? slugFromName(name);
+    const slug = typedSlug ?? handleOf(name);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [failure, setFailure] = useState('');
     const [saving, setSaving] = useState(false);

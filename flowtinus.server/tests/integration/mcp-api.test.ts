@@ -141,7 +141,7 @@ describe('MCP (/mcp)', () => {
         const folder = await mcp.call('create_folder', { projectId, name: 'Imports' });
         expect(folder.body.folderId).toBeString();
         const projects = await mcp.call('list_projects', { workspace: ws });
-        expect(projects.body.map((p: { name: string }) => p.name)).toContain('Agents');
+        expect(projects.body.find((p: { name: string }) => p.name === 'Agents')).toMatchObject({ handle: 'agents' });
     });
 
     test('validate_flow: every issue with its node and setting; a valid one is ok', async () => {

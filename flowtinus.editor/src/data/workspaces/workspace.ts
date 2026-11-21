@@ -1,3 +1,4 @@
+import { HANDLE } from '@flowtinus/core';
 import { isProjectColor, isProjectIcon, type ProjectColorName, type ProjectIconName } from '@/data/projects/project-appearance';
 
 /*
@@ -42,21 +43,6 @@ const ORDER: WorkspaceRole[] = ['viewer', 'editor', 'admin'];
 export const roleAtLeast = (role: WorkspaceRole | undefined, required: WorkspaceRole) =>
     role !== undefined && ORDER.indexOf(role) >= ORDER.indexOf(required);
 
-/** a slug: lowercase letters, digits and hyphens, 1 to 40, not starting or ending with a hyphen (the server's rule) */
-export const WORKSPACE_SLUG = /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/;
-
-/** a slug suggested from a name: "My Dev Workspace" → "my-dev-workspace" */
-export function slugFromName(name: string): string {
-    return name
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 40)
-        .replace(/-+$/g, '');
-}
-
 export type NewWorkspace = { slug: string; name: string; description: string; icon: ProjectIconName; color: ProjectColorName };
 
 /** the form's errors (the server checks again): the slug's rule, a name */
@@ -69,7 +55,7 @@ export function validateNewWorkspace(fields: Pick<NewWorkspace, 'slug' | 'name'>
     }
     if (!fields.slug) {
         errors.slug = 'Required';
-    } else if (!WORKSPACE_SLUG.test(fields.slug)) {
+    } else if (!HANDLE.test(fields.slug)) {
         errors.slug = 'Lowercase letters, digits and hyphens; not starting or ending with a hyphen';
     }
     return errors;

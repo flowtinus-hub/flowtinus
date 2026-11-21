@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { validateName } from '@flowtinus/core';
+import { handleOf, handleTakenMessage, validateName } from '@flowtinus/core';
+import { fail } from '#shared/use-cases/use-case-result';
 import type { Project } from './project';
 
 export const projectName = z.string().transform((name, ctx) => {
@@ -18,6 +19,7 @@ export const appearanceKey = z.string().regex(/^[a-z][a-z-]{0,31}$/, 'Invalid');
 export type ProjectView = {
     id: string;
     name: string;
+    handle: string;
     description: string;
     icon: string;
     color: string;
@@ -30,9 +32,15 @@ export type ProjectView = {
 export const toProjectView = (project: Project): ProjectView => ({
     id: project.id,
     name: project.name,
+    handle: handleOf(project.name),
     description: project.description,
     icon: project.icon,
     color: project.color,
     createdAt: project.createdAt,
     archivedAt: project.deletedAt,
 });
+
+export const handleTaken = (name: string, holder: { name: string; deletedAt: Date | null }, there?: { workspace: string; field: string }) =>
+    fail('conflict', handleTakenMessage(name, { name: holder.name, archived: holder.deletedAt !== null, workspace: there?.workspace }), {
+        [there?.field ?? 'name']: `Handle taken by "${holder.name}"`,
+    });

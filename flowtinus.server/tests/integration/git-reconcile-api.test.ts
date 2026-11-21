@@ -204,6 +204,31 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         expect((await deployments(ids.orders)).versions[0].commit).toBe(fixed);
     });
 
+    test('a commit adding a project whose handle another project has, archived ones included, is refused', async () => {
+        const { call, p, commit, reconcile } = await newWorkspace();
+        const project = () => projectToYaml({ id: crypto.randomUUID(), description: '' });
+        commit(files => ({ ...files, [p('projects/sales!/project.yaml')]: project() }));
+        expect((await reconcile()).body).toMatchObject({
+            outcome: 'refused',
+            errors: [{ path: p('projects/sales!'), message: 'The handle "sales" is taken by the project "Sales".' }],
+        });
+
+        commit(files => {
+            const { [p('projects/sales!/project.yaml')]: _clash, ...rest } = files;
+            return rest;
+        });
+        expect((await reconcile()).body.outcome).toBe('applied');
+        const old = (await call('POST', '/projects', { name: 'Old Reports' })).body.id as string;
+        expect((await call('POST', `/projects/${old}/archive`)).status).toBe(200);
+        commit(files => ({ ...files, [p('projects/old reports/project.yaml')]: project() }));
+        expect((await reconcile()).body).toMatchObject({
+            outcome: 'refused',
+            errors: [
+                { path: p('projects/old reports'), message: 'The handle "old-reports" is taken by the archived project "Old Reports".' },
+            ],
+        });
+    });
+
     test('a connection removed by git is archived with its configuration; a commit that brings its id back brings it back configured', async () => {
         const { call, p, commit, reconcile } = await newWorkspace();
         const fields = {

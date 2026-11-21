@@ -1,9 +1,10 @@
-import { canMoveFolder, connectionToYaml, flowWithScriptsMoved, folderPath, insideScriptFolder, isFolderVisible, movedScriptImports, movedScriptPath, nameKey, newFlowFile, projectToYaml, repoFlowToYaml, repoPath, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
+import { canMoveFolder, connectionToYaml, flowWithScriptsMoved, folderPath, insideScriptFolder, isFolderVisible, movedScriptImports, movedScriptPath, handleHolder, newFlowFile, projectToYaml, repoFlowToYaml, repoPath, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
 import { and, eq } from 'drizzle-orm';
 import { connections, toConnectionView, type ConnectionView } from '#features/connections/connection';
 import { checkProfile, ConnectionRepository, usedSecrets } from '#features/connections/connection-store';
 import { nameInTree, pathTooLong, toFlowView, toFolderView, type FlowView, type FolderView } from '#features/folders/project-tree';
-import { toProjectView, type ProjectView } from '#features/projects/project-fields';
+import { handleTaken, toProjectView, type ProjectView } from '#features/projects/project-fields';
+import { ProjectRepository } from '#features/projects/project-repository';
 import { allFolders, pathIssueIn } from '#features/scripts/script-store';
 import { insertSecret } from '#features/secrets/secret-store';
 import type { Database } from '#shared/database/database';
@@ -568,10 +569,18 @@ export async function deleteArchivedFolderOnBranch(
     return success({ id, flows: archive.flows.filter(f => f.path.startsWith(dir)).length });
 }
 
-const projectTaken = (name: string) => fail('conflict', `A project named "${name}" already exists.`, { name: 'Already in use' });
-
-const projectNamed = (branch: WorkBranch, name: string, exceptId?: string) =>
-    branch.projects.some(p => p.id !== exceptId && nameKey(p.name) === nameKey(name));
+// archived: on the branch, and in the environment unless live on the branch
+async function branchHandleHolder(ctx: UseCaseContext, branch: WorkBranch, name: string, exceptId?: string) {
+    const archived = [
+        ...(await branchArchive(ctx, branch)).projects,
+        ...(await new ProjectRepository(ctx.db, ctx.workspaceId).findDeleted()),
+    ];
+    const all = [...branch.projects.map(p => ({ ...p, deletedAt: null })), ...archived];
+    return handleHolder(
+        name,
+        all.filter((p, i) => p.id !== exceptId && all.findIndex(q => q.id === p.id) === i),
+    );
+}
 
 type ProjectFields = { name: string; description: string; icon: string; color: string };
 
@@ -581,8 +590,9 @@ export async function createProjectOnBranch(
     { name, ...fields }: ProjectFields,
 ): Promise<UseCaseResult<{ id: string }>> {
     await refuseReadOnly(ctx, branch);
-    if (projectNamed(branch, name)) {
-        return projectTaken(name);
+    const holder = await branchHandleHolder(ctx, branch, name);
+    if (holder) {
+        return handleTaken(name, holder);
     }
     const id = crypto.randomUUID();
     await changeBranch(ctx, branch, files => ({ ...files, [repoPath.project(branch.slug, name)]: projectToYaml({ id, ...fields }) }));
@@ -602,8 +612,9 @@ export async function updateProjectOnBranch(
     const defined = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined));
     const project = { ...on.project, ...defined };
     if (project.name !== on.project.name) {
-        if (projectNamed(branch, project.name, id)) {
-            return projectTaken(project.name);
+        const holder = await branchHandleHolder(ctx, branch, project.name, id);
+        if (holder) {
+            return handleTaken(project.name, holder);
         }
         const tooLong = await pathTooLong(ctx, id, { tree: on.tree, project: project.name, scripts: on.names.scripts });
         if (tooLong) {
@@ -642,8 +653,9 @@ export async function restoreProjectOnBranch(ctx: UseCaseContext, branch: WorkBr
     if (!project) {
         return fail('not-found', 'Archived project not found.');
     }
-    if (projectNamed(branch, project.name)) {
-        return fail('conflict', `An active project is already named "${project.name}". Rename it first.`, { name: 'Already in use' });
+    const holder = await branchHandleHolder(ctx, branch, project.name, id);
+    if (holder) {
+        return handleTaken(project.name, holder);
     }
     const dir = projectDir(branch, project.name);
     const back = archive.rows.filter(r => r.path.startsWith(dir) && sameTime(r.updated_at, project.deletedAt));

@@ -10,14 +10,14 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { validate } from '#shared/use-cases/validate';
 import { FlowRepository, FolderRepository, loadTree } from '#features/folders/project-tree';
 import { projects } from '../project';
-import { toProjectView, type ProjectView } from '../project-fields';
+import { handleTaken, toProjectView, type ProjectView } from '../project-fields';
 import { ProjectRepository } from '../project-repository';
 
 export const RestoreProjectCommand = z.object({ id: z.uuid('Invalid') });
 
 /**
  * Brings an archived project back with the folders and flows archived with it (same time); those archived on their own
- * before stay archived. Its flows are not deployed again. Refused when an active project took its name meanwhile.
+ * before stay archived. Its flows are not deployed again. Refused when another project has its handle.
  */
 export class RestoreProjectHandler implements UseCaseHandler<ProjectView> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ProjectView>> {
@@ -42,8 +42,9 @@ export class RestoreProjectHandler implements UseCaseHandler<ProjectView> {
             return fail('not-found', 'Archived project not found.');
         }
 
-        if (await repository.existsByName(archived.name)) {
-            return fail('conflict', `An active project is already named "${archived.name}". Rename it first.`, { name: 'Already in use' });
+        const holder = await repository.handleHolder(archived.name, id);
+        if (holder) {
+            return handleTaken(archived.name, holder);
         }
 
         const archivedAt = archived.deletedAt.getTime();

@@ -6,7 +6,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { toProjectView } from '../project-fields';
+import { handleTaken, toProjectView } from '../project-fields';
 import { pathTooLong } from '#features/folders/project-tree';
 import type { Project } from '../project';
 import { ProjectRepository } from '../project-repository';
@@ -30,8 +30,9 @@ export class UpdateProjectHandler implements UseCaseHandler<UpdateProjectRespons
         }
         const { id, ...changes } = parsed.value;
         const projects = new ProjectRepository(ctx.db, ctx.workspaceId);
-        if (changes.name !== undefined && (await projects.existsByName(changes.name, id))) {
-            return fail('conflict', `A project named "${changes.name}" already exists.`, { name: 'Already in use' });
+        const holder = changes.name === undefined ? undefined : await projects.handleHolder(changes.name, id);
+        if (holder) {
+            return handleTaken(changes.name!, holder);
         }
 
         if (changes.name !== undefined) {

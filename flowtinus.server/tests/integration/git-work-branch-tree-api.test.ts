@@ -161,6 +161,23 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect((await onDev('GET', `/projects/${projectId}`)).body.name).toBe('Sales');
     });
 
+    test('projects on the branch: a handle another project has, archived ones included, refuses the create and the rename', async () => {
+        const { call, projectId } = await workspace();
+        const message = (r: { body: any }) => r.body.error?.message;
+
+        expect(message(await call('POST', '/projects', { name: 'sales!' }))).toBe('The handle "sales" is taken by the project "Sales".');
+        const ops = (await call('POST', '/projects', { name: 'Ops' })).body.id as string;
+        expect(message(await call('PATCH', `/projects/${ops}`, { name: 'SALES' }))).toBe(
+            'The handle "sales" is taken by the project "Sales".',
+        );
+
+        expect((await call('POST', `/projects/${projectId}/archive`)).status).toBe(200);
+        expect(message(await call('POST', '/projects', { name: 'Sales' }))).toBe(
+            'The handle "sales" is taken by the archived project "Sales".',
+        );
+        expect((await call('PATCH', `/projects/${ops}`, { name: 'Vendas' })).body.handle).toBe('vendas');
+    });
+
     test('folders: rename, move, archive, restore and delete on the branch; committed and read back with git', async () => {
         const { call, projectId, branch, show, tree, changes, contents, devTip } = await workspace();
         const dev = devTip();

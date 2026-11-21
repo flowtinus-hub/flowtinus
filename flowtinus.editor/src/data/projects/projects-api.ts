@@ -17,6 +17,7 @@ export function toProject(dto: ProjectDto): Project {
     return {
         id: dto.id,
         name: dto.name,
+        handle: dto.handle,
         description: dto.description,
         icon: isProjectIcon(dto.icon) ? dto.icon : DEFAULT_PROJECT_ICON,
         color: isProjectColor(dto.color) ? dto.color : DEFAULT_PROJECT_COLOR,

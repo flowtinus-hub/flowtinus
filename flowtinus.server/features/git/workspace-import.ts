@@ -1,5 +1,5 @@
 import { inArray } from 'drizzle-orm';
-import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
+import { connectionFromYaml, isRepoId, nameKey, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
 import { ConnectionRepository } from '#features/connections/connection-store';
 import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, undeployArchived, type Actor } from '#features/deployments/deployments';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -71,8 +71,23 @@ function idsOf(files: RepoFiles, slug: string): { path: string; id: string }[] {
 }
 
 export async function validateImport(db: Database, workspaceId: string, slug: string, files: RepoFiles): Promise<TreeValidation> {
-    const validation = validateWorkspaceTree({ workspace: slug, files, environment: await importEnvironment(db, workspaceId) });
     const ids = idsOf(files, slug);
+    const inTree = new Set(ids.map(e => e.id));
+    const unreadable = new Set(
+        entriesOf(files, slug)
+            .projects.filter(e => !ids.some(i => i.path === e.path))
+            .map(e => nameKey(e.entry.project)),
+    );
+    // a project the tree leaves out is archived by the import: it keeps its handle; one whose project.yaml has no id is already an error
+    const archivedProjects = (await new ProjectRepository(db, workspaceId).findAll())
+        .filter(p => !inTree.has(p.id) && !unreadable.has(nameKey(p.name)))
+        .map(p => p.name);
+    const validation = validateWorkspaceTree({
+        workspace: slug,
+        files,
+        environment: await importEnvironment(db, workspaceId),
+        archivedProjects,
+    });
     const taken = new Set(
         (
             await db.query<{ id: string }>(

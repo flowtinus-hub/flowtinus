@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, nameKey, type FlowFile } from '@flowtinus/core';
+import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, type FlowFile } from '@flowtinus/core';
 import { FlowRepository, longRepoPath } from '#features/folders/project-tree';
 import { loadDraft, writeDraft } from '#features/flows/flow-draft';
 import { scriptFileId } from '#features/git/working-copy';
@@ -11,6 +11,8 @@ import { undeployArchived } from '#features/deployments/deployments';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
 import { projects } from '#features/projects/project';
+import { handleTaken } from '#features/projects/project-fields';
+import { ProjectRepository } from '#features/projects/project-repository';
 import { workspaces } from '#features/workspaces/workspace';
 import { roleAtLeast, workspaceMembers } from '#features/workspaces/workspace-member';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -85,14 +87,9 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
         if (target.id === ctx.workspaceId) {
             return fail('validation', 'The project is already in this workspace.', { toWorkspace: 'Same workspace' });
         }
-        const namesThere = await ctx.db.orm
-            .select({ name: projects.name })
-            .from(projects)
-            .where(and(eq(projects.workspaceId, target.id), isNull(projects.deletedAt)));
-        if (namesThere.some(other => nameKey(other.name) === nameKey(project.name))) {
-            return fail('conflict', `"${toWorkspace}" already has a project named "${project.name}".`, {
-                toWorkspace: 'Name in use there',
-            });
+        const holder = await new ProjectRepository(ctx.db, target.id).handleHolder(project.name);
+        if (holder) {
+            return handleTaken(project.name, holder, { workspace: toWorkspace, field: 'toWorkspace' });
         }
 
         const tooLong = await longRepoPath(ctx, id, { project: project.name, workspaceId: target.id });
