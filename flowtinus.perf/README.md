@@ -147,8 +147,8 @@ docker compose -p flowtinus-perf down -v    # also drop the data (the next run l
    create profiles with those ids, or edit the YAML), Download it into `flows/`, and give it `id: <scenario id>`.
    A flow it calls (Flow Invoker) goes in the same folder with an id of its own; a flow's path is its name, so a Flow
    Invoker that picks its flow by path (`$dynamic`, Flow path) names it by that.
-   The project scripts its TypeScript components import (`@myproject/scripts/<path>`) go in `scripts/<path>.ts`
-   (e.g. `scripts/Shared/ExtendedJson.ts` for `@myproject/scripts/Shared/ExtendedJson`), each scenario its own copy.
+   The scripts its TypeScript components import (`@w/perf/scenario/scripts/<path>`) go in `scripts/<path>.ts`
+   (e.g. `scripts/Shared/ExtendedJson.ts` for `@w/perf/scenario/scripts/Shared/ExtendedJson`), each scenario its own copy.
 3. Label the components: rulers and `throughputNode` name them by label (`component.<label>.waitingMs`).
 4. Register it in `src/scenarios.ts`. `bun run test` checks its flows against the core.
 

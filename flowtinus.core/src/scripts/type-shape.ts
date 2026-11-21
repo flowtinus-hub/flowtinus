@@ -1,4 +1,4 @@
-import { SCRIPT_IMPORT_PREFIX } from './script-path';
+import { SCRIPT_IMPORT_ROOT } from './script-path';
 
 export type TypeShape =
     | { kind: 'string' }
@@ -213,7 +213,7 @@ function importedNames(code: string): Map<string, string> {
     const names = new Map<string, string>();
     const line = /import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/g;
     for (let m = line.exec(code); m; m = line.exec(code)) {
-        if (!m[2]!.startsWith(SCRIPT_IMPORT_PREFIX)) {
+        if (!m[2]!.startsWith(SCRIPT_IMPORT_ROOT)) {
             continue;
         }
         for (const part of m[1]!.split(',')) {
@@ -222,7 +222,7 @@ function importedNames(code: string): Map<string, string> {
                 .split(/\s+as\s+/)
                 .map(s => s.trim());
             if (original) {
-                names.set(local || original, m[2]!.slice(SCRIPT_IMPORT_PREFIX.length));
+                names.set(local || original, m[2]!);
             }
         }
     }

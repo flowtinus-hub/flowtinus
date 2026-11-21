@@ -15,7 +15,7 @@ import { CHANGES_CHANGED } from '@/data/git/git-api';
  * a script in the list: its path (folders and name, no .ts) and the names it exports; with git on, whether it changed
  * since it was committed, and the commit it conflicts with
  */
-export type ScriptEntry = { path: string; exports: ScriptExport[]; changed?: boolean; conflict?: string };
+export type ScriptEntry = { path: string; importPath: string; exports: ScriptExport[]; changed?: boolean; conflict?: string };
 
 /** a script's code as loaded (and typed since), and the revision it was read at */
 export type ScriptContent = { code: string; revision: number };
@@ -80,7 +80,13 @@ export function reloadScripts(projectId: string): Promise<void> {
         set(projectId, {
             status: 'ready',
             error: undefined,
-            scripts: result.value.scripts.map(s => ({ path: s.path, exports: s.exports, changed: s.changed, conflict: s.conflict })),
+            scripts: result.value.scripts.map(s => ({
+                path: s.path,
+                importPath: s.importPath,
+                exports: s.exports,
+                changed: s.changed,
+                conflict: s.conflict,
+            })),
             folders: result.value.folders,
             contents,
         });

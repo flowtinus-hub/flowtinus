@@ -1,9 +1,9 @@
 import vm from 'node:vm';
-import { rethrow, SCRIPT_IMPORT_PREFIX, toError, type PrepareScript } from '@flowtinus/core';
+import { rethrow, scriptAddress, SCRIPT_IMPORT_ROOT, toError, type PrepareScript } from '@flowtinus/core';
 import { bundleFrame, originalPosition, type SourceMap } from './source-position';
 
 /*
- * The TypeScript component, in the worker: its code and the project scripts it imports become one bundle (Bun.build),
+ * The TypeScript component, in the worker: its code and the workspace's scripts it imports become one bundle (Bun.build),
  * compiled once per worker, in one node:vm context, into a factory that takes the component run's globals as
  * parameters. node:vm separates the scope but is not a security boundary: the code is the project's, and each run has
  * a worker process of its own.
@@ -24,7 +24,10 @@ const text = (parts: unknown[]) => parts.map(p => (typeof p === 'string' ? p : J
 
 export type Bundle = { js: string; map: SourceMap | null };
 
-export async function bundleScript(code: string, scripts: Record<string, string>): Promise<Bundle> {
+const SCRIPT_MODULE = /^scripts\/(.+)\.ts$/;
+
+/** `scripts`: the code of the scripts it may import, by import path; `workspace`: the handle of its workspace */
+export async function bundleScript(code: string, scripts: Record<string, string>, workspace = ''): Promise<Bundle> {
     // the component's code is a module that exports its process (an export keeps it an ES module, whatever it uses),
     // and a small entry hands it to the caller
     if (!/\bfunction\s+process\s*\(/.test(code)) {
@@ -55,18 +58,21 @@ export async function bundleScript(code: string, scripts: Record<string, string>
                                 return { path: 'component.ts', namespace: 'flowtinus' };
                             }
 
-                            if (args.path.startsWith(SCRIPT_IMPORT_PREFIX)) {
-                                const path = args.path.slice(SCRIPT_IMPORT_PREFIX.length);
-                                if (!(path in scripts)) {
-                                    throw new Error(`The script "${args.path}" does not exist in this project.`);
-                                }
-
-                                return { path: `scripts/${path}.ts`, namespace: 'flowtinus' };
+                            const only = `only scripts of this workspace (${SCRIPT_IMPORT_ROOT}${workspace || '<workspace>'}/<project>/scripts/<path>).`;
+                            const address = scriptAddress(args.path);
+                            if (workspace && address && address.workspace !== workspace) {
+                                throw new Error(`"${args.path}" cannot be imported: ${only}`);
                             }
 
-                            throw new Error(
-                                `"${args.path}" cannot be imported: only the project's scripts (${SCRIPT_IMPORT_PREFIX}<path>).`,
-                            );
+                            if (args.path.startsWith(SCRIPT_IMPORT_ROOT)) {
+                                if (!(args.path in scripts)) {
+                                    throw new Error(`The script "${args.path}" does not exist.`);
+                                }
+
+                                return { path: `scripts/${args.path}.ts`, namespace: 'flowtinus' };
+                            }
+
+                            throw new Error(`"${args.path}" cannot be imported: ${only}`);
                         });
                         build.onLoad({ filter: /.*/, namespace: 'flowtinus' }, args => ({
                             contents:
@@ -74,7 +80,7 @@ export async function bundleScript(code: string, scripts: Record<string, string>
                                     ? entry
                                     : args.path === 'component.ts'
                                       ? component
-                                      : scripts[args.path.slice('scripts/'.length, -'.ts'.length)]!,
+                                      : scripts[SCRIPT_MODULE.exec(args.path)![1]!]!,
                             loader: 'ts',
                         }));
                     },
@@ -90,7 +96,7 @@ export async function bundleScript(code: string, scripts: Record<string, string>
             .filter(log => log.level === 'error')
             .map(log => {
                 const where = log.position
-                    ? ` (${log.position.file.replace(/^flowtinus:/, '').replace(/^scripts\//, SCRIPT_IMPORT_PREFIX)} line ${log.position.line})`
+                    ? ` (${log.position.file.replace(/^flowtinus:/, '').replace(SCRIPT_MODULE, '$1')} line ${log.position.line})`
                     : '';
                 return `${log.message}${where}`;
             });
@@ -112,11 +118,11 @@ const BUNDLE_FILE = 'component.ts';
  * a message that already says where it happened: one that came from another component's error (a flow called and
  * failed, its message rethrown by this one), which already has its own "(line N)"
  */
-const ALREADY_LOCATED = new RegExp(`\\((?:${SCRIPT_IMPORT_PREFIX.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}[^()]+ )?line \\d+\\)`);
+const ALREADY_LOCATED = /\((?:@w\/[^()]+ )?line \d+\)/;
 
 /**
  * The error with where it happened in the code as written, when its stack and the map say so: "(line 7)" in the
- * component's code, "(@myproject/scripts/path line 3)" in a script it imports. Only once: a message that already has
+ * component's code, "(@w/acme/billing/scripts/path line 3)" in a script it imports. Only once: a message that already has
  * one (an error from a called flow, rethrown) keeps that one, where it really broke; each component that passed it on
  * adding its own line made "(line 24) (line 3) (line 2) (line 1)".
  */
@@ -128,8 +134,8 @@ export function located(error: unknown, map: SourceMap | null): unknown {
     const where =
         source === 'component.ts'
             ? `line ${position!.line}`
-            : source.startsWith('scripts/')
-              ? `${SCRIPT_IMPORT_PREFIX}${source.slice('scripts/'.length, -'.ts'.length)} line ${position!.line}`
+            : SCRIPT_MODULE.test(source)
+              ? `${SCRIPT_MODULE.exec(source)![1]} line ${position!.line}`
               : '';
     const message = (error as { message?: unknown })?.message;
     if (where && typeof message === 'string' && !ALREADY_LOCATED.test(message)) {
@@ -201,12 +207,18 @@ function compile({ js, map }: Bundle): Compiled {
 const compiled = new Map<string, Compiled>();
 const KEPT_SCRIPTS = 50;
 
-async function cachedScript(code: string, scripts: Record<string, string>, hashes: Record<string, string>): Promise<Compiled> {
+async function cachedScript(
+    code: string,
+    scripts: Record<string, string>,
+    hashes: Record<string, string>,
+    workspace: string,
+): Promise<Compiled> {
     if (Object.keys(scripts).length > 0 && Object.keys(hashes).length === 0) {
-        return compile(await bundleScript(code, scripts));
+        return compile(await bundleScript(code, scripts, workspace));
     }
 
     const key = new Bun.CryptoHasher('sha256')
+        .update(workspace)
         .update(code)
         .update(JSON.stringify(Object.entries(hashes).sort(([a], [b]) => a.localeCompare(b))))
         .digest('hex');
@@ -217,7 +229,7 @@ async function cachedScript(code: string, scripts: Record<string, string>, hashe
         return known;
     }
 
-    const script = compile(await bundleScript(code, scripts));
+    const script = compile(await bundleScript(code, scripts, workspace));
     compiled.set(key, script);
     if (compiled.size > KEPT_SCRIPTS) {
         compiled.delete(compiled.keys().next().value!);
@@ -231,8 +243,9 @@ export const prepareScript = async (
     globals: Parameters<PrepareScript>[1],
     scripts: Record<string, string> = {},
     hashes: Record<string, string> = {},
+    workspace = '',
 ) => {
-    const { factory, map } = await cachedScript(code, scripts, hashes);
+    const { factory, map } = await cachedScript(code, scripts, hashes, workspace);
     const log = (...parts: unknown[]) => globals.log(text(parts));
     const at =
         (level: 'debug' | 'warning' | 'error') =>

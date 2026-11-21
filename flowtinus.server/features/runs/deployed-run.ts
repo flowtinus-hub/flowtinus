@@ -33,12 +33,12 @@ export async function deployedRun(
 
     const ctx = { db, workspaceId: target.workspaceId, userId: trigger };
     const tree = await loadTree(db, target.workspaceId, target.projectId);
-    const snapshot = await runSnapshot(ctx, target.projectId, tree, checked.value, 'deployed');
+    const snapshot = await runSnapshot(ctx, tree, checked.value, 'deployed');
     if (!snapshot.ok) {
         return { ok: false, reason: 'flow', error: `The flow cannot run: ${snapshot.error}` };
     }
 
-    const input = await checkedInput(ctx, target.projectId, checked.value, given);
+    const input = await checkedInput(ctx, checked.value, given);
     if (!input.ok) {
         return { ok: false, reason: 'input', error: input.error };
     }

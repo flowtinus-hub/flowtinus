@@ -65,7 +65,7 @@ describe("with git on, a deploy is a Commit to the environment's branch", () => 
             );
         const tip = () => git(repo, 'rev-parse', 'dev');
         const lastCommit = () => git(repo, 'log', '-1', '--format=%an|%cn|%s', 'dev');
-        return { call, repo, projectId, newFlow, relabel, flowPath, show, onBranch, tip, lastCommit };
+        return { id, call, repo, projectId, newFlow, relabel, flowPath, show, onBranch, tip, lastCommit };
     }
 
     beforeAll(async () => {
@@ -133,7 +133,7 @@ describe("with git on, a deploy is a Commit to the environment's branch", () => 
     });
 
     test('a Commit the tree refuses changes nothing and answers the errors per file', async () => {
-        const { call, newFlow, flowPath, tip } = await newWorkspace();
+        const { id, call, newFlow, flowPath, tip } = await newWorkspace();
         const orders = await newFlow('Orders');
         const { flow, revision } = (await call('GET', `/flows/${orders}/draft`)).body;
         const nodes = [
@@ -143,7 +143,7 @@ describe("with git on, a deploy is a Commit to the environment's branch", () => 
                 type: 'typescript',
                 label: 'Prices',
                 position: { x: 160, y: 0 },
-                config: { code: "import { value } from '@myproject/scripts/lib/nowhere';" },
+                config: { code: `import { value } from '@w/${workspaceHandleOf(id)}/sales/scripts/lib/nowhere';` },
             },
         ];
         await call('PUT', `/flows/${orders}/draft`, { revision, flow: { ...flow, nodes } });

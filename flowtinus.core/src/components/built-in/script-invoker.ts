@@ -1,6 +1,6 @@
 import { COMPONENT_TYPE } from '#components/component-types';
 import { toError } from '#errors/normalize-error';
-import { scriptImport } from '../../scripts/script-path';
+import { scriptAddress } from '../../scripts/script-path';
 import { inputTypeRef } from '../../scripts/type-shape';
 import type { ComponentContext } from '#types/component-context.type';
 import type { ComponentLogic } from '#types/component-logic.type';
@@ -11,10 +11,16 @@ import { DYNAMIC_TARGET } from '../dynamic-target';
 
 export type ScriptArgument = ExpressionField & { name: string; type?: string };
 
+/** `<import path>#<function>`: null when it is not one */
+export function scriptFunctionRef(value: unknown): { path: string; name: string } | null {
+    const ref = inputTypeRef(value);
+    return ref && scriptAddress(ref.path) ? ref : null;
+}
+
 export function scriptInvokerConfig(config: Record<string, unknown>) {
     const path = config.functionPath as ExpressionField | undefined;
     return {
-        target: inputTypeRef(config.function),
+        target: scriptFunctionRef(config.function),
         functionPath:
             config.function === DYNAMIC_TARGET
                 ? ({ value: typeof path?.value === 'string' ? path.value : '', expression: path?.expression !== false } as ExpressionField)
@@ -23,8 +29,8 @@ export function scriptInvokerConfig(config: Record<string, unknown>) {
     };
 }
 
-export const invokerCode = (path: string, name: string) =>
-    `import { ${name} as __flowtinusCalled } from '${scriptImport(path)}';\n\nasync function process($input: unknown[]) {\n  return await __flowtinusCalled(...$input);\n}\n`;
+export const invokerCode = (importPath: string, name: string) =>
+    `import { ${name} as __flowtinusCalled } from '${importPath}';\n\nasync function process($input: unknown[]) {\n  return await __flowtinusCalled(...$input);\n}\n`;
 
 export function scriptCodeOf(type: string, config: Record<string, unknown>): string | undefined {
     if (type === COMPONENT_TYPE.typescript) {
@@ -67,9 +73,9 @@ export const scriptInvoker: ComponentLogic = {
     label: 'Script Invoker',
     category: 'code',
     description:
-        'Calls, for each envelope, a function a project script exports (`path#name`), its arguments in the order of its parameters, each a value or an expression on the envelope. What it returns goes to the output key (default `result`), or with Override the whole DATA.',
+        'Calls, for each envelope, a function a script of its workspace exports (`@w/<workspace>/<project>/scripts/<path>#<name>`), its arguments in the order of its parameters, each a value or an expression on the envelope. What it returns goes to the output key (default `result`), or with Override the whole DATA.',
     example: {
-        function: 'pricing/tax#total',
+        function: '@w/acme/billing/scripts/pricing/tax#total',
         arguments: [
             { name: 'amount', value: '$price', expression: true },
             { name: 'country', value: 'US', expression: false },
@@ -87,7 +93,7 @@ export const scriptInvoker: ComponentLogic = {
             kind: 'value',
             required: true,
             default: { value: '', expression: true },
-            placeholder: "'pricing/' + $country + '#total'",
+            placeholder: "'@w/acme/billing/scripts/pricing/' + $country + '#total'",
             when: { key: 'function', values: [DYNAMIC_TARGET] },
         },
         {
@@ -129,10 +135,10 @@ export const scriptInvoker: ComponentLogic = {
                 return chosen!;
             }
             const path = ctx.fieldValue(functionPath, doc);
-            const target = typeof path === 'string' ? inputTypeRef(path.trim()) : null;
+            const target = typeof path === 'string' ? scriptFunctionRef(path.trim()) : null;
             if (!target) {
                 throw new Error(
-                    `The function path ${JSON.stringify(path) ?? 'undefined'} is not a script and a function: folders/script#function (e.g. pricing/total#withVat).`,
+                    `The function path ${JSON.stringify(path) ?? 'undefined'} is not a script and a function: @w/<workspace>/<project>/scripts/<path>#<function> (e.g. @w/acme/billing/scripts/pricing/total#withVat).`,
                 );
             }
             return target;
@@ -144,7 +150,7 @@ export const scriptInvoker: ComponentLogic = {
             calls += 1;
             try {
                 const target = targetOf(doc);
-                called.add(`${target.name} (${scriptImport(target.path)})`);
+                called.add(`${target.name} (${target.path})`);
                 const call = await callOf(target);
                 const returned = await call(args.map(a => argumentValue(a, doc, ctx)));
                 for (const out of scriptOutputs(doc, returned, ctx.node, target.name)) {

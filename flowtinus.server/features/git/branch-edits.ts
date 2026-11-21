@@ -1,4 +1,4 @@
-import { canMoveFolder, connectionToYaml, flowWithScriptsMoved, folderPath, insideScriptFolder, isFolderVisible, movedScriptImports, movedScriptPath, handleHolder, newFlowFile, projectToYaml, repoFlowToYaml, repoPath, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
+import { canMoveFolder, connectionToYaml, flowWithScriptsMoved, folderPath, insideScriptFolder, isFolderVisible, movedScriptImports, movedScriptPath, handleHolder, handleOf, scriptImportPrefix, newFlowFile, projectToYaml, repoFlowToYaml, repoPath, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
 import { and, eq } from 'drizzle-orm';
 import { connections, toConnectionView, type ConnectionView } from '#features/connections/connection';
 import { checkProfile, ConnectionRepository, usedSecrets } from '#features/connections/connection-store';
@@ -289,12 +289,13 @@ export async function moveScriptOnBranch(
         for (const path of on.listing.folders.filter(f => insideScriptFolder(f, from))) {
             moveFile(files, folder(path), folder(moved(path)));
         }
+        const prefix = scriptImportPrefix(branch.handle, handleOf(on.project.name));
         for (const path of scripts.map(moved)) {
-            const content = movedScriptImports(files[script(path)]!, from, to);
+            const content = movedScriptImports(files[script(path)]!, prefix + from, prefix + to);
             files[script(path)] = content;
         }
         for (const flow of on.tree.flows) {
-            const rewritten = flowWithScriptsMoved(flow.file, from, to);
+            const rewritten = flowWithScriptsMoved(flow.file, prefix + from, prefix + to);
             if (rewritten) {
                 files[flow.path] = repoFlowToYaml({ ...rewritten, id: flow.id, name: flow.name }, { deployed: flow.deployed });
             }

@@ -81,6 +81,8 @@ export type RunJob = {
     scripts?: Record<string, string>;
     scriptHashes?: Record<string, string>;
     workspaceName: string;
+    /** what an import path names its workspace by: an import of another is refused */
+    workspaceHandle?: string;
     projectName: string;
     flowName: string;
 };
@@ -123,7 +125,10 @@ export async function prepareJob(db: Database, keyring: Keyring | undefined, run
     }
 
     const [project] = await db.orm.select({ name: projects.name }).from(projects).where(eq(projects.id, run.projectId));
-    const [workspace] = await db.orm.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, run.workspaceId));
+    const [workspace] = await db.orm
+        .select({ name: workspaces.name, handle: workspaces.handle })
+        .from(workspaces)
+        .where(eq(workspaces.id, run.workspaceId));
     const [secretRows, connectionRows, variableRows] = await Promise.all([
         workspaceSecrets(db, run.workspaceId),
         new ConnectionRepository(db, run.workspaceId).all(),
@@ -175,6 +180,7 @@ export async function prepareJob(db: Database, keyring: Keyring | undefined, run
         variables: Object.fromEntries(variableRows.map(v => [v.name, v.value])),
         connections: Object.fromEntries(connectionRows.map(c => [c.id, { name: c.name, type: c.type, config: c.config }])),
         workspaceName,
+        workspaceHandle: workspace?.handle ?? '',
         projectName,
         flowName: file.name,
     };
@@ -217,7 +223,7 @@ export async function runJob(
             ...(job.chain ? { chain: job.chain, rootName: job.rootName } : {}),
             ...(job.maxFireAndForgetRuns !== undefined ? { maxFireAndForgetRuns: job.maxFireAndForgetRuns } : {}),
             ...(options.queueFlow ? { queueFlow: options.queueFlow } : {}),
-            prepareScript: (code, globals) => prepareScript(code, globals, job.scripts ?? {}, job.scriptHashes ?? {}),
+            prepareScript: (code, globals) => prepareScript(code, globals, job.scripts ?? {}, job.scriptHashes ?? {}, job.workspaceHandle),
             signal: options.signal,
             ...(options.oauthTokens ? { oauthTokens: options.oauthTokens } : {}),
         });

@@ -158,7 +158,7 @@ export function checkFlow(data: unknown): FlowCheck {
                     warnings.push({
                         nodeId: node.id,
                         settingKey: key,
-                        message: `"${name(node.id)}": the expression in ${key} ${long}: a TypeScript component (which can import project scripts) or a Script Invoker reads better (a suggestion, not an error).`,
+                        message: `"${name(node.id)}": the expression in ${key} ${long}: a TypeScript component (which can import the workspace's scripts) or a Script Invoker reads better (a suggestion, not an error).`,
                     });
                 }
             }

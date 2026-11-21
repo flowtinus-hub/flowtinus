@@ -23,9 +23,9 @@ const globals = {
 const waits: string[] = [];
 
 const SCRIPTS = {
-    'upload/types': `export interface IUploadInitResponse { file: { uploadId: string } }
+    '@w/acme/shared/scripts/upload/types': `export interface IUploadInitResponse { file: { uploadId: string } }
 export function uploadIdOf(response: IUploadInitResponse): string { return response.file.uploadId; }`,
-    'upload/headers': `import { uploadIdOf, type IUploadInitResponse } from '@myproject/scripts/upload/types';
+    '@w/acme/billing/scripts/upload/headers': `import { uploadIdOf, type IUploadInitResponse } from '@w/acme/shared/scripts/upload/types';
 export const header = (r: IUploadInitResponse) => 'id=' + uploadIdOf(r);`,
 };
 
@@ -49,10 +49,10 @@ test('process runs with the run globals and log (the console at its levels); typ
     expect(levels).toEqual(['info', 'info', 'warning', 'error', 'debug']);
 });
 
-test("it imports the project's scripts, which import each other", async () => {
+test('it imports scripts of any project of the workspace, which import each other', async () => {
     const process = await prepareScript(
-        `import { header } from '@myproject/scripts/upload/headers';
-import type { IUploadInitResponse } from '@myproject/scripts/upload/types';
+        `import { header } from '@w/acme/billing/scripts/upload/headers';
+import type { IUploadInitResponse } from '@w/acme/shared/scripts/upload/types';
 async function process($input: IUploadInitResponse) { return header($input); }`,
         globals,
         SCRIPTS,
@@ -60,12 +60,19 @@ async function process($input: IUploadInitResponse) { return header($input); }`,
     expect(await process({ file: { uploadId: 'u7' } })).toBe('id=u7');
 });
 
-test('what does not compile says why: an unknown script, a package, a syntax error (with its line)', async () => {
-    await expect(
-        prepareScript(`import { x } from '@myproject/scripts/nope';\nasync function process() { return x; }`, globals, SCRIPTS),
-    ).rejects.toThrow('The script "@myproject/scripts/nope" does not exist in this project.');
-    await expect(prepareScript(`import fs from 'node:fs';\nasync function process() { return fs; }`, globals)).rejects.toThrow(
-        `"node:fs" cannot be imported: only the project's scripts (@myproject/scripts/<path>).`,
+test('what does not compile says why: an unknown script, a script of another workspace, a package, a syntax error (with its line)', async () => {
+    const compiled = (code: string) => prepareScript(`${code}\nasync function process() { return x; }`, globals, SCRIPTS, {}, 'acme');
+    await expect(compiled(`import { x } from '@w/acme/billing/scripts/nope';`)).rejects.toThrow(
+        'The script "@w/acme/billing/scripts/nope" does not exist.',
+    );
+    await expect(compiled(`import { x } from '@w/acme/billing/upload/headers';`)).rejects.toThrow(
+        'The script "@w/acme/billing/upload/headers" does not exist.',
+    );
+    await expect(compiled(`import { x } from '@w/other/billing/scripts/upload/headers';`)).rejects.toThrow(
+        '"@w/other/billing/scripts/upload/headers" cannot be imported: only scripts of this workspace (@w/acme/<project>/scripts/<path>).',
+    );
+    await expect(compiled(`import x from 'node:fs';`)).rejects.toThrow(
+        '"node:fs" cannot be imported: only scripts of this workspace (@w/acme/<project>/scripts/<path>).',
     );
     await expect(prepareScript(`async function process() {\n  return (;\n}`, globals)).rejects.toThrow(/does not compile: .*line 2/);
     await expect(prepareScript(`const x = 1;`, globals)).rejects.toThrow('The code has no process function.');
@@ -154,7 +161,7 @@ async function process($input) {
 
 test('an error says where it happened in the code as written: its line, or the script and line it is in', async () => {
     const component = await prepareScript(
-        `import { uploadIdOf } from '@myproject/scripts/upload/types';
+        `import { uploadIdOf } from '@w/acme/shared/scripts/upload/types';
 interface Order { id: number }
 
 // a comment and a type: the bundle has neither, the line is still the code's
@@ -169,7 +176,7 @@ async function process($input: Order) {
     );
     await expect(component({ id: 1 })).rejects.toThrow('one is not allowed (line 6)');
     // in a script it imports: that script and its line
-    await expect(component({ id: 2 })).rejects.toThrow(/\(@myproject\/scripts\/upload\/types line 2\)$/);
+    await expect(component({ id: 2 })).rejects.toThrow('(@w/acme/shared/scripts/upload/types line 2)');
     await expect(component({ id: 3 })).rejects.toThrow(/missing is not defined \(line 9\)$/);
     // the code around process (run once, when prepared): its line too
     await expect(
@@ -180,7 +187,7 @@ async function process($input: Order) {
 test('an error that already says where it broke keeps that place: a rethrow adds no line of its own', async () => {
     // a called flow failed: its message, rethrown by this component, already has the line of the script that broke
     const component = await prepareScript(`async function process($input) {\n  throw new Error($input.message);\n}`, globals);
-    const inner = 'The flow "Child" failed: "Prepare": Unsupported value (@myproject/scripts/DW/Shared/Sla line 24)';
+    const inner = 'The flow "Child" failed: "Prepare": Unsupported value (@w/acme/dw/scripts/Shared/Sla line 24)';
     await expect(component({ message: inner })).rejects.toThrow(new RegExp(`Sla line 24\\)$`));
     await expect(component({ message: 'The flow "Child" failed: "Check": boom (line 3)' })).rejects.toThrow(/boom \(line 3\)$/);
     // a message without one still gets this line

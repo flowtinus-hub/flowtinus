@@ -35,7 +35,7 @@ export const typescript: ComponentLogic = {
     label: 'TypeScript',
     category: 'code',
     description:
-        "Runs `async function process($input)` for each envelope ($input is its DATA). It can import the project's scripts: `import { f } from '@myproject/scripts/<path>'`. Its return goes to the output key (default `result`); with Override it is the whole DATA (object = 1 envelope, list = 1 per item, null = none). A throw is the envelope's error (rethrow(e): another component's, naming where it began). Globals: $PARAMETERS, $SECRETS, $VARIABLES, $FLOW_CURRENT_RUN, log(), rethrow(). Top-level code runs anew per component run (each Loop iteration, called flow); globalThis is shared by the run.",
+        "Runs `async function process($input)` for each envelope ($input is its DATA). It imports scripts of its workspace: `from '@w/<workspace>/<project>/scripts/<path>'`. Its return goes to the output key (default `result`); with Override it is the whole DATA (object = 1 envelope, list = 1 per item, null = none). A throw is the envelope's error (rethrow(e): another component's, naming where it began). Globals: $PARAMETERS, $SECRETS, $VARIABLES, $FLOW_CURRENT_RUN, log(), rethrow(). Top-level code runs anew per component run (each Loop iteration, called flow); globalThis is shared by the run.",
     example: { code: 'async function process($input: Data) {\n  return { total: $input.price * $input.quantity };\n}\n' },
     inputs: 1,
     outputs: 1,

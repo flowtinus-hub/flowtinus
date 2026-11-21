@@ -12,7 +12,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { allFolders, deleteScriptPath, getScript, listScripts, moveScriptPath, newPathIssue, scriptUsage, writeScript, type ScriptEntry } from './script-store';
+import { allFolders, deleteScriptPath, getScript, importPathIn, listScripts, moveScriptPath, newPathIssue, scriptScope, scriptUsage, writeScript, type ScriptEntry } from './script-store';
 
 const projectId = z.uuid('Invalid');
 const path = z.string().transform(normalizeScriptPath);
@@ -21,7 +21,7 @@ const conflict = () => fail('conflict', 'This script was changed elsewhere. Relo
 const NEW_SCRIPT = `export function example(): string {\n  return 'hello';\n}\n`;
 const tooLarge = (error: string) => fail('validation', 'The request has invalid fields.', { content: error });
 
-export type ScriptsView = { scripts: (ScriptEntry & Partial<ScriptState>)[]; folders: string[] };
+export type ScriptsView = { scripts: (ScriptEntry & Partial<ScriptState> & { importPath: string })[]; folders: string[] };
 
 export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ScriptsView>> {
@@ -36,10 +36,13 @@ export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
         }
 
         const branch = await workBranch(ctx);
+        const scope = await scriptScope(ctx.db, ctx.workspaceId, branch ? { branch } : 'editing');
+        const importPath = (path: string) => importPathIn(scope, parsed.value.projectId, path);
         if (branch) {
             const states = await scriptStates(ctx.db, ctx.workspaceId, parsed.value.projectId, branch.branch);
             const scripts = branchScripts(branch, parsed.value.projectId).map(({ content, ...script }) => ({
                 ...script,
+                importPath: importPath(script.path),
                 exports: scriptExports(content),
                 ...states?.get(script.path),
             }));
@@ -48,7 +51,10 @@ export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
 
         const { scripts, folders } = await listScripts(ctx.db, ctx.workspaceId, parsed.value.projectId);
         const states = await scriptStates(ctx.db, ctx.workspaceId, parsed.value.projectId);
-        return success({ scripts: scripts.map(s => ({ ...s, ...states?.get(s.path) })), folders: allFolders(scripts, folders) });
+        return success({
+            scripts: scripts.map(s => ({ ...s, importPath: importPath(s.path), ...states?.get(s.path) })),
+            folders: allFolders(scripts, folders),
+        });
     }
 }
 
@@ -249,8 +255,10 @@ export class ScriptUsageHandler implements UseCaseHandler<{ flows: { id: string;
     }
 }
 
-export class GetScriptHandler implements UseCaseHandler<{ path: string; content: string; revision: number }> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ path: string; content: string; revision: number }>> {
+type ScriptView = { path: string; importPath: string; content: string; revision: number };
+
+export class GetScriptHandler implements UseCaseHandler<ScriptView> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ScriptView>> {
         const parsed = validate(z.object({ projectId, path }), input);
         if (!parsed.ok) {
             return parsed;
@@ -266,6 +274,10 @@ export class GetScriptHandler implements UseCaseHandler<{ path: string; content:
         const script = branch
             ? onBranch && { path: onBranch.path, content: onBranch.content, revision: onBranch.revision }
             : await getScript(ctx.db, ctx.workspaceId, parsed.value.projectId, parsed.value.path);
-        return script ? success(script) : fail('not-found', 'Script not found.');
+        if (!script) {
+            return fail('not-found', 'Script not found.');
+        }
+        const scope = await scriptScope(ctx.db, ctx.workspaceId, branch ? { branch } : 'editing');
+        return success({ ...script, importPath: importPathIn(scope, parsed.value.projectId, script.path) });
     }
 }

@@ -1,4 +1,4 @@
-import { int32, isoDate } from '@myproject/scripts/Shared/ExtendedJson';
+import { int32, isoDate } from '@w/perf/scenario/scripts/Shared/ExtendedJson';
 
 /**
  * A snapshot's list as the rows that replace it, packed for one SQL statement: `id:value,id:value,` (the SQL splits
