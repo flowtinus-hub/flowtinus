@@ -2,7 +2,7 @@
 
 Where the discussion on git sync stands. Not a spec: it records what was decided and why, so the spec and its tickets can be written from it.
 
-Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2 is published as a spec and tickets ([#30](https://github.com/flowtinus-hub/flowtinus/issues/30), see "Step 2"). Step 3 is published as a spec and tickets ([#51](https://github.com/flowtinus-hub/flowtinus/issues/51), see "Step 3"); the later steps stay here until the maintainer says otherwise.
+Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2 is published as a spec and tickets ([#30](https://github.com/flowtinus-hub/flowtinus/issues/30), see "Step 2"). Step 3 is published as a spec and tickets ([#51](https://github.com/flowtinus-hub/flowtinus/issues/51), see "Step 3"). Step 4 is designed, its round closed, and not yet published (see "Step 4"); the later steps stay here until the maintainer says otherwise.
 
 ## Goal
 
@@ -294,7 +294,7 @@ In the order they depend on each other, to be cut into tickets when step 1 is do
 
 1. React to a commit (polling and the generic webhook) with the reconcile, the environment's branch becomes the source of truth and the Deploy button goes; scripts become versioned; the environment shows when git is ahead of its deploy and why. Designed: see "Step 2".
 2. The working copy and the editor's source control client: branches, changes, commit, discard, update, pull request, the three-way merge on a moved branch, the conflict screen; the environment modes. Designed: see "Step 3".
-3. Schedules and webhooks in the flow's file, arriving disabled.
+3. Schedules and webhooks in the flow's file, arriving disabled. Designed: see "Step 4".
 4. Promotion: `promote/` branches, first-parent choice, the pre-flight, the table of the promotions the app opened, the lineage check and its repair; the Environments page.
 5. Hotfix and the backport one hop at a time, and the block on promotion while the target is ahead.
 6. The GitLab adapter, then GitHub.
@@ -578,3 +578,137 @@ In the order they depend on each other. Published as the sub-issues of [#51](htt
 | [#60](https://github.com/flowtinus-hub/flowtinus/issues/60) | Open a pull request: push and link to the provider                                                                                                                                                                           | #56        |
 | [#61](https://github.com/flowtinus-hub/flowtinus/issues/61) | `pull-request` servers offer Create branch; the MCP follows the current branch and refuses where it cannot edit; draft runs use the branch's tree                                                                            | #56        |
 | [#62](https://github.com/flowtinus-hub/flowtinus/issues/62) | Turning git off and on with work branches' working copies                                                                                                                                                                    | #56        |
+
+## Step 4
+
+Schedules and webhooks move into their flow's file. What a trigger is (its id, its cron or its name, its defaults) is in git and is promoted with the flow; whether it runs, and the values one environment gives it, stay in that environment. Whatever arrives by the reconcile arrives disabled, in every environment, the one where it was written included. It builds on [ADR 0003](adr/0003-environment-branch-is-the-source-of-truth.md) and [ADR 0004](adr/0004-working-copy-per-branch-in-postgres.md), and applies "Git holds what exists, the environment holds the values" above.
+
+What steps 2 and 3 left on purpose, and step 4 solves:
+
+- A schedule or webhook exists only in the Postgres of the server where it was made: a new environment, a clone or a local server has none, and nothing reviews it.
+- Its changes are saved at once, outside the working copy, with no commit and no history.
+
+Still no promotion, no hotfix or backport, no adapter, no emergency pin: those are the later steps. The pre-flight's "schedules and webhooks arriving disabled" waits for promotion ; this step gives the list it will read.
+
+Status: closed by the maintainer after one round of questions, in which the twelve recommendations put to them were accepted (see "Decided in the first round"). The decision is [ADR 0005](adr/0005-trigger-definition-in-git-activation-in-the-environment.md). Not published yet: the spec and its tickets come from this section and "Cut into tickets".
+
+### In the flow's file
+
+```yaml
+version: 1
+id: 6f1c…
+nodes: […]
+edges: […]
+schedules:
+    - id: 0b7e…
+      cron: 0 6 * * *
+      timezone: Europe/Lisbon
+      misfire: relaxed # absent: relaxed
+      parameters: { since: '1' } # absent: none
+      input: … # absent: none
+webhooks:
+    - id: 9d42…
+      name: Orders from the shop
+      response: async # absent: async
+```
+
+- Two optional lists at the top of the file, after `groups`; absent means none. The app writes each sorted by `id`, keys a to z, as it writes nodes, and leaves a default out.
+- A schedule has no name, as today: the screens show its cron in words and its time zone. This replaces "id, name" in the table of "Git holds what exists, the environment holds the values".
+- A webhook's address stays `/wh/<id>`: the id is now in git, the same in every environment, so a caller changes only the host from one environment to the next. The token is never in git.
+- The flow's JSON Schema gains both lists. `format` stays 1: the app was never published.
+- The engine does not change: the triggers belong to the repo's flow file, not to the definition a run executes.
+
+### Not part of the flow's version
+
+- A flow's content hash leaves out `schedules` and `webhooks`, as it leaves out `deployed`. Adding a schedule or changing a cron makes no new flow version and no line in `deployment_history`; git's history is the trigger's history.
+- The reconcile applies the triggers of every flow in the tree whether or not its content changed.
+- So the emergency pin, which moves a flow's deployment to an older version, never touches its triggers.
+
+### The environment's values
+
+In Postgres, per environment, for each trigger the reconcile knows:
+
+| Trigger  | Kept in the environment                                                                                    |
+| -------- | ---------------------------------------------------------------------------------------------------------- |
+| Schedule | enabled; an override of the cron, the time zone, a parameter (each one on its own) or the input; its fires |
+| Webhook  | enabled; its token (made the first time it is enabled); its calls                                          |
+
+- A schedule fires with git's values with this environment's overrides over them. Its next time is computed again whenever either side changes.
+- An override survives a commit that changes the same field: the schedule shows git's value next to the one that runs here, and the override is cleared by hand. Never written back to git.
+- Misfire and a webhook's `response` and name are git's only: no override.
+
+### The reconcile
+
+- A trigger id in the tree and not in Postgres: created, disabled, with no override. A webhook gets no token until it is enabled.
+- A trigger whose values changed in git: updated; its enabled and overrides stay.
+- A trigger id that left the tree (removed from the file, or its flow deleted): archived with its overrides and token, and off. A commit that brings the same id back brings it back with them, but disabled: it arrives again, so someone turns it on again.
+- A flow that becomes `deployed: false`, or is archived: its triggers are turned off, as an undeploy does today. Deploying it again turns nothing back on.
+- Each trigger the reconcile created, or brought back, is listed as arrived disabled until it is turned on or leaves the tree.
+
+### Editing a trigger
+
+- On any branch, adding, changing or removing a schedule or webhook changes the flow's file in the working copy, like any edit of the flow, and goes to git by a Commit. The Schedules and Webhooks windows read the file of the current branch, working copy over tip.
+- On the environment's branch they also show, under "This environment", the switch, the overrides, the next and last fire, the token: saved at once, never in the working copy. Elsewhere the window says these are set on the environment, after the trigger reaches it.
+- A `pull-request` environment: changing the file offers Create branch, as any edit does (step 3); "This environment" stays editable on its branch.
+- A `protected` environment: the file is read only (until the hotfix step brings hotfix branches); "This environment" stays editable. Turning a production cron on is never a commit.
+- After a Commit that brings new triggers, the button's outcome lists them as arrived disabled, each with its switch, so whoever wrote one in a `direct` environment turns it on in one click.
+- Who may turn one on or override it: an editor, as today.
+- Duplicating a flow gives its triggers new ids.
+
+### Validation
+
+Part of the whole tree's validation in the core (so the editor, the reconcile and later `flowtinus validate` agree):
+
+- Errors, which refuse the commit: a cron or time zone not valid (croner moves into the core, which the server and the editor already share); a trigger without an `id`, or an id in two places in the workspace; a webhook without a name; a misfire or response not known.
+- Warnings, which apply: a parameter the Start does not declare; an input on a flow whose Start takes none.
+- A webhook id already used by another workspace on the same server (the address has no workspace in it) is refused by that server's reconcile, saying so.
+
+### Arrived disabled
+
+- The workspace's git section lists the triggers that arrived disabled, by flow, each with its switch. The sidebar's git notice counts them.
+- The canvas' Schedules and Webhooks chips show them as off, as today.
+
+### Turning git on and off
+
+- First export: each trigger goes into its flow's file with the values that run today; it keeps its enabled and its token in this environment. It was here: it did not arrive.
+- Import into an empty workspace: every trigger arrives disabled.
+- "Git replaces the server": a trigger matched by id keeps its enabled, token and fires; a new one arrives disabled; one not in git is archived. The preview lists all three.
+- Off: Postgres is the source again. Each schedule's overrides fold into its values; the triggers keep their enabled.
+
+### The MCP
+
+No schedule or webhook tools today, and none in this step.
+
+### Decided in the first round
+
+Each recommendation was accepted as put; the sections above state them.
+
+1. Triggers are left out of the flow's content hash: no new version for a trigger change.
+2. A schedule has no name; a webhook keeps one.
+3. Misfire, a webhook's name and `response` are git's only.
+4. Overrides per field and per parameter, kept when git changes the field, cleared by hand.
+5. The Schedules and Webhooks windows edit the file (a Commit) and, on the environment's branch, "This environment" (saved at once).
+6. A trigger that leaves the tree is archived with its overrides and token, and comes back disabled.
+7. An undeploy or an archive turns the flow's triggers off.
+8. Turning git on and off as in "Turning git on and off".
+9. The Commit outcome lists what arrived disabled with a switch; the git section lists it, the sidebar counts it.
+10. An editor turns a trigger on or overrides it, in every mode.
+11. The validation's errors and warnings as in "Validation".
+12. A webhook id used by another workspace on the server is refused; duplicating a flow gives new ids.
+
+### Where the prototype differs
+
+The prototype shows no webhooks and no schedule screens of this step: the canvas' Schedules and Webhooks windows as they are today, split into the file and "This environment", are the reference.
+
+### Cut into tickets (proposed, not published)
+
+In the order they depend on each other:
+
+| Ticket                                                                                                                                                                                                                                  | Blocked by |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| A. The flow file's `schedules` and `webhooks` in the core: read, write in the stable order, JSON Schema, left out of the content hash; croner in the core; the validation's errors and warnings                                         | none       |
+| B. The reconcile of triggers: created disabled, updated keeping the environment's values, archived and brought back disabled, off on an undeploy or archive; a webhook id taken by another workspace refused; the arrived-disabled list | A          |
+| C. Environment overrides: stored per field and parameter, a schedule fires with git's values under them, its next time recomputed when either side changes                                                                              | B          |
+| D. The Schedules and Webhooks windows: the file in the working copy on any branch, "This environment" on the environment's branch, the modes' rules; duplicate gives new ids                                                            | B, C       |
+| E. Arrived disabled on screen: the Commit outcome with its switches, the git section's list, the sidebar's count                                                                                                                        | B          |
+| F. Turning git on and off with triggers: the first export, the import, "git replaces the server" and its preview, overrides folded in on turning off                                                                                    | B, C       |

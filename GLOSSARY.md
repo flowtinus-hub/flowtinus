@@ -126,6 +126,18 @@ _Avoid_: Out of sync, drift, behind
 The scripts at the commit an environment last applied: what its schedules, webhooks and deployed runs import. The editor's Run uses the scripts being edited instead.
 _Avoid_: Script version, published scripts
 
+**Trigger**:
+A schedule or a webhook of a flow: what makes its deployed version run by itself. With git on, what a trigger is lives in the flow's file; whether it runs, and an environment's own values for it, live in that environment.
+_Avoid_: Job, hook (the git provider's webhook is not a trigger)
+
+**Arrived disabled**:
+The state of a trigger the reconcile created or brought back: it is in the environment but does not run until someone there turns it on, in every environment, the one where it was written included.
+_Avoid_: Pending, inactive, new
+
+**Environment override**:
+An environment's own value for a field of a schedule (its cron, time zone, a parameter or the input), used there over git's value and never written back to git.
+_Avoid_: Local setting, environment config
+
 **Working copy**:
 The uncommitted changes of one branch on one server: changed files in the repo format, each with the blob it was based on and its last editor. With git on, a flow's draft is its file in the working copy of the branch open.
 _Avoid_: Draft (with git on), stash, local changes
