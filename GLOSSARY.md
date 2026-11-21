@@ -143,8 +143,12 @@ Any branch that is not an environment's branch and not one of the app's own (`pr
 _Avoid_: Feature branch, dev branch
 
 **User branch**:
-A work branch named `users/<handle>/…`, where only that user writes from the app.
+A work branch named `users/<user handle>/…`, where only that user writes from the app.
 _Avoid_: Personal branch, private branch
+
+**User handle**:
+The name a user goes by in their user branches: made from their email when the user is created, in lowercase letters, digits and underscores, and never changed.
+_Avoid_: Handle (alone, it is a workspace's or a project's), username
 
 **Pending merge**:
 An Update that met conflicts: the conflicted files marked in the working copy and the second parent kept, until it is committed whole or aborted.
