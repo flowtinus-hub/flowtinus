@@ -10,20 +10,12 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import type { FlowVersion } from '@/data/deployments/deployment';
 import { browserTimeZone, CRON_PRESETS, describeCron, MISFIRE_OPTIONS, timeZones, type Schedule, type ScheduleFields } from '@/data/schedules/schedule';
-import { createSchedule, deleteSchedule, listSchedules, updateSchedule } from '@/data/schedules/schedules-api';
+import { createSchedule, deleteSchedule, listSchedules, switchSchedule, updateSchedule } from '@/data/schedules/schedules-api';
+import { TRIGGERS_SWITCHED } from '@/data/git/git-api';
+import { ArrivedBadge, useTriggersChanged } from './use-triggers-changed';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
-
-/** what a schedule's form sends (to change one field, the others as they are) */
-const fieldsOf = (s: Schedule): ScheduleFields => ({
-    cron: s.cron,
-    timezone: s.timezone,
-    enabled: s.enabled,
-    misfire: s.misfire,
-    parameters: s.parameters,
-    ...(s.input !== undefined ? { input: s.input } : {}),
-});
 
 const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 
@@ -60,11 +52,13 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
             gone = true;
         };
     }, [flowId]);
+    useTriggersChanged(load);
 
     const active = items.filter(s => s.enabled).length;
+    const arrived = items.filter(s => s.arrivedDisabled).length;
     const toggle = async (schedule: Schedule) => {
-        await updateSchedule(schedule.id, { ...fieldsOf(schedule), enabled: !schedule.enabled });
-        await load();
+        await switchSchedule(schedule.id, !schedule.enabled);
+        window.dispatchEvent(new Event(TRIGGERS_SWITCHED));
     };
     const remove = (schedule: Schedule) =>
         confirm({
@@ -87,7 +81,13 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
                 size="sm"
                 className="bg-card shadow-md"
                 disabled={disabled || !deployed}
-                title={deployed ? 'When the deployed version runs by itself' : 'Deploy the flow first'}
+                title={
+                    !deployed
+                        ? 'Deploy the flow first'
+                        : arrived > 0
+                          ? `When the deployed version runs by itself. ${arrived} arrived disabled: off until turned on here.`
+                          : 'When the deployed version runs by itself'
+                }
                 onClick={() => setOpen(true)}
             >
                 <CalendarClock /> Schedules
@@ -101,6 +101,7 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
                         {active}/{items.length}
                     </span>
                 )}
+                {arrived > 0 && <span className="size-1.5 rounded-full bg-sky-500" aria-label={`${arrived} arrived disabled`} />}
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="sm:max-w-2xl">
@@ -172,7 +173,10 @@ function ScheduleRow({
         <li className="flex items-center gap-3 px-3 py-2 text-sm">
             <Switch checked={schedule.enabled} onCheckedChange={onToggle} aria-label={schedule.enabled ? 'Turn off' : 'Turn on'} />
             <div className={cn('grid min-w-0 flex-1 gap-0.5', !schedule.enabled && 'opacity-60')}>
-                <span className="truncate font-medium">{describeCron(schedule.cron) ?? schedule.cron}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium">{describeCron(schedule.cron) ?? schedule.cron}</span>
+                    {schedule.arrivedDisabled && <ArrivedBadge />}
+                </span>
                 <span className="truncate text-xs text-muted-foreground">
                     <span className="font-mono">{schedule.cron}</span> · {schedule.timezone}
                 </span>

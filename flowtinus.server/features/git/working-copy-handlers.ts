@@ -13,6 +13,7 @@ import { isGitOn } from './git-config';
 import { pendingMerge, pendingMergeView, type PendingMergeView } from './pending-merge';
 import { updateBranch, updateStatus, type UpdateOutcome, type UpdateStatus } from './update';
 import { readConflict, resolveConflict, type ConflictView } from './conflicts';
+import { arrivedSince, listArrivedDisabled, type ArrivedDisabled } from './arrived-disabled';
 import { commitWorkingCopy, createBranch, discardWorkingCopy, workingChanges, type CreatedBranch, type WorkingChange } from './working-copy-changes';
 
 const gitOff = () => fail('conflict', 'Git is off in this workspace.');
@@ -78,8 +79,10 @@ export const CommitChangesCommand = z.object({
     message: z.string().trim().min(1).max(1000),
 });
 
-export class CommitChangesHandler implements UseCaseHandler<{ commit: string }> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ commit: string }>> {
+export type CommitView = { commit: string; arrived: ArrivedDisabled[] };
+
+export class CommitChangesHandler implements UseCaseHandler<CommitView> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<CommitView>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
             return denied;
@@ -88,8 +91,12 @@ export class CommitChangesHandler implements UseCaseHandler<{ commit: string }> 
         if (!parsed.ok) {
             return parsed;
         }
+        const before = await listArrivedDisabled(ctx.db, ctx.workspaceId);
         const committed = await commitWorkingCopy(ctx, parsed.value);
-        return committed.ok ? success({ commit: committed.value }) : committed;
+        if (!committed.ok) {
+            return committed;
+        }
+        return success({ commit: committed.value, arrived: arrivedSince(before, await listArrivedDisabled(ctx.db, ctx.workspaceId)) });
     }
 }
 
