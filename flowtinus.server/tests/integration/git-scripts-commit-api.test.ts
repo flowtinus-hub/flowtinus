@@ -202,12 +202,29 @@ describe('scripts reach the branch through a Commit', () => {
     });
 
     test('renaming a script rewrites its callers and their drafts; one Commit takes them all', async () => {
-        const { sales, call, scripts, create, save, editing, flow, show, scriptFile, flowFile, tree, lastMessage } = await newWorkspace();
+        const { id, sales, call, scripts, create, save, editing, flow, show, scriptFile, flowFile, tree, lastMessage } =
+            await newWorkspace();
         await create('lib/prices', 'export const value = 1;');
         await create('lib/total', `import { value } from '${sales}lib/prices';\nexport const total = value;`);
         const orders = await flow('Orders', 'lib/prices');
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
         await save('lib/prices', 'export const value = 2;');
+        const billing = (await call('POST', '/projects', { name: 'Billing' })).body.id as string;
+        const billingScript = `${workspaceHandleOf(id)}/projects/Billing/scripts/fees.ts`;
+        const imports = `import { value } from '${sales}lib/prices';`;
+        expect((await call('POST', `/projects/${billing}/scripts`, { kind: 'script', path: 'fees', content: imports })).status).toBe(201);
+        const invoices = (await call('POST', `/projects/${billing}/flows`, { name: 'Invoices' })).body.id as string;
+        const invoice = (await call('GET', `/flows/${invoices}/draft`)).body;
+        const ts = { id: 'ts', type: 'typescript', position: { x: 160, y: 0 }, config: { code: imports } };
+        expect(
+            (
+                await call('PUT', `/flows/${invoices}/draft`, {
+                    revision: invoice.revision,
+                    flow: { ...invoice.flow, nodes: [...invoice.flow.nodes, ts] },
+                })
+            ).status,
+        ).toBe(200);
+        expect((await commitAll(call, 'Billing')).status).toBe(200);
         const commits = tree().length;
 
         expect((await call('POST', `${scripts}/move`, { from: 'lib/prices', to: 'shared/prices' })).status).toBe(200);
@@ -219,6 +236,8 @@ describe('scripts reach the branch through a Commit', () => {
         expect(show(scriptFile('shared/prices'))).toBe('export const value = 2;');
         expect(show(scriptFile('lib/total'))).toContain(`from '${sales}shared/prices'`);
         expect(show(flowFile('Orders'))).toContain(`${sales}shared/prices`);
+        expect(show(billingScript)).toBe(`import { value } from '${sales}shared/prices';`);
+        expect(show(billingScript.replace('scripts/fees.ts', 'flows/Invoices.flow.yaml'))).toContain(`${sales}shared/prices`);
 
         expect((await editing('shared/prices')).content).toBe('export const value = 2;');
         expect((await editing('lib/total')).content).toContain(`from '${sales}shared/prices'`);

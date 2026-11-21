@@ -167,7 +167,7 @@ export function ScriptsPage() {
             title: row.kind === 'folder' ? 'Rename folder' : 'Rename script',
             initial: row.path,
             submitLabel: 'Rename',
-            warning: usage && `Imported by ${usage}: their imports keep the old path.`,
+            warning: usage && `Imported by ${usage}: their imports follow the new path.`,
             issue: path => (path.trim() === row.path ? null : newPathIssue(projectId, path, row.path)),
             onSave: async to => {
                 if (offered(row.path, () => renameScriptPath(projectId, row.path, to))) {
@@ -435,10 +435,10 @@ export function ScriptsPage() {
 }
 
 /** "2 flows (Orders, Daily) and 1 script (upload/headers)", or empty when nothing imports it */
-function usageText(usage: { flows: { name: string }[]; scripts: string[] }): string {
+function usageText(usage: { flows: { name: string; project?: string }[]; scripts: string[] }): string {
     const parts = [
         usage.flows.length
-            ? `${usage.flows.length} flow${usage.flows.length === 1 ? '' : 's'} (${usage.flows.map(f => f.name).join(', ')})`
+            ? `${usage.flows.length} flow${usage.flows.length === 1 ? '' : 's'} (${usage.flows.map(f => (f.project ? `${f.project} / ${f.name}` : f.name)).join(', ')})`
             : '',
         usage.scripts.length ? `${usage.scripts.length} script${usage.scripts.length === 1 ? '' : 's'} (${usage.scripts.join(', ')})` : '',
     ].filter(Boolean);

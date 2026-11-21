@@ -1,6 +1,6 @@
 import { workBranch } from '#features/git/branch-read';
 import { z } from 'zod';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, inArray, isNull } from 'drizzle-orm';
 import { flowWithScriptsMoved, movedScriptImports, normalizeScriptPath, scriptCodeOf, scriptImports, type FlowFile } from '@flowtinus/core';
 import { loadDraft, writeDraft } from '#features/flows/flow-draft';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -72,14 +72,19 @@ export async function rewriteMovedScript(ctx: UseCaseContext, projectId: string,
     const { db, workspaceId } = ctx;
     const scope = await scriptScope(db, workspaceId);
     [from, to] = [importPathIn(scope, projectId, from), importPathIn(scope, projectId, to)];
-    for (const script of await workingScripts(db, workspaceId, projectId)) {
-        const content = movedScriptImports(script.content, from, to);
-        if (content !== script.content) {
-            await writeScript(db, workspaceId, projectId, script.path, content, ctx.userId);
+    const projects = [...scope.handleOf.keys()];
+    for (const id of projects) {
+        for (const script of await workingScripts(db, workspaceId, id)) {
+            const content = movedScriptImports(script.content, from, to);
+            if (content !== script.content) {
+                await writeScript(db, workspaceId, id, script.path, content, ctx.userId);
+            }
         }
     }
 
-    const live = await new FlowRepository(db, workspaceId).findMany(and(eq(flowsTable.projectId, projectId), isNull(flowsTable.deletedAt)));
+    const live = await new FlowRepository(db, workspaceId).findMany(
+        and(inArray(flowsTable.projectId, projects), isNull(flowsTable.deletedAt)),
+    );
     for (const flow of live) {
         const moved = flowWithScriptsMoved((await loadDraft(db, workspaceId, flow)).flow, from, to);
         if (moved) {

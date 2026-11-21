@@ -290,11 +290,14 @@ export async function moveScriptOnBranch(
             moveFile(files, folder(path), folder(moved(path)));
         }
         const prefix = scriptImportPrefix(branch.handle, handleOf(on.project.name));
-        for (const path of scripts.map(moved)) {
-            const content = movedScriptImports(files[script(path)]!, prefix + from, prefix + to);
-            files[script(path)] = content;
+        for (const project of branch.projects.filter(p => p.deletedAt === null)) {
+            const own = project.id === projectId;
+            for (const { path } of branch.scripts.get(project.id) ?? []) {
+                const file = repoPath.script(branch.handle, project.name, own ? moved(path) : path);
+                files[file] = movedScriptImports(files[file]!, prefix + from, prefix + to);
+            }
         }
-        for (const flow of on.tree.flows) {
+        for (const flow of branch.flows) {
             const rewritten = flowWithScriptsMoved(flow.file, prefix + from, prefix + to);
             if (rewritten) {
                 files[flow.path] = repoFlowToYaml({ ...rewritten, id: flow.id, name: flow.name }, { deployed: flow.deployed });

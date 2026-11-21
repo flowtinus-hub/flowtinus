@@ -22,6 +22,7 @@ describe('scripts api', () => {
     let supervisor: Supervisor;
     let stopFollowing: () => Promise<void>;
     let projectId: string;
+    let sharedLib: string;
     const workspaceId = crypto.randomUUID();
     const P = `@w/${workspaceHandleOf(workspaceId)}/scripts/scripts/`;
     const headers = { 'x-user-id': ANA, 'content-type': 'application/json' };
@@ -368,7 +369,7 @@ async function process($input: IItem) {
 
     test("the editor's Run imports a script of another project by its import path, as it is being edited; an archived project's or another workspace's is not one", async () => {
         const ws = workspaceHandleOf(workspaceId);
-        const shared = (await call('POST', '/projects', { name: 'Shared Lib' })).body.id as string;
+        const shared = (sharedLib = (await call('POST', '/projects', { name: 'Shared Lib' })).body.id as string);
         const old = (await call('POST', '/projects', { name: 'Old Lib' })).body.id as string;
         await call('POST', `/projects/${shared}/scripts`, {
             kind: 'script',
@@ -440,5 +441,53 @@ async function process($input: IItem) {
         expect(refused.error).toContain(
             `"@w/elsewhere/shared-lib/scripts/math/round" cannot be imported: only scripts of this workspace (@w/${ws}/<project>/scripts/<path>).`,
         );
+    });
+
+    test("moving a script rewrites the imports of it in another project's flows and scripts; its usage names them", async () => {
+        const ws = workspaceHandleOf(workspaceId);
+        const shared = sharedLib;
+        const lib = `@w/${ws}/shared-lib/scripts/`;
+        const flowId = (await call('POST', `/projects/${projectId}/flows`, { name: 'Rounds', folderId: null })).body.id as string;
+        const draft = (await call('GET', `/flows/${flowId}/draft`)).body as { flow: Record<string, unknown> };
+        await call('PUT', `/flows/${flowId}/draft`, {
+            revision: 0,
+            flow: {
+                ...draft.flow,
+                nodes: [
+                    { id: 'start', type: 'start', position: { x: 0, y: 0 }, config: {} },
+                    {
+                        id: 'ts',
+                        type: 'typescript',
+                        position: { x: 160, y: 0 },
+                        config: { code: `import { round } from '${lib}math/round';` },
+                    },
+                    { id: 'fn', type: 'script', position: { x: 320, y: 0 }, config: { function: `${lib}math/round#round` } },
+                    { id: 'end', type: 'end', position: { x: 480, y: 0 }, config: {} },
+                ],
+                edges: [],
+            },
+        });
+        // a script of the same path in this project is another script: it does not move
+        await call('POST', `/projects/${projectId}/scripts`, {
+            kind: 'script',
+            path: 'math/round',
+            content: `import { round } from '${P}math/round';\n`,
+        });
+
+        expect((await call('GET', `/projects/${shared}/scripts/usage?path=math`)).body).toEqual({
+            flows: [{ id: flowId, name: 'Rounds', project: 'Scripts' }],
+            scripts: [`${P}prices`],
+        });
+
+        expect((await call('POST', `/projects/${shared}/scripts/move`, { from: 'math', to: 'numbers' })).status).toBe(200);
+        expect((await content('prices')).content).toContain(`from '${lib}numbers/round'`);
+        expect((await content('math/round')).content).toBe(`import { round } from '${P}math/round';\n`);
+        const moved = (await call('GET', `/flows/${flowId}/draft`)).body as { flow: { nodes: { config: Record<string, unknown> }[] } };
+        expect(
+            moved.flow.nodes
+                .map(n => n.config.code ?? n.config.function)
+                .filter(Boolean)
+                .sort(),
+        ).toEqual([`${lib}numbers/round#round`, `import { round } from '${lib}numbers/round';`]);
     });
 });
