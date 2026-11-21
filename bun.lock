@@ -15,6 +15,7 @@
       "name": "@flowtinus/core",
       "version": "0.1.0",
       "dependencies": {
+        "croner": "^10.0.1",
         "yaml": "^2.9.1",
       },
       "devDependencies": {
@@ -34,7 +35,6 @@
         "@xyflow/react": "^12.12.1",
         "class-variance-authority": "^0.7.1",
         "cn": "^0.5.2",
-        "croner": "^10.0.1",
         "cronstrue": "^3.38.0",
         "lucide-react": "^1.67.0",
         "monaco-editor": "^0.57.0",
@@ -83,7 +83,6 @@
         "@electric-sql/pglite": "^0.5.15",
         "@flowtinus/core": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.32.2",
-        "croner": "^10.0.1",
         "drizzle-orm": "^0.45.4",
         "hono": "^4.13.16",
         "mongodb": "^7.8.0",

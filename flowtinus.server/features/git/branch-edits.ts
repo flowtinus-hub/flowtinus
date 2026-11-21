@@ -61,7 +61,7 @@ export async function saveDraftOnBranch(
     if (!found) {
         return notFound();
     }
-    const content = repoFlowToYaml({ ...flow, id, name: found.name }, { deployed: found.deployed });
+    const content = repoFlowToYaml({ ...flow, id, name: found.name }, { deployed: found.deployed, ...found.triggers });
     const saved = await saveBranchFile(ctx, branch, { path: found.path, content, fileId: id, expected: revision });
     return saved === null ? changedElsewhere('flow') : success({ revision: saved });
 }
@@ -293,7 +293,10 @@ export async function moveScriptOnBranch(
         for (const flow of on.tree.flows) {
             const rewritten = flowWithScriptsMoved(flow.file, from, to);
             if (rewritten) {
-                files[flow.path] = repoFlowToYaml({ ...rewritten, id: flow.id, name: flow.name }, { deployed: flow.deployed });
+                files[flow.path] = repoFlowToYaml(
+                    { ...rewritten, id: flow.id, name: flow.name },
+                    { deployed: flow.deployed, ...flow.triggers },
+                );
             }
         }
         return files;

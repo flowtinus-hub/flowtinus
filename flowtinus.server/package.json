@@ -21,7 +21,6 @@
     "@flowtinus/core": "workspace:*",
     "@electric-sql/pglite": "^0.5.15",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "croner": "^10.0.1",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.16",
     "mongodb": "^7.8.0",

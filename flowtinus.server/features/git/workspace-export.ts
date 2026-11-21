@@ -28,7 +28,7 @@ export const flowsInRepo = (db: Database, workspaceId: string, flowIds: string[]
 
 function withDeployed(text: string, name: string, deployed: boolean): string {
     const read = repoFlowFromYaml(text, name);
-    return read.ok ? repoFlowToYaml(read.value.flow, { deployed }) : text;
+    return read.ok ? repoFlowToYaml(read.value.flow, { ...read.value, deployed }) : text;
 }
 
 export const committedFlowText = (flowId: string, inRepo: Pick<FlowInRepo, 'definition' | 'deployed'>) =>

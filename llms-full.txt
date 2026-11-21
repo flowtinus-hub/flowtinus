@@ -292,6 +292,20 @@ The project's `id`, and its `description`, `icon` and `color`, each optional.
 
 `flows/<folder>/<flow name>.flow.yaml` is the flow file described above, with three differences: it has the flow's `id` (required); it has no `name`, which is the file name without `.flow.yaml`; it has no `pinned` outputs, which are test data and stay on the server. It may say `deployed: false` when the flow is not deployed; absent means `true`. A flow names the connections and the flows it calls by id, and scripts by path.
 
+A flow file may list its `schedules` (each with its `id`, a `cron` of 5 or 6 fields, a `timezone`, and optionally `misfire`, the Start's `parameters` and an `input`) and its `webhooks` (each with its `id`, a `name`, and optionally `response`); the address of a webhook is `/wh/<id>`. Whether a trigger runs, and a webhook's token, are never in the file.
+
+```yaml
+schedules:
+    - cron: 0 6 * * *
+      id: 0b7e2c4a-1d3f-4e5a-8b6c-7d8e9f0a1b2c
+      parameters:
+          since: '1'
+      timezone: Europe/Lisbon
+webhooks:
+    - id: 9d42a1b3-c4d5-4e6f-8a7b-9c0d1e2f3a4b
+      name: Orders from the shop
+```
+
 The server writes a flow once it has been deployed: the deployed version, or, after an undeploy, the version deployed last with `deployed: false`. A draft never reaches the repository, and an archived flow, folder or project leaves it.
 
 ### A script
@@ -300,17 +314,17 @@ The server writes a flow once it has been deployed: the deployed version, or, af
 
 ### The stable order
 
-Every file the app writes is in one canonical order: a flow's nodes by id, its edges by source, target and then ports, its groups by id, and every key of a node's `config` from a to z (at every depth; lists keep their order). So writing a file the app read gives no diff, and two branches that each add a node rarely conflict. The app reads any order and any YAML formatting (flow style, quotes, CRLF line endings).
+Every file the app writes is in one canonical order: a flow's nodes by id, its edges by source, target and then ports, its groups, schedules and webhooks by id (with the keys of a schedule or a webhook from a to z, and a default left out), and every key of a node's `config` from a to z (at every depth; lists keep their order). So writing a file the app read gives no diff, and two branches that each add a node rarely conflict. The app reads any order and any YAML formatting (flow style, quotes, CRLF line endings).
 
 Comments are not part of the format: the app drops them when it writes a file. What a comment would say goes in a node's `notes`.
 
 ### Versions
 
-A deploy makes a new version only when what the engine runs changed. A version's content hash leaves out `deployed`, the name, the canvas (positions, groups, notes), the pinned outputs, the order of nodes, edges and keys, and line endings (LF or CRLF): changing only `deployed` makes no new version.
+A deploy makes a new version only when what the engine runs changed. A version's content hash leaves out `deployed`, the schedules and webhooks, the name, the canvas (positions, groups, notes), the pinned outputs, the order of nodes, edges and keys, and line endings (LF or CRLF): changing only `deployed` makes no new version.
 
 ### Validation of a tree
 
-The app checks a whole workspace tree before applying it (`validateWorkspaceTree` in the core). An error refuses the tree whole, with the reasons listed: a file that is not valid YAML or does not match its schema (an unknown key included); an `id` missing, not a UUID in lower case, or in two files of a kind; a `workspace.yaml` or a `project.yaml` missing; an edge to a node that does not exist; a call to a flow that is not in the workspace or to a script that is not in the project; a connection a flow uses and the workspace does not declare; a name breaking the rule above or a path too long; two names that differ only in case or Unicode normalization. A warning does not: a declared connection not configured on this server; a secret or variable a flow reads with no value on this server; a comment in a flow file; a repository without `.gitattributes`; a file that is not part of the format (it is left out).
+The app checks a whole workspace tree before applying it (`validateWorkspaceTree` in the core). An error refuses the tree whole, with the reasons listed: a file that is not valid YAML or does not match its schema (an unknown key included); an `id` missing, not a UUID in lower case, or in two files of a kind (or, for a schedule or a webhook, in two places of the workspace); the cron or time zone of a schedule that is not valid; a `workspace.yaml` or a `project.yaml` missing; an edge to a node that does not exist; a call to a flow that is not in the workspace or to a script that is not in the project; a connection a flow uses and the workspace does not declare; a name breaking the rule above or a path too long; two names that differ only in case or Unicode normalization. A warning does not: a declared connection not configured on this server; a secret or variable a flow reads with no value on this server; a parameter given by a schedule that the Start does not declare, or an input on a Start that takes none; a comment in a flow file; a repository without `.gitattributes`; a file that is not part of the format (it is left out).
 
 ### JSON Schemas
 

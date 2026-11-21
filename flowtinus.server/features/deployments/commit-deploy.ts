@@ -1,4 +1,4 @@
-import { repoFlowToYaml, type FlowFile } from '@flowtinus/core';
+import { repoFlowFromYaml, repoFlowToYaml, type FlowFile } from '@flowtinus/core';
 import type { Flow } from '#features/flows/flow';
 import { flowRepoPath } from '#features/flows/flow-draft';
 import { commitTree } from '#features/git/git-first';
@@ -29,7 +29,9 @@ export async function commitDeploy(
             return to;
         }
         const path = Object.keys(tip).find(p => idOfFile(p, tip[p]!) === flow.id) ?? (await flowRepoPath(db, ctx.workspaceId, flow));
-        return { changes: { [path]: repoFlowToYaml({ ...to.definition, id: flow.id }, { deployed: to.deployed }) } };
+        const inTip = path in tip ? repoFlowFromYaml(tip[path]!, flow.name) : null;
+        const triggers = inTip?.ok ? inTip.value : {};
+        return { changes: { [path]: repoFlowToYaml({ ...to.definition, id: flow.id }, { ...triggers, deployed: to.deployed }) } };
     });
     if (!committed.ok) {
         return committed;

@@ -4,7 +4,7 @@ import type { FlowFile } from '@flowtinus/core';
 import { deployedRun } from '#features/runs/deployed-run';
 import { runs, type RunRowStatus } from '#features/runs/run';
 import { CHANNELS, lostRecord, notifyRunEvent } from '#features/runs/run-queue';
-import { dueTimes, nextTime, type MisfireMode } from './schedules';
+import { dueTimes, nextTime, type MisfireMode } from '@flowtinus/core';
 
 /*
  * Firing the schedules that are due, by any supervisor (each one calls fireDueSchedules on its timer and its poll):

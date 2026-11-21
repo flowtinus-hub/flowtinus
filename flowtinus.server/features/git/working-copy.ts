@@ -186,7 +186,7 @@ export function canonical(path: string, text: string): string {
         return text;
     }
     const read = repoFlowFromYaml(text, entry.name);
-    return read.ok ? repoFlowToYaml(read.value.flow, { deployed: read.value.deployed }) : text;
+    return read.ok ? repoFlowToYaml(read.value.flow, read.value) : text;
 }
 
 export function idOfFile(path: string, text: string): string | null {

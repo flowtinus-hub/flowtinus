@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { KeyRound, LoaderCircle, Pencil, Plus, Trash2, Webhook as WebhookIcon } from 'lucide-react';
-import { START, startConfig } from '@flowtinus/core';
+import { START, startConfig, type WebhookResponse } from '@flowtinus/core';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
 import { CopyButton } from '@/components/copy-button';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type { FlowVersion } from '@/data/deployments/deployment';
-import { WEBHOOK_RESPONSES, webhookCurl, webhookMethods, webhookUrl, type Webhook, type WebhookFields, type WebhookResponse } from '@/data/webhooks/webhook';
+import { WEBHOOK_RESPONSE_OPTIONS, webhookCurl, webhookMethods, webhookUrl, type Webhook, type WebhookFields } from '@/data/webhooks/webhook';
 import { createWebhook, deleteWebhook, listWebhooks, regenerateToken, updateWebhook } from '@/data/webhooks/webhooks-api';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
@@ -210,7 +210,7 @@ function WebhookRow(props: {
                     </span>
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
-                    {WEBHOOK_RESPONSES.find(r => r.value === webhook.response)?.label} · token{' '}
+                    {WEBHOOK_RESPONSE_OPTIONS.find(r => r.value === webhook.response)?.label} · token{' '}
                     <span className="font-mono">{webhook.tokenHint}…</span>
                     {webhook.last && (
                         <>
@@ -287,7 +287,7 @@ function WebhookForm(props: {
                             value={response}
                             onChange={e => setResponse(e.target.value as WebhookResponse)}
                         >
-                            {WEBHOOK_RESPONSES.map(r => (
+                            {WEBHOOK_RESPONSE_OPTIONS.map(r => (
                                 <option key={r.value} value={r.value}>
                                     {r.label}
                                 </option>

@@ -74,7 +74,8 @@ export async function writeDraft(
     const [inRepo] = await flowsInRepo(db, workspaceId, [row.id]);
     const live = draft && !draft.deleted ? draft : null;
     const deployed = live?.content ? !/^deployed: false$/m.test(live.content) : (inRepo?.deployed ?? true);
-    const text = repoFlowToYaml({ ...flow, id: row.id, name: row.name }, { deployed });
+    const before = live?.content ? repoFlowFromYaml(live.content, row.name) : null;
+    const text = repoFlowToYaml({ ...flow, id: row.id, name: row.name }, { ...(before?.ok ? before.value : {}), deployed });
     if (live) {
         const [saved] = await db.query<{ revision: number }>(
             `UPDATE working_copy SET content = $4, edited_by = $5, revision = revision + 1, updated_at = now()
