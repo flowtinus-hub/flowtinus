@@ -215,9 +215,9 @@ export const updateBranch = (ws: string) => api<UpdateOutcome>(`/w/${ws}/git/upd
 
 export type ArrivedDisabled = { flowId: string; flowName: string; projectId: string; schedules: Schedule[]; webhooks: Webhook[] };
 
-type ArrivedDisabledDto = Omit<ArrivedDisabled, 'schedules' | 'webhooks'> & { schedules: ScheduleDto[]; webhooks: WebhookDto[] };
+export type ArrivedDisabledDto = Omit<ArrivedDisabled, 'schedules' | 'webhooks'> & { schedules: ScheduleDto[]; webhooks: WebhookDto[] };
 
-const toArrived = (dto: ArrivedDisabledDto): ArrivedDisabled => ({
+export const toArrived = (dto: ArrivedDisabledDto): ArrivedDisabled => ({
     ...dto,
     schedules: dto.schedules.map(toSchedule),
     webhooks: dto.webhooks.map(toWebhook),

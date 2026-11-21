@@ -1,4 +1,4 @@
-import { canMoveFolder, connectionToYaml, flowWithScriptsMoved, folderPath, insideScriptFolder, isFolderVisible, movedScriptImports, movedScriptPath, nameKey, newFlowFile, projectToYaml, repoFlowToYaml, repoPath, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
+import { canMoveFolder, connectionToYaml, flowWithScriptsMoved, folderPath, insideScriptFolder, isFolderVisible, movedScriptImports, movedScriptPath, nameKey, newFlowFile, projectToYaml, repoFlowToYaml, repoPath, type ConnectionTypeName, type FlowFile, type RepoTriggers } from '@flowtinus/core';
 import { and, eq } from 'drizzle-orm';
 import { connections, toConnectionView, type ConnectionView } from '#features/connections/connection';
 import { checkProfile, ConnectionRepository, usedSecrets } from '#features/connections/connection-store';
@@ -54,14 +54,14 @@ function moveFile(files: Record<string, string>, from: string, to: string) {
 export async function saveDraftOnBranch(
     ctx: UseCaseContext,
     branch: WorkBranch,
-    { id, revision, flow }: { id: string; revision: number; flow: FlowFile },
+    { id, revision, flow, triggers }: { id: string; revision: number; flow: FlowFile; triggers?: RepoTriggers },
 ): Promise<UseCaseResult<{ revision: number }>> {
     await refuseReadOnly(ctx, branch);
     const found = branchFlow(branch, id);
     if (!found) {
         return notFound();
     }
-    const content = repoFlowToYaml({ ...flow, id, name: found.name }, { deployed: found.deployed, ...found.triggers });
+    const content = repoFlowToYaml({ ...flow, id, name: found.name }, { deployed: found.deployed, ...(triggers ?? found.triggers) });
     const saved = await saveBranchFile(ctx, branch, { path: found.path, content, fileId: id, expected: revision });
     return saved === null ? changedElsewhere('flow') : success({ revision: saved });
 }
@@ -304,6 +304,11 @@ export async function moveScriptOnBranch(
     return success({ path: to });
 }
 
+export const withNewTriggerIds = ({ schedules, webhooks }: RepoTriggers): RepoTriggers => ({
+    schedules: schedules.map(s => ({ ...s, id: crypto.randomUUID() })),
+    webhooks: webhooks.map(w => ({ ...w, id: crypto.randomUUID() })),
+});
+
 export async function cloneFlowOnBranch(
     ctx: UseCaseContext,
     branch: WorkBranch,
@@ -333,7 +338,10 @@ export async function cloneFlowOnBranch(
     }
     await changeBranch(ctx, branch, files => ({
         ...files,
-        [flowPath(branch, on.project.name, folderId, named.value)]: repoFlowToYaml({ ...source.file, id: copy, name: named.value }),
+        [flowPath(branch, on.project.name, folderId, named.value)]: repoFlowToYaml(
+            { ...source.file, id: copy, name: named.value },
+            withNewTriggerIds(source.triggers),
+        ),
     }));
     return success({ id: copy });
 }

@@ -16,8 +16,9 @@ import { SaveStatus } from './save-status';
 import { WorkerTagMenu } from './worker-tag-menu';
 import { DeployMenu } from './deploy-menu';
 import { BranchCommitMenu } from './branch-commit-menu';
-import { SchedulesMenu } from './schedules-menu';
+import { SchedulesMenu, startOf } from './schedules-menu';
 import { WebhooksMenu } from './webhooks-menu';
+import { GitSchedulesMenu, GitWebhooksMenu, type TriggerWindowProps } from './trigger-windows';
 import type { FlowVersion } from '@/data/deployments/deployment';
 import { useServerConnection } from '@/lib/server-connection';
 import type { DraftSave } from '@/editor/flow-save';
@@ -87,14 +88,19 @@ export function FlowEditorPage() {
     const { canEdit } = useWorkspace();
     const handle = me.status === 'ready' ? me.me.handle : null;
     const offersBranch = Boolean(current?.flow?.offersBranch) && !archived && canEdit && handle !== null;
-    const [offering, setOffering] = useState(false);
+    const [offering, setOffering] = useState<{ replay?: () => Promise<ApiResult<unknown>> } | null>(null);
+    const [gitOn, setGitOn] = useState<boolean | null>(null);
+    useEffect(() => {
+        void getGitStatus(ws).then(result => setGitOn(result.ok ? result.value.on : false));
+    }, [ws]);
+    const offerBranch = useCallback((replay: () => Promise<ApiResult<unknown>>) => setOffering({ replay }), []);
     const [environmentBranch, setEnvironmentBranch] = useState('');
     useEffect(() => {
         if (offersBranch) {
             void getCurrentBranch(ws).then(result => result.ok && setEnvironmentBranch(result.value.branch ?? ''));
         }
     }, [offersBranch, ws]);
-    const holdEdit = useCallback(() => setOffering(true), []);
+    const holdEdit = useCallback(() => setOffering({}), []);
     const [restoring, setRestoring] = useState<{ busy: boolean; error?: string }>({ busy: false });
     // Download: the canvas as it is now, as the core's YAML flow file
     const canvas = useRef<CanvasHandle | null>(null);
@@ -119,6 +125,16 @@ export function FlowEditorPage() {
         return now && flowNow ? canvasToFlowFile({ id: flowNow.id, name: flowNow.name }, now.nodes, now.edges) : null;
     }, [flowNow]);
     const connection = useServerConnection();
+    const triggerWindows: TriggerWindowProps = {
+        flowId,
+        disabled: archived || gone || connection.state !== 'online',
+        canEdit: canEdit && !archived,
+        confirm: target => setConfirm(target),
+        start: () => startOf(draftNow() ?? { nodes: [] }),
+        beforeEdit: async () => (save ? save.flush() : 'not-saved'),
+        afterEdit: () => void save?.resume(),
+        offerBranch,
+    };
     // the flow's deployed version (Deploy says it): Schedules run it
     const [deployedVersion, setDeployedVersion] = useState<FlowVersion | null>(null);
     // the canvas's Flow Invoker calls, as they change (the canvas's Calls), and whether its panel is open (D)
@@ -478,15 +494,34 @@ export function FlowEditorPage() {
                                     }
                                     toolsAfter={
                                         current?.flow &&
-                                        (onWorkBranch ? (
-                                            !onBranch && (
-                                                <BranchCommitMenu
-                                                    flowId={flowId}
-                                                    workspace={ws}
-                                                    disabled={archived || gone || connection.state !== 'online'}
-                                                    flush={async () => (save ? save.flush() : 'not-saved')}
-                                                />
-                                            )
+                                        (onWorkBranch || gitOn ? (
+                                            <>
+                                                {onWorkBranch ? (
+                                                    !onBranch && (
+                                                        <BranchCommitMenu
+                                                            flowId={flowId}
+                                                            workspace={ws}
+                                                            disabled={archived || gone || connection.state !== 'online'}
+                                                            flush={async () => (save ? save.flush() : 'not-saved')}
+                                                        />
+                                                    )
+                                                ) : (
+                                                    <DeployMenu
+                                                        flowId={flowId}
+                                                        workspace={ws}
+                                                        environment={connection.state === 'online' ? connection.environment : ''}
+                                                        disabled={archived || gone || connection.state !== 'online'}
+                                                        draftNow={draftNow}
+                                                        saveMark={save?.state}
+                                                        flush={async () => (save ? save.flush() : 'not-saved')}
+                                                        onDraftReplaced={() => save?.reload()}
+                                                        confirm={setConfirm}
+                                                        onDeployed={setDeployedVersion}
+                                                    />
+                                                )}
+                                                <GitSchedulesMenu {...triggerWindows} />
+                                                <GitWebhooksMenu {...triggerWindows} />
+                                            </>
                                         ) : (
                                             // after Group: Deploy, and the schedules of the deployed version
                                             <>
@@ -578,9 +613,10 @@ export function FlowEditorPage() {
                             const flow = draftNow();
                             return flow ? { flowId, flow } : null;
                         },
+                        ...(offering.replay ? { replay: offering.replay } : {}),
                     }}
                     onClose={() => {
-                        setOffering(false);
+                        setOffering(null);
                         save?.reload();
                     }}
                 />

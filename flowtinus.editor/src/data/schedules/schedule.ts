@@ -34,6 +34,8 @@ export type Schedule = {
     parameters: Record<string, string>;
     /** the flow's input for its runs (a flow whose Start accepts one); none: the Start's default input */
     input?: unknown;
+    overrides?: ScheduleOverrides;
+    effective?: Pick<Schedule, 'cron' | 'timezone' | 'parameters' | 'input'>;
     /** null while disabled */
     nextFireAt: Date | null;
     last: LastFire | null;
@@ -43,6 +45,8 @@ export type Schedule = {
     updatedBy: string;
     updatedByName?: string;
 };
+
+export type ScheduleOverrides = { cron?: string; timezone?: string; input?: unknown; parameters: Record<string, string> };
 
 export type ScheduleFields = Pick<Schedule, 'cron' | 'timezone' | 'enabled' | 'misfire' | 'parameters' | 'input'>;
 

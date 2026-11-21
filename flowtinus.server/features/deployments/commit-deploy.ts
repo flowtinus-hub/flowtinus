@@ -1,3 +1,4 @@
+import type { ArrivedDisabled } from '#features/git/arrived-disabled';
 import { repoFlowFromYaml, repoFlowToYaml, type FlowFile } from '@flowtinus/core';
 import type { Flow } from '#features/flows/flow';
 import { flowRepoPath } from '#features/flows/flow-draft';
@@ -8,7 +9,7 @@ import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { success, type UseCaseError, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { loadDeployments, lockFlowDeployments, type FlowDeploymentsView } from './deployments';
 
-export type CommittedDeployments = FlowDeploymentsView & { commit?: string };
+export type CommittedDeployments = FlowDeploymentsView & { commit?: string; arrived?: ArrivedDisabled[] };
 
 export type FlowToCommit = { definition: FlowFile; deployed: boolean };
 

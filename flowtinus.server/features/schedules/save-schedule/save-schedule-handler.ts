@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { activeFlow, currentDeployment } from '#features/deployments/deployments';
+import { refuseTriggerTables } from '#features/git/git-config';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -15,7 +16,7 @@ export class SaveScheduleHandler implements UseCaseHandler<ScheduleView> {
     constructor(private readonly kind: 'create' | 'update') {}
 
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<ScheduleView>> {
-        const denied = requireRole(ctx, 'editor');
+        const denied = requireRole(ctx, 'editor') ?? (await refuseTriggerTables(ctx.db, ctx.workspaceId));
         if (denied) {
             return denied;
         }

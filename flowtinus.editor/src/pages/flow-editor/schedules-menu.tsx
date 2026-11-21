@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
-import { cronError, nextTimes, startConfig, START, type MisfireMode } from '@flowtinus/core';
+import { cronError, nextTimes, startConfig, START, type FlowFile, type MisfireMode } from '@flowtinus/core';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -17,7 +17,11 @@ import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
 
-const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
+export const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
+
+export type StartOf = ReturnType<typeof startConfig>;
+
+export const startOf = (flow: Pick<FlowFile, 'nodes'>): StartOf => startConfig(flow.nodes.find(n => n.type === START)?.config ?? {});
 
 type Props = {
     flowId: string;
@@ -134,7 +138,7 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
                 <ScheduleForm
                     key={editing === 'new' ? 'new' : editing.id}
                     schedule={editing === 'new' ? null : editing}
-                    version={deployed}
+                    start={startOf(deployed.definition)}
                     onClose={() => setEditing(null)}
                     onSave={async fields => {
                         const result = editing === 'new' ? await createSchedule(flowId, fields) : await updateSchedule(editing.id, fields);
@@ -151,7 +155,7 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
     );
 }
 
-const LAST_TONE: Record<string, string> = {
+export const LAST_TONE: Record<string, string> = {
     failed: 'text-destructive',
     'with-errors': 'text-destructive',
     skipped: 'text-amber-700 dark:text-amber-400',
@@ -213,14 +217,14 @@ function ScheduleRow({
 }
 
 /** the cron expression, its time zone, what to do with missed times, and the Start's parameters and input */
-function ScheduleForm(props: {
-    schedule: Schedule | null;
-    version: FlowVersion;
+export function ScheduleForm(props: {
+    schedule: (Omit<ScheduleFields, 'enabled'> & { enabled?: boolean }) | null;
+    start: StartOf;
+    switchable?: boolean;
     onClose: () => void;
     onSave: (fields: ScheduleFields) => Promise<{ ok: true } | { ok: false; error: { message: string; fields?: Record<string, string> } }>;
 }) {
-    const { schedule, version, onClose, onSave } = props;
-    const start = startConfig(version.definition.nodes.find(n => n.type === START)?.config ?? {});
+    const { schedule, start, switchable = true, onClose, onSave } = props;
     const [preset, setPreset] = useState(schedule ? 'custom' : 'daily');
     const [amount, setAmount] = useState(15);
     const [time, setTime] = useState('09:00');
@@ -270,10 +274,12 @@ function ScheduleForm(props: {
             <DialogContent className="sm:max-w-xl">
                 <DialogHeader className="flex-row items-center gap-3 pr-8">
                     <DialogTitle className="flex-1">{schedule ? 'Edit schedule' : 'New schedule'}</DialogTitle>
-                    <label className="flex items-center gap-2 text-sm font-normal">
-                        <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="On" />
-                        {enabled ? 'On' : 'Off'}
-                    </label>
+                    {switchable && (
+                        <label className="flex items-center gap-2 text-sm font-normal">
+                            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="On" />
+                            {enabled ? 'On' : 'Off'}
+                        </label>
+                    )}
                 </DialogHeader>
                 <div className="grid max-h-[70vh] gap-4 overflow-y-auto pr-1">
                     <div className="grid grid-cols-[1fr_auto] items-end gap-2">

@@ -22,8 +22,8 @@ export type Webhook = {
     enabled: boolean;
     arrivedDisabled: boolean;
     response: WebhookResponse;
-    /** the first characters of its token, to tell which one it is (the token itself is shown once) */
-    tokenHint: string;
+    /** the first characters of its token, to tell which one it is (the token itself is shown once); null until first turned on */
+    tokenHint: string | null;
     last: WebhookCall | null;
     createdAt: Date;
     updatedBy: string;
