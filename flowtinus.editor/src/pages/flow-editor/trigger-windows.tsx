@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { CalendarClock, KeyRound, LoaderCircle, Pencil, Plus, SlidersHorizontal, Trash2, Webhook as WebhookIcon } from 'lucide-react';
-import { cronError } from '@flowtinus/core';
+import { cronError, type TriggerKind } from '@flowtinus/core';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
 import { CopyButton } from '@/components/copy-button';
 import { Button } from '@/components/ui/button';
@@ -73,7 +73,37 @@ function useFileEdit(props: TriggerWindowProps, triggers: FlowTriggers | null) {
 
 const switched = () => window.dispatchEvent(new Event(TRIGGERS_SWITCHED));
 
-const fileNotice = (triggers: FlowTriggers, kind: 'schedule' | 'webhook') =>
+type TriggerLists = { schedule: { file: FileSchedule; here: Schedule }; webhook: { file: FileWebhook; here: Webhook } };
+
+const LISTS = { schedule: 'schedules', webhook: 'webhooks' } as const;
+
+function useTriggerLists<K extends TriggerKind>(props: TriggerWindowProps, kind: K) {
+    const { triggers } = useFlowTriggers(props.flowId);
+    const { changes, edit } = useFileEdit(props, triggers);
+    const [open, setOpen] = useState(false);
+    const [error, setError] = useState('');
+
+    const file = (triggers?.[LISTS[kind]] ?? []) as TriggerLists[K]['file'][];
+    const here = (triggers?.environment?.[LISTS[kind]] ?? null) as TriggerLists[K]['here'][] | null;
+    const inFile = new Set(file.map(t => t.id));
+    const gone = here?.filter(t => !inFile.has(t.id)) ?? [];
+    const on = here ? here.filter(t => t.enabled).length : null;
+    const arrived = here?.filter(t => t.arrivedDisabled).length ?? 0;
+
+    const toggle = async <T,>(run: () => Promise<ApiResult<T>>, then?: (value: T) => void) => {
+        setError('');
+        const result = await run();
+        if (!result.ok) {
+            setError(result.error.message);
+        } else {
+            then?.(result.value);
+        }
+        switched();
+    };
+    return { triggers, changes, edit, open, setOpen, error, file, here, gone, on, arrived, toggle };
+}
+
+const fileNotice = (triggers: FlowTriggers, kind: TriggerKind) =>
     triggers.file.readOnly
         ? triggers.file.readOnly
         : triggers.file.offersBranch
@@ -127,28 +157,11 @@ function RowActions({ show, onEdit, onDelete }: { show: boolean; onEdit: () => v
 
 export function GitSchedulesMenu(props: TriggerWindowProps) {
     const { flowId, disabled, canEdit, confirm, start } = props;
-    const { triggers } = useFlowTriggers(flowId);
-    const { changes, edit } = useFileEdit(props, triggers);
-    const [open, setOpen] = useState(false);
+    const { triggers, changes, edit, open, setOpen, error, file, here, gone, on, arrived, ...lists } = useTriggerLists(props, 'schedule');
     const [editing, setEditing] = useState<FileSchedule | 'new' | null>(null);
     const [overriding, setOverriding] = useState<Schedule | null>(null);
-    const [error, setError] = useState('');
 
-    const file = triggers?.schedules ?? [];
-    const here = triggers?.environment?.schedules ?? null;
-    const inFile = new Set(file.map(s => s.id));
-    const gone = here?.filter(s => !inFile.has(s.id)) ?? [];
-    const on = here ? here.filter(s => s.enabled).length : null;
-    const arrived = here?.filter(s => s.arrivedDisabled).length ?? 0;
-
-    const toggle = async (schedule: Schedule) => {
-        setError('');
-        const result = await switchSchedule(schedule.id, !schedule.enabled);
-        if (!result.ok) {
-            setError(result.error.message);
-        }
-        switched();
-    };
+    const toggle = (schedule: Schedule) => lists.toggle(() => switchSchedule(schedule.id, !schedule.enabled));
     const remove = (schedule: FileSchedule) =>
         confirm({
             title: 'Remove this schedule from the file?',
@@ -287,7 +300,11 @@ function ScheduleHere({
     const overrides = schedule.overrides;
     const overridden = Boolean(
         overrides &&
-        (overrides.cron || overrides.timezone || overrides.input !== undefined || Object.keys(overrides.parameters).length > 0),
+        (overrides.cron ||
+            overrides.timezone ||
+            overrides.input !== undefined ||
+            overrides.noInput ||
+            Object.keys(overrides.parameters).length > 0),
     );
     const effective = schedule.effective ?? schedule;
     return (
@@ -319,6 +336,7 @@ function ScheduleHere({
                         Runs here with overrides: <span className="font-mono">{effective.cron}</span> · {effective.timezone}
                         {overrides && Object.keys(overrides.parameters).length > 0 && ` · ${Object.keys(overrides.parameters).join(', ')}`}
                         {overrides?.input !== undefined && ' · input'}
+                        {overrides?.noInput && ' · no input'}
                     </span>
                 )}
                 {schedule.lastError && (
@@ -354,6 +372,7 @@ function OverridesForm({
     const [timezone, setTimezone] = useState(overrides.timezone ?? GIT_VALUE);
     const [parameters, setParameters] = useState<Record<string, string>>(overrides.parameters);
     const [input, setInput] = useState(overrides.input === undefined ? '' : JSON.stringify(overrides.input, null, 2));
+    const [noInput, setNoInput] = useState(Boolean(overrides.noInput));
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
 
@@ -364,7 +383,7 @@ function OverridesForm({
 
     const save = async () => {
         let parsedInput: unknown = null;
-        if (input.trim()) {
+        if (!noInput && input.trim()) {
             try {
                 parsedInput = JSON.parse(input);
             } catch {
@@ -376,7 +395,7 @@ function OverridesForm({
         const result = await overrideSchedule(schedule.id, {
             cron: cron.trim() || null,
             timezone: timezone || null,
-            input: parsedInput,
+            ...(noInput ? { noInput: true as const } : { input: parsedInput }),
             parameters: Object.fromEntries(names.map(name => [name, parameters[name]?.trim() ? parameters[name]! : null])),
         });
         setSaving(false);
@@ -441,16 +460,21 @@ function OverridesForm({
                             ))}
                         </div>
                     )}
-                    {(start.acceptsInput || overrides.input !== undefined) && (
+                    {(start.acceptsInput || overrides.input !== undefined || overrides.noInput) && (
                         <div className="grid gap-1.5">
                             <Label htmlFor="override-input">Input</Label>
                             <Textarea
                                 id="override-input"
                                 className="min-h-24 font-mono text-xs"
                                 placeholder={schedule.input === undefined ? '' : JSON.stringify(schedule.input)}
-                                value={input}
+                                value={noInput ? '' : input}
+                                disabled={noInput}
                                 onChange={e => setInput(e.target.value)}
                             />
+                            <label className="flex items-center gap-2 text-xs">
+                                <Switch checked={noInput} onCheckedChange={setNoInput} aria-label="No input here" />
+                                No input here, whatever git&apos;s is
+                            </label>
                             {schedule.input !== undefined && gitValue(<span className="font-mono">{JSON.stringify(schedule.input)}</span>)}
                         </div>
                     )}
@@ -471,32 +495,17 @@ function OverridesForm({
 
 export function GitWebhooksMenu(props: TriggerWindowProps) {
     const { flowId, disabled, canEdit, confirm, start } = props;
-    const { triggers } = useFlowTriggers(flowId);
-    const { changes, edit } = useFileEdit(props, triggers);
-    const [open, setOpen] = useState(false);
+    const { triggers, changes, edit, open, setOpen, error, file, here, gone, on, arrived, ...lists } = useTriggerLists(props, 'webhook');
     const [editing, setEditing] = useState<FileWebhook | 'new' | null>(null);
     const [shown, setShown] = useState<{ webhook: Webhook; token: string } | null>(null);
-    const [error, setError] = useState('');
-
-    const file = triggers?.webhooks ?? [];
-    const here = triggers?.environment?.webhooks ?? null;
-    const inFile = new Set(file.map(w => w.id));
-    const gone = here?.filter(w => !inFile.has(w.id)) ?? [];
-    const on = here ? here.filter(w => w.enabled).length : null;
-    const arrived = here?.filter(w => w.arrivedDisabled).length ?? 0;
     const acceptsInput = open ? start().acceptsInput : true;
     const methods = webhookMethods(acceptsInput);
 
-    const toggle = async (webhook: Webhook) => {
-        setError('');
-        const result = await switchWebhook(webhook.id, !webhook.enabled);
-        if (!result.ok) {
-            setError(result.error.message);
-        } else if (result.value.token) {
-            setShown({ webhook: result.value.webhook, token: result.value.token });
-        }
-        switched();
-    };
+    const toggle = (webhook: Webhook) =>
+        lists.toggle(
+            () => switchWebhook(webhook.id, !webhook.enabled),
+            value => value.token && setShown({ webhook: value.webhook, token: value.token }),
+        );
     const newToken = (webhook: Webhook) =>
         confirm({
             title: `New token for ${webhook.name}?`,

@@ -1,7 +1,7 @@
 import { parse, stringify } from 'yaml';
 import { CONNECTION_TYPES, type ConnectionTypeName } from '../connections/types/connection-types';
 import { FLOW_FILE_VERSION, leanFlow, validateFlowFile, type FlowFile } from '../flows/flow-file';
-import { DEFAULT_MISFIRE, DEFAULT_WEBHOOK_RESPONSE, MISFIRE_MODES, WEBHOOK_RESPONSES, type MisfireMode, type WebhookResponse } from '../triggers/triggers';
+import { DEFAULT_MISFIRE, DEFAULT_WEBHOOK_RESPONSE, MISFIRE_MODES, WEBHOOK_RESPONSES, type MisfireMode, type TriggerKind, type WebhookResponse } from '../triggers/triggers';
 
 export const REPO_FORMAT = 1;
 
@@ -195,7 +195,7 @@ export function repoFlowToYaml(
 
 function triggerList<T>(
     value: unknown,
-    kind: 'schedule' | 'webhook',
+    kind: TriggerKind,
     read: (item: Record<string, unknown>, at: string) => T | string,
 ): RepoFileResult<T[]> {
     if (value === undefined) {

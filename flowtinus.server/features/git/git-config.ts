@@ -94,6 +94,11 @@ export const refuseTriggerTables = async (db: Database, workspaceId: string) =>
         ? fail('conflict', "Git is on: a flow's schedules and webhooks are changed in its file, then committed.")
         : null;
 
+export const refuseOverrides = async (db: Database, workspaceId: string) =>
+    (await isGitOn(db, workspaceId))
+        ? null
+        : fail('conflict', 'Git is off: a schedule has no environment overrides, its own values are changed instead.');
+
 /** with git on, the environment's branch as of the last commit applied (null before the first) */
 export async function gitBranch(db: Database, workspaceId: string): Promise<{ branch: string | null; mode: Mode } | null> {
     if (!(await isGitOn(db, workspaceId))) {

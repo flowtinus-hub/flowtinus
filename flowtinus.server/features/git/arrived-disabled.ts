@@ -4,7 +4,8 @@ import { listFlowWebhooks, type WebhookView } from '#features/webhooks/webhooks'
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
-import { success, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { isGitOn } from './git-config';
 
 export type ArrivedDisabled = { flowId: string; flowName: string; projectId: string; schedules: ScheduleView[]; webhooks: WebhookView[] };
 
@@ -33,6 +34,11 @@ export async function listArrivedDisabled(db: Database, workspaceId: string): Pr
     return items;
 }
 
+export async function clearArrivedDisabled(db: Database, workspaceId: string): Promise<void> {
+    await db.query('UPDATE flow_schedules SET arrived_disabled = false WHERE workspace_id = $1 AND arrived_disabled', [workspaceId]);
+    await db.query('UPDATE flow_webhooks SET arrived_disabled = false WHERE workspace_id = $1 AND arrived_disabled', [workspaceId]);
+}
+
 export function arrivedSince(before: ArrivedDisabled[], after: ArrivedDisabled[]): ArrivedDisabled[] {
     const waiting = new Set(before.flatMap(item => [...item.schedules, ...item.webhooks].map(t => t.id)));
     return after
@@ -49,6 +55,9 @@ export class ListArrivedDisabledHandler implements UseCaseHandler<{ items: Arriv
         const denied = requireRole(ctx, 'viewer');
         if (denied) {
             return denied;
+        }
+        if (!(await isGitOn(ctx.db, ctx.workspaceId))) {
+            return fail('conflict', 'Git is off in this workspace: no trigger arrives disabled.');
         }
         return success({ items: await listArrivedDisabled(ctx.db, ctx.workspaceId) });
     }

@@ -13,7 +13,7 @@ export const SCHEDULES_CHANNEL = 'schedules_changed';
 
 export type LastFire = { at: Date; runId: string; status: string };
 
-export type ScheduleOverrides = { cron?: string; timezone?: string; input?: unknown; parameters: Record<string, string> };
+export type ScheduleOverrides = { cron?: string; timezone?: string; input?: unknown; noInput?: true; parameters: Record<string, string> };
 
 export type ScheduleValues = { cron: string; timezone: string; parameters: Record<string, string>; input?: unknown };
 
@@ -49,7 +49,7 @@ type Row = {
     input: unknown;
     cron_override: string | null;
     timezone_override: string | null;
-    input_override: unknown;
+    input_override: { input?: unknown } | null;
     parameter_overrides: Record<string, string> | null;
     next_fire_at: Date | null;
     last_fired_at: Date | null;
@@ -68,7 +68,7 @@ const SELECT = `SELECT s.id, s.flow_id, s.cron, s.timezone, s.enabled, s.arrived
 const given = (value: unknown) => value !== null && value !== undefined;
 
 export function effectiveValues(git: ScheduleValues, overrides: ScheduleOverrides): ScheduleValues {
-    const input = given(overrides.input) ? overrides.input : git.input;
+    const input = overrides.noInput ? undefined : given(overrides.input) ? overrides.input : git.input;
     return {
         cron: overrides.cron ?? git.cron,
         timezone: overrides.timezone ?? git.timezone,
@@ -77,12 +77,18 @@ export function effectiveValues(git: ScheduleValues, overrides: ScheduleOverride
     };
 }
 
+const inputOverride = (stored: Row['input_override']): Pick<ScheduleOverrides, 'input' | 'noInput'> =>
+    stored === null ? {} : 'input' in stored ? { input: stored.input } : { noInput: true };
+
+export const storedInputOverride = (overrides: ScheduleOverrides): string | null =>
+    overrides.noInput ? '{}' : overrides.input === undefined ? null : pgJson({ input: overrides.input });
+
 const toView = (row: Row): ScheduleView => {
     const git = { cron: row.cron, timezone: row.timezone, parameters: row.parameters ?? {}, input: row.input };
     const overrides: ScheduleOverrides = {
         ...(row.cron_override !== null ? { cron: row.cron_override } : {}),
         ...(row.timezone_override !== null ? { timezone: row.timezone_override } : {}),
-        ...(given(row.input_override) ? { input: row.input_override } : {}),
+        ...inputOverride(row.input_override),
         parameters: row.parameter_overrides ?? {},
     };
     return {
@@ -109,12 +115,14 @@ const toView = (row: Row): ScheduleView => {
 };
 
 export const EFFECTIVE_COLUMNS = `coalesce(s.cron_override, s.cron) AS cron, coalesce(s.timezone_override, s.timezone) AS timezone,
-       s.parameters || s.parameter_overrides AS parameters, coalesce(s.input_override, s.input) AS input`;
+       s.parameters || s.parameter_overrides AS parameters,
+       CASE WHEN s.input_override IS NULL THEN s.input ELSE s.input_override -> 'input' END AS input`;
 
 export async function foldOverrides(db: Database, workspaceId: string): Promise<void> {
     await db.query(
         `UPDATE flow_schedules SET cron = coalesce(cron_override, cron), timezone = coalesce(timezone_override, timezone),
-       parameters = parameters || parameter_overrides, input = coalesce(input_override, input),
+       parameters = parameters || parameter_overrides,
+       input = CASE WHEN input_override IS NULL THEN input ELSE input_override -> 'input' END,
        cron_override = NULL, timezone_override = NULL, input_override = NULL, parameter_overrides = '{}'::jsonb
      WHERE workspace_id = $1 AND (cron_override IS NOT NULL OR timezone_override IS NOT NULL OR input_override IS NOT NULL
        OR parameter_overrides <> '{}'::jsonb)`,

@@ -46,7 +46,7 @@ export type Schedule = {
     updatedByName?: string;
 };
 
-export type ScheduleOverrides = { cron?: string; timezone?: string; input?: unknown; parameters: Record<string, string> };
+export type ScheduleOverrides = { cron?: string; timezone?: string; input?: unknown; noInput?: true; parameters: Record<string, string> };
 
 export type ScheduleFields = Pick<Schedule, 'cron' | 'timezone' | 'enabled' | 'misfire' | 'parameters' | 'input'>;
 

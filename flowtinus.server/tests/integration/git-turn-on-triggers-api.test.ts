@@ -127,7 +127,6 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         const orders = await deployedOrders();
         const daily = await newSchedule(orders, { cron: '0 6 * * *', parameters: { since: '1', limit: '5' } });
         const hourly = await newSchedule(orders, { cron: '0 * * * *', enabled: false });
-        await call('PUT', `/schedules/${daily}/overrides`, { cron: '30 7 * * *', parameters: { since: '9' } });
         const { webhook: shop, token } = await newWebhook(orders, 'Shop');
 
         const on = await call('POST', '/git/on', {});
@@ -136,7 +135,7 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         const byId = <T extends { id: string }>(items: T[]) => [...items].sort((a, b) => (a.id < b.id ? -1 : 1));
         expect(triggersInGit()).toEqual({
             schedules: byId<RepoSchedule>([
-                { id: daily, cron: '30 7 * * *', timezone: 'UTC', misfire: 'relaxed', parameters: { since: '9', limit: '5' } },
+                { id: daily, cron: '0 6 * * *', timezone: 'UTC', misfire: 'relaxed', parameters: { since: '1', limit: '5' } },
                 { id: hourly, cron: '0 * * * *', timezone: 'UTC', misfire: 'relaxed', parameters: {} },
             ]),
             webhooks: [{ id: shop.id, name: 'Shop', response: 'async' }],
@@ -144,8 +143,7 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         const listed = await schedules(orders);
         const of = (id: string) => listed.find((s: { id: string }) => s.id === id);
         expect(of(daily)).toMatchObject({ enabled: true, arrivedDisabled: false, overrides: { parameters: {} } });
-        expect(of(daily).overrides.cron).toBeUndefined();
-        expect(new Date(of(daily).nextFireAt).getUTCMinutes()).toBe(30);
+        expect(new Date(of(daily).nextFireAt).getUTCHours()).toBe(6);
         expect(of(hourly)).toMatchObject({ enabled: false, arrivedDisabled: false });
         expect(await webhooks(orders)).toEqual([expect.objectContaining({ id: shop.id, enabled: true, arrivedDisabled: false })]);
         expect(await hook(shop.id, token)).toBe(202);
@@ -301,5 +299,29 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         expect(after.find((s: { id: string }) => s.id === ids.off)).toMatchObject({ cron: '0 6 * * *', enabled: false });
         expect(await webhooks(ids.orders)).toEqual([expect.objectContaining({ id: ids.w, enabled: true })]);
         expect(await hook(ids.w, token)).toBe(202);
+    });
+
+    test('with git off nothing has arrived disabled, and the environment overrides are refused', async () => {
+        const { slug, call, repo, ordersPath, schedules, webhooks, arrived } = await newWorkspace();
+        const ids = { sales: crypto.randomUUID(), orders: crypto.randomUUID(), s: crypto.randomUUID(), w: crypto.randomUUID() };
+        commitFiles(repo, 'dev', {
+            '.gitattributes': GITATTRIBUTES,
+            [`${slug}/workspace.yaml`]: workspaceToYaml(),
+            [`${slug}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: '' }),
+            [ordersPath]: repoFlowToYaml(logFlow(ids.orders), { schedules: [schedule(ids.s)], webhooks: [webhook(ids.w)] }),
+        });
+        expect((await call('POST', '/git/on', {})).body).toMatchObject({ outcome: 'imported' });
+        expect(await arrived()).toEqual([expect.objectContaining({ flowId: ids.orders })]);
+
+        expect((await call('DELETE', '/git')).status).toBe(200);
+
+        expect(await schedules(ids.orders)).toEqual([expect.objectContaining({ id: ids.s, enabled: false, arrivedDisabled: false })]);
+        expect(await webhooks(ids.orders)).toEqual([expect.objectContaining({ id: ids.w, enabled: false, arrivedDisabled: false })]);
+        expect((await call('GET', '/git/arrived-disabled')).status).toBe(409);
+        expect((await call('PUT', `/schedules/${ids.s}/overrides`, { cron: '0 * * * *' })).status).toBe(409);
+
+        const turnedOn = await call('PUT', `/webhooks/${ids.w}`, { name: 'Shop', enabled: true });
+        expect(turnedOn.body).toEqual({ webhook: expect.objectContaining({ id: ids.w, enabled: true }), token: expect.any(String) });
+        expect(await hook(ids.w, turnedOn.body.token)).toBe(202);
     });
 });

@@ -77,6 +77,7 @@ export type OverridesPatch = {
     cron?: string | null;
     timezone?: string | null;
     input?: unknown;
+    noInput?: true;
     parameters?: Record<string, string | null>;
 };
 

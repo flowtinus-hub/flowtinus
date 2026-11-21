@@ -12,7 +12,7 @@ import type { FlowVersion } from '@/data/deployments/deployment';
 import { browserTimeZone, CRON_PRESETS, describeCron, MISFIRE_OPTIONS, timeZones, type Schedule, type ScheduleFields } from '@/data/schedules/schedule';
 import { createSchedule, deleteSchedule, listSchedules, switchSchedule, updateSchedule } from '@/data/schedules/schedules-api';
 import { TRIGGERS_SWITCHED } from '@/data/git/git-api';
-import { ArrivedBadge, useTriggersChanged } from './use-triggers-changed';
+import { useTriggersChanged } from './use-triggers-changed';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
@@ -59,7 +59,6 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
     useTriggersChanged(load);
 
     const active = items.filter(s => s.enabled).length;
-    const arrived = items.filter(s => s.arrivedDisabled).length;
     const toggle = async (schedule: Schedule) => {
         await switchSchedule(schedule.id, !schedule.enabled);
         window.dispatchEvent(new Event(TRIGGERS_SWITCHED));
@@ -85,13 +84,7 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
                 size="sm"
                 className="bg-card shadow-md"
                 disabled={disabled || !deployed}
-                title={
-                    !deployed
-                        ? 'Deploy the flow first'
-                        : arrived > 0
-                          ? `When the deployed version runs by itself. ${arrived} arrived disabled: off until turned on here.`
-                          : 'When the deployed version runs by itself'
-                }
+                title={deployed ? 'When the deployed version runs by itself' : 'Deploy the flow first'}
                 onClick={() => setOpen(true)}
             >
                 <CalendarClock /> Schedules
@@ -105,7 +98,6 @@ export function SchedulesMenu({ flowId, deployed, disabled, confirm }: Props) {
                         {active}/{items.length}
                     </span>
                 )}
-                {arrived > 0 && <span className="size-1.5 rounded-full bg-sky-500" aria-label={`${arrived} arrived disabled`} />}
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="sm:max-w-2xl">
@@ -177,10 +169,7 @@ function ScheduleRow({
         <li className="flex items-center gap-3 px-3 py-2 text-sm">
             <Switch checked={schedule.enabled} onCheckedChange={onToggle} aria-label={schedule.enabled ? 'Turn off' : 'Turn on'} />
             <div className={cn('grid min-w-0 flex-1 gap-0.5', !schedule.enabled && 'opacity-60')}>
-                <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate font-medium">{describeCron(schedule.cron) ?? schedule.cron}</span>
-                    {schedule.arrivedDisabled && <ArrivedBadge />}
-                </span>
+                <span className="truncate font-medium">{describeCron(schedule.cron) ?? schedule.cron}</span>
                 <span className="truncate text-xs text-muted-foreground">
                     <span className="font-mono">{schedule.cron}</span> · {schedule.timezone}
                 </span>

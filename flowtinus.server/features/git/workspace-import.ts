@@ -1,5 +1,5 @@
 import { inArray } from 'drizzle-orm';
-import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
+import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type TriggerKind, type WorkspaceTree } from '@flowtinus/core';
 import { ConnectionRepository } from '#features/connections/connection-store';
 import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, turnOffTriggers, undeployArchived, type Actor } from '#features/deployments/deployments';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -71,7 +71,7 @@ function idsOf(files: RepoFiles, slug: string): { path: string; id: string }[] {
     ].filter((e): e is { path: string; id: string } => e.id !== undefined && isRepoId(e.id));
 }
 
-export type TriggerId = { path: string; id: string; kind: 'schedule' | 'webhook' };
+export type TriggerId = { path: string; id: string; kind: TriggerKind };
 
 export function triggerIdsOf(files: RepoFiles, slug: string): TriggerId[] {
     return entriesOf(files, slug).flows.flatMap(({ path, text, entry }) => {

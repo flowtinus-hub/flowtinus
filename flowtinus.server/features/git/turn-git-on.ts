@@ -1,4 +1,4 @@
-import { repoEntry, repoPath, type TreeIssue } from '@flowtinus/core';
+import { repoEntry, repoPath, type TreeIssue, type TriggerKind } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
 import { foldOverrides } from '#features/schedules/schedules';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -28,7 +28,7 @@ export type TurnOnPlan = {
     warnings: TreeIssue[];
 };
 
-export type TriggerChange = { kind: 'schedule' | 'webhook'; id: string; path: string; change: 'kept' | 'arrives-disabled' | 'archived' };
+export type TriggerChange = { kind: TriggerKind; id: string; path: string; change: 'kept' | 'arrives-disabled' | 'archived' };
 
 export type TurnOnChoice = 'git' | 'server';
 
@@ -69,7 +69,7 @@ async function triggerChanges(
     onBranch: RepoFiles,
     pathOf: Map<string, string>,
 ): Promise<TriggerChange[]> {
-    const here = await ctx.db.query<{ kind: 'schedule' | 'webhook'; id: string; flow_id: string; flow_name: string }>(
+    const here = await ctx.db.query<{ kind: TriggerKind; id: string; flow_id: string; flow_name: string }>(
         `SELECT 'schedule' AS kind, s.id, s.flow_id, f.name AS flow_name FROM flow_schedules s JOIN flows f ON f.id = s.flow_id
       WHERE s.workspace_id = $1 AND s.archived_at IS NULL
      UNION ALL SELECT 'webhook', w.id, w.flow_id, f.name FROM flow_webhooks w JOIN flows f ON f.id = w.flow_id

@@ -1,5 +1,7 @@
 import { Cron } from 'croner';
 
+export type TriggerKind = 'schedule' | 'webhook';
+
 export type MisfireMode = 'relaxed' | 'strict' | 'ignorable';
 export const MISFIRE_MODES: MisfireMode[] = ['relaxed', 'strict', 'ignorable'];
 export const DEFAULT_MISFIRE: MisfireMode = 'relaxed';
