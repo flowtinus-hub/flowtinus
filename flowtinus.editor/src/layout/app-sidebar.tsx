@@ -40,7 +40,7 @@ function WorkspaceSwitcher({
                         <span className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                             <span className="truncate font-medium">{current?.name ?? 'No workspace'}</span>
                             <span className="truncate text-xs text-muted-foreground">
-                                {current ? `${current.slug} · ${ROLE_LABEL[current.role]}` : 'Choose one'}
+                                {current ? `${current.handle} · ${ROLE_LABEL[current.role]}` : 'Choose one'}
                             </span>
                         </span>
                         <ChevronsUpDown className="ml-auto group-data-[collapsible=icon]:hidden" />
@@ -49,10 +49,10 @@ function WorkspaceSwitcher({
                 <DropdownMenuContent className="min-w-64" side={isMobile ? 'bottom' : 'right'} align="start">
                     <DropdownMenuLabel className="text-xs text-muted-foreground">Workspaces</DropdownMenuLabel>
                     {workspaces.map(w => (
-                        <DropdownMenuItem key={w.slug} onSelect={() => navigate(projectsPath(w.slug))}>
+                        <DropdownMenuItem key={w.handle} onSelect={() => navigate(projectsPath(w.handle))}>
                             <span className="truncate">{w.name}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">{w.slug}</span>
-                            {w.slug === current?.slug && <Check />}
+                            <span className="ml-auto text-xs text-muted-foreground">{w.handle}</span>
+                            {w.handle === current?.handle && <Check />}
                         </DropdownMenuItem>
                     ))}
                     <DropdownMenuSeparator />
@@ -75,11 +75,11 @@ function WorkspaceSwitcher({
 const GIT_STATUS_MS = 60_000;
 
 /** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the git section */
-function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
-    const [status, setStatus] = useState<{ slug: string; value: GitStatus } | null>(null);
+function GitAheadItem({ handle, pathname }: { handle: string; pathname: string }) {
+    const [status, setStatus] = useState<{ handle: string; value: GitStatus } | null>(null);
     useEffect(() => {
         let gone = false;
-        const read = () => void getGitStatus(slug).then(result => !gone && result.ok && setStatus({ slug, value: result.value }));
+        const read = () => void getGitStatus(handle).then(result => !gone && result.ok && setStatus({ handle, value: result.value }));
         read();
         const timer = setInterval(read, GIT_STATUS_MS);
         window.addEventListener(GIT_STATUS_CHANGED, read);
@@ -88,14 +88,14 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
             clearInterval(timer);
             window.removeEventListener(GIT_STATUS_CHANGED, read);
         };
-    }, [slug, pathname]);
+    }, [handle, pathname]);
 
-    const value = status?.slug === slug ? status.value : null;
+    const value = status?.handle === handle ? status.value : null;
     if (value?.on && !gitAhead(value) && value.mode !== 'direct') {
         return (
             <SidebarMenuItem>
                 <SidebarMenuButton tooltip={ONLY_PULL_REQUESTS} asChild className="text-muted-foreground">
-                    <NavLink to={`${workspaceSettingsPath(slug)}#git`} title={ONLY_PULL_REQUESTS}>
+                    <NavLink to={`${workspaceSettingsPath(handle)}#git`} title={ONLY_PULL_REQUESTS}>
                         <GitPullRequest />
                         <span>Pull requests only</span>
                     </NavLink>
@@ -110,7 +110,7 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     return (
         <SidebarMenuItem>
             <SidebarMenuButton tooltip={label} asChild className="text-amber-700 dark:text-amber-400">
-                <NavLink to={`${workspaceSettingsPath(slug)}#git`}>
+                <NavLink to={`${workspaceSettingsPath(handle)}#git`}>
                     <TriangleAlert />
                     <span>{label}</span>
                 </NavLink>
@@ -128,10 +128,10 @@ export function AppSidebar() {
     // the current workspace's pages; the environment's at the bottom
     const workspaceItems = current
         ? [
-              { to: projectsPath(current.slug), label: 'Projects', icon: FolderKanban },
-              { to: connectionsPath(current.slug), label: 'Connections', icon: Plug },
-              { to: secretsPath(current.slug), label: 'Secrets and Variables', icon: KeyRound },
-              { to: workspaceSettingsPath(current.slug), label: 'Settings', icon: Settings },
+              { to: projectsPath(current.handle), label: 'Projects', icon: FolderKanban },
+              { to: connectionsPath(current.handle), label: 'Connections', icon: Plug },
+              { to: secretsPath(current.handle), label: 'Secrets and Variables', icon: KeyRound },
+              { to: workspaceSettingsPath(current.handle), label: 'Settings', icon: Settings },
           ]
         : [];
     const environmentItems = [
@@ -163,7 +163,7 @@ export function AppSidebar() {
                     // with git off every item renders nothing: the group and its lines go too
                     <SidebarGroup className="mx-2 w-auto border-y border-sidebar-border px-0 has-[>ul:empty]:hidden">
                         <SidebarMenu>
-                            <GitAheadItem slug={current.slug} pathname={pathname} />
+                            <GitAheadItem handle={current.handle} pathname={pathname} />
                         </SidebarMenu>
                     </SidebarGroup>
                 )}

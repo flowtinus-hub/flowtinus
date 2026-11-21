@@ -10,7 +10,7 @@ import { HOOK_SETTING } from './git-config';
  * signature is checked.
  */
 
-export const hookPath = (slug: string, token: string) => `git/hook/${slug}/${token}`;
+export const hookPath = (handle: string, token: string) => `git/hook/${handle}/${token}`;
 
 const newToken = () => `fgh_${Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url')}`;
 
@@ -31,8 +31,8 @@ export const ensureHookToken = async (ctx: UseCaseContext) => (await readHookTok
 export const forgetHookToken = (ctx: UseCaseContext) => deleteWorkspaceSetting(ctx.db, ctx.workspaceId, HOOK_SETTING);
 
 /** the workspace a webhook's call names, when its token is the workspace's */
-export async function hookWorkspace(db: Database, slug: string, token: string): Promise<string | null> {
-    const [workspace] = await db.query<{ id: string }>('SELECT id FROM workspaces WHERE slug = $1 AND deleted_at IS NULL', [slug]);
+export async function hookWorkspace(db: Database, handle: string, token: string): Promise<string | null> {
+    const [workspace] = await db.query<{ id: string }>('SELECT id FROM workspaces WHERE handle = $1 AND deleted_at IS NULL', [handle]);
     const stored = workspace ? await readHookToken(db, workspace.id) : null;
     const same = stored !== null && stored.length === token.length && timingSafeEqual(Buffer.from(stored), Buffer.from(token));
     return same ? workspace!.id : null;

@@ -31,7 +31,7 @@ export function RunScopePicker({
     picked: PickedItem[];
     onChange: (picked: PickedItem[]) => void;
 }) {
-    const [workspace, setWorkspace] = useState(workspaces[0]?.slug ?? '');
+    const [workspace, setWorkspace] = useState(workspaces[0]?.handle ?? '');
     // what was loaded, with what it is of: a workspace's projects, a project's contents (another one chosen: none yet)
     const [loadedProjects, setLoadedProjects] = useState<{ workspace: string; projects: Project[] } | null>(null);
     const [chosen, setChosen] = useState<{ workspace: string; projectId: string } | null>(null);
@@ -125,7 +125,7 @@ export function RunScopePicker({
                     <Label htmlFor="scope-workspace">Workspace</Label>
                     <select id="scope-workspace" className={SELECT} value={workspace} onChange={event => setWorkspace(event.target.value)}>
                         {workspaces.map(w => (
-                            <option key={w.slug} value={w.slug}>
+                            <option key={w.handle} value={w.handle}>
                                 {w.name}
                             </option>
                         ))}

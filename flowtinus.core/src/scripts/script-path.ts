@@ -1,8 +1,6 @@
 import { fileNameIssue } from '../names/file-name';
 
-/** where the project's scripts live for the TypeScript tools (Monaco, the runner's bundle): their one name, change it here */
-export const SCRIPT_MODULE_DIR = 'myproject/scripts';
-export const SCRIPT_IMPORT_PREFIX = `@${SCRIPT_MODULE_DIR}/`;
+export const SCRIPT_IMPORT_ROOT = '@w/';
 export const MAX_SCRIPT_PATH = 200;
 
 const PART = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -36,29 +34,40 @@ export function scriptPathIssue(path: string): string | null {
     return null;
 }
 
-export const scriptImport = (path: string) => `${SCRIPT_IMPORT_PREFIX}${path}`;
+export type ScriptAddress = { workspace: string; project: string; path: string };
 
-export const scriptModuleUri = (path: string) => `file:///${SCRIPT_MODULE_DIR}/${path}.ts`;
+export const scriptImportPrefix = (workspace: string, project: string) => `${SCRIPT_IMPORT_ROOT}${workspace}/${project}/scripts/`;
 
-const PREFIX_PATTERN = SCRIPT_IMPORT_PREFIX.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+export const scriptImport = (workspace: string, project: string, path: string) => `${scriptImportPrefix(workspace, project)}${path}`;
 
-export function scriptImports(code: string): string[] {
-    const found = new Set<string>();
-    const pattern = new RegExp(String.raw`(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"])` + PREFIX_PATTERN + String.raw`([^'"]+)\1`, 'g');
-    for (const match of code.matchAll(pattern)) {
-        found.add(match[2]!);
-    }
-    return [...found];
+export const onlyThisWorkspace = (workspace: string) =>
+    `only scripts of this workspace (${scriptImport(workspace, '<project>', '<path>')}).`;
+
+const ROOT = SCRIPT_IMPORT_ROOT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const ADDRESS = new RegExp(`^${ROOT}([^/]+)/([^/]+)/scripts/(.+)$`);
+
+export function scriptAddress(importPath: string): ScriptAddress | null {
+    const match = ADDRESS.exec(importPath);
+    return match ? { workspace: match[1]!, project: match[2]!, path: match[3]! } : null;
 }
 
-/** the code with its imports of scripts under `from` (a script or a folder) moved to `to` */
+export const scriptModuleUri = (importPath: string) => `file:///${importPath.slice(1)}.ts`;
+
+export function scriptImportOfModule(uri: string): string | null {
+    const match = /^file:\/\/\/(.+)\.ts$/.exec(uri);
+    const importPath = match && `${SCRIPT_IMPORT_ROOT[0]}${match[1]}`;
+    return importPath && scriptAddress(importPath) ? importPath : null;
+}
+
+const IMPORT_OF = String.raw`((?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"]))(${ROOT}[^'"]+)\2`;
+
+export function scriptImports(code: string): string[] {
+    return [...new Set([...code.matchAll(new RegExp(IMPORT_OF, 'g'))].map(match => match[3]!))];
+}
+
 export function movedScriptImports(code: string, from: string, to: string): string {
-    const pattern = new RegExp(
-        String.raw`((?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"]))` + PREFIX_PATTERN + String.raw`([^'"]+)\2`,
-        'g',
-    );
-    return code.replace(pattern, (whole, head: string, quote: string, path: string) =>
-        insideScriptFolder(path, from) ? `${head}${scriptImport(movedScriptPath(path, from, to))}${quote}` : whole,
+    return code.replace(new RegExp(IMPORT_OF, 'g'), (whole, head: string, quote: string, path: string) =>
+        insideScriptFolder(path, from) ? `${head}${movedScriptPath(path, from, to)}${quote}` : whole,
     );
 }
 
@@ -99,8 +108,8 @@ export function scriptExports(code: string): ScriptExport[] {
     return [...found.values()];
 }
 
-export const scriptImportLine = (path: string, name: string, typeOnly: boolean) =>
-    `import ${typeOnly ? 'type ' : ''}{ ${name} } from '${scriptImport(path)}';`;
+export const scriptImportLine = (importPath: string, name: string, typeOnly: boolean) =>
+    `import ${typeOnly ? 'type ' : ''}{ ${name} } from '${importPath}';`;
 
 export function boundNames(code: string): Set<string> {
     const names = new Set<string>();

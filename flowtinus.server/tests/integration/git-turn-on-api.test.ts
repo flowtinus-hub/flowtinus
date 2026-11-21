@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -21,7 +21,7 @@ describe('turning git on', () => {
 
     async function newWorkspace() {
         const id = crypto.randomUUID();
-        const slug = slugOf(id);
+        const handle = workspaceHandleOf(id);
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
             const response = await app.request(wsPath(id, path), {
@@ -44,7 +44,7 @@ describe('turning git on', () => {
         const deploy = async (flowId: string) => expect((await call('POST', `/flows/${flowId}/deploy`)).status).toBe(200);
         const tree = () => git(repo, 'ls-tree', '-r', '--name-only', 'dev').split('\n');
         const commits = () => git(repo, 'log', '--format=%an|%s', 'dev').split('\n');
-        return { id, slug, call, repo, config, newProject, newFlow, deploy, tree, commits };
+        return { id, handle, call, repo, config, newProject, newFlow, deploy, tree, commits };
     }
 
     beforeAll(async () => {
@@ -59,7 +59,7 @@ describe('turning git on', () => {
     });
 
     test('a configuration alone mirrors nothing; turning git on where the branch has no workspace makes the first export', async () => {
-        const { id, slug, call, repo, newProject, newFlow, deploy, tree, commits } = await newWorkspace();
+        const { id, handle, call, repo, newProject, newFlow, deploy, tree, commits } = await newWorkspace();
         createBranch(repo, 'dev');
         const sales = await newProject('Sales');
         const orders = await newFlow(sales, 'Orders');
@@ -72,15 +72,15 @@ describe('turning git on', () => {
         expect(plan).toMatchObject({ branch: 'dev', branchExists: true, case: 'export', toServer: [], errors: [], warnings: [] });
         expect(plan.toGit).toEqual([
             { path: '.gitattributes', change: 'added' },
-            { path: `${slug}/projects/Sales/flows/Orders.flow.yaml`, change: 'added' },
-            { path: `${slug}/projects/Sales/project.yaml`, change: 'added' },
-            { path: `${slug}/workspace.yaml`, change: 'added' },
+            { path: `${handle}/projects/Sales/flows/Orders.flow.yaml`, change: 'added' },
+            { path: `${handle}/projects/Sales/project.yaml`, change: 'added' },
+            { path: `${handle}/workspace.yaml`, change: 'added' },
         ]);
 
         const on = await call('POST', '/git/on', {});
         expect(on.status).toBe(200);
         expect(on.body).toMatchObject({ outcome: 'exported', branch: 'dev' });
-        expect(commits()).toEqual([`Ana|First export of ${slug}`, 'Someone|start']);
+        expect(commits()).toEqual([`Ana|First export of ${handle}`, 'Someone|start']);
         expect(tree()).toEqual(Object.keys(await exportWorkspace(db, id)));
         expect((await call('GET', '/git')).body).toMatchObject({ on: true });
 
@@ -90,7 +90,7 @@ describe('turning git on', () => {
     });
 
     test('a branch that does not exist is created, empty, only once the admin confirms; the first export follows', async () => {
-        const { slug, call, repo, newProject, commits } = await newWorkspace();
+        const { handle, call, repo, newProject, commits } = await newWorkspace();
         await newProject('Sales');
         const branches = () => git(repo, 'for-each-ref', '--format=%(refname)', 'refs/heads');
         expect((await call('GET', '/git/on')).body).toMatchObject({ branch: 'dev', branchExists: false, case: 'export' });
@@ -103,7 +103,7 @@ describe('turning git on', () => {
         expect((await call('GET', '/git')).body.on).toBe(false);
 
         expect((await call('POST', '/git/on', { createBranch: true })).body).toMatchObject({ outcome: 'exported', branch: 'dev' });
-        expect(commits()).toEqual([`Ana|First export of ${slug}`, 'Ana|Create dev']);
+        expect(commits()).toEqual([`Ana|First export of ${handle}`, 'Ana|Create dev']);
         expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev~1')).toBe('');
     });
 
@@ -119,7 +119,7 @@ describe('turning git on', () => {
     });
 
     test('a workspace with projects and connections but no flows is empty: the branch imports, no choice asked', async () => {
-        const { slug, call, repo, newProject } = await newWorkspace();
+        const { handle, call, repo, newProject } = await newWorkspace();
         await newProject('Ops');
         const kafka = { bootstrapServers: 'b:9092', security: 'SASL_SSL', mechanism: 'PLAIN', user: 'u', password: 'kafka-pass' };
         const stream = { name: 'Stream', type: 'kafka', config: kafka, newSecrets: [{ name: 'kafka-pass', value: 's' }] };
@@ -127,8 +127,8 @@ describe('turning git on', () => {
         const sales = crypto.randomUUID();
         commitFiles(repo, 'dev', {
             '.gitattributes': GITATTRIBUTES,
-            [`${slug}/workspace.yaml`]: workspaceToYaml(),
-            [`${slug}/projects/Sales/project.yaml`]: projectToYaml({ id: sales, description: '' }),
+            [`${handle}/workspace.yaml`]: workspaceToYaml(),
+            [`${handle}/projects/Sales/project.yaml`]: projectToYaml({ id: sales, description: '' }),
         });
 
         expect((await call('GET', '/git/on')).body).toMatchObject({ case: 'import', errors: [] });
@@ -138,18 +138,18 @@ describe('turning git on', () => {
 
     async function bothWithContent() {
         const workspace = await newWorkspace();
-        const { id, slug, repo, newProject, newFlow, deploy } = workspace;
+        const { id, handle, repo, newProject, newFlow, deploy } = workspace;
         const sales = await newProject('Sales');
         const orders = await newFlow(sales, 'Orders');
         await deploy(orders);
         const draftOnly = await newFlow(sales, 'Draft only');
         const invoices = crypto.randomUUID();
-        const flows = `${slug}/projects/Sales/flows`;
+        const flows = `${handle}/projects/Sales/flows`;
         const { [`${flows}/Orders.flow.yaml`]: ordersFile, ...exported } = await exportWorkspace(db, id);
         const onBranch = {
             ...exported,
             [`${flows}/Invoices.flow.yaml`]: ordersFile!.replace(`id: ${orders}`, `id: ${invoices}`),
-            [`${slug}/projects/Sales/project.yaml`]: exported[`${slug}/projects/Sales/project.yaml`]!.replace(
+            [`${handle}/projects/Sales/project.yaml`]: exported[`${handle}/projects/Sales/project.yaml`]!.replace(
                 /^color: .*$/m,
                 'color: green',
             ),
@@ -159,24 +159,24 @@ describe('turning git on', () => {
     }
 
     test('both with content: refused until the admin chooses, each side previewed; nothing changes meanwhile', async () => {
-        const { slug, call, repo, flows, start } = await bothWithContent();
+        const { handle, call, repo, flows, start } = await bothWithContent();
 
         const plan = (await call('GET', '/git/on')).body;
         expect(plan).toMatchObject({ case: 'choice', errors: [] });
         expect(plan.toGit).toEqual([
             { path: `${flows}/Invoices.flow.yaml`, change: 'removed' },
             { path: `${flows}/Orders.flow.yaml`, change: 'added' },
-            { path: `${slug}/projects/Sales/project.yaml`, change: 'changed' },
+            { path: `${handle}/projects/Sales/project.yaml`, change: 'changed' },
         ]);
         expect(plan.toServer).toEqual([
             { path: `${flows}/Invoices.flow.yaml`, change: 'added' },
             { path: `${flows}/Orders.flow.yaml`, change: 'removed' },
-            { path: `${slug}/projects/Sales/project.yaml`, change: 'changed' },
+            { path: `${handle}/projects/Sales/project.yaml`, change: 'changed' },
         ]);
 
         expect((await call('POST', '/git/on', {})).body.error).toEqual({
             code: 'conflict',
-            message: `Both dev and this server have the workspace ${slug}: choose whether git replaces the server or the server replaces git.`,
+            message: `Both dev and this server have the workspace ${handle}: choose whether git replaces the server or the server replaces git.`,
         });
         expect((await call('POST', '/git/on', { choice: 'both' })).status).toBe(400);
         expect(git(repo, 'rev-parse', 'dev')).toBe(start);
@@ -184,13 +184,13 @@ describe('turning git on', () => {
     });
 
     test('the server replaces git: one commit makes the branch what the server exports, drafts left out', async () => {
-        const { id, slug, call, tree, commits } = await bothWithContent();
+        const { id, handle, call, tree, commits } = await bothWithContent();
 
         const on = await call('POST', '/git/on', { choice: 'server' });
         expect(on.body).toMatchObject({ outcome: 'server-replaced-git' });
-        expect(commits()).toEqual([`Ana|DEV replaces ${slug} in git`, 'Someone|files']);
+        expect(commits()).toEqual([`Ana|DEV replaces ${handle} in git`, 'Someone|files']);
         expect(tree()).toEqual(Object.keys(await exportWorkspace(db, id)));
-        expect(tree()).not.toContain(`${slug}/projects/Sales/flows/Draft only.flow.yaml`);
+        expect(tree()).not.toContain(`${handle}/projects/Sales/flows/Draft only.flow.yaml`);
         expect((await call('GET', '/git')).body.on).toBe(true);
     });
 
@@ -257,7 +257,7 @@ describe('turning git on', () => {
     });
 
     test('git replaces the server: the preview says a connection git does not declare is deleted with its configuration', async () => {
-        const { slug, call } = await bothWithContent();
+        const { handle, call } = await bothWithContent();
         const kafka = { bootstrapServers: 'b:9092', security: 'SASL_SSL', mechanism: 'PLAIN', user: 'u', password: 'kafka-pass' };
         await call('POST', '/connections', {
             name: 'Stream',
@@ -267,7 +267,7 @@ describe('turning git on', () => {
         });
 
         expect((await call('GET', '/git/on')).body.toServer).toContainEqual({
-            path: `${slug}/connections/Stream.yaml`,
+            path: `${handle}/connections/Stream.yaml`,
             change: 'removed',
             note: 'The connection Stream is deleted from this server, with its configuration and credentials (the secrets it names stay).',
         });
@@ -295,8 +295,8 @@ describe('turning git on', () => {
     });
 
     test('the files the format does not know are left out: neither side deletes them', async () => {
-        const { slug, call, repo, tree, onBranch } = await bothWithContent();
-        const unknown = [`${slug}/README.md`, `${slug}/projects/Sales/notes.txt`];
+        const { handle, call, repo, tree, onBranch } = await bothWithContent();
+        const unknown = [`${handle}/README.md`, `${handle}/projects/Sales/notes.txt`];
         commitFiles(repo, 'dev', { ...onBranch, [unknown[0]!]: '# Flows\n', [unknown[1]!]: 'todo\n' });
 
         const plan = (await call('GET', '/git/on')).body;
@@ -327,8 +327,8 @@ describe('turning git on', () => {
     });
 
     test('git replaces the server refuses an invalid tree whole: nothing changes', async () => {
-        const { slug, call, repo, sales, onBranch } = await bothWithContent();
-        const project = `${slug}/projects/Sales/project.yaml`;
+        const { handle, call, repo, sales, onBranch } = await bothWithContent();
+        const project = `${handle}/projects/Sales/project.yaml`;
         commitFiles(repo, 'dev', { ...onBranch, [project]: `owner: ana\n${onBranch[project]}` });
 
         const refused = await call('POST', '/git/on', { choice: 'git' });

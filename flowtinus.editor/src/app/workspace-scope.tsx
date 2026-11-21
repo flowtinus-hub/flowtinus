@@ -16,7 +16,7 @@ export function WorkspaceScope() {
     const { state } = useMe();
     // an archived workspace is not in /me: its settings still open (its admins restore it there; the api says who may)
     const settings = useLocation().pathname === `/w/${ws}/settings`;
-    const known = state.status !== 'ready' || settings || state.me.workspaces.some(w => w.slug === ws);
+    const known = state.status !== 'ready' || settings || state.me.workspaces.some(w => w.handle === ws);
     useEffect(() => {
         if (known) {
             rememberWorkspace(ws);
@@ -48,6 +48,6 @@ export function HomeRedirect() {
 
     const last = lastWorkspace();
     const workspaces = state.status === 'ready' ? state.me.workspaces : [];
-    const to = workspaces.find(w => w.slug === last) ?? (workspaces.length === 1 ? workspaces[0] : undefined);
-    return <Navigate to={to ? `/w/${to.slug}/projects` : WORKSPACES_PATH} replace />;
+    const to = workspaces.find(w => w.handle === last) ?? (workspaces.length === 1 ? workspaces[0] : undefined);
+    return <Navigate to={to ? `/w/${to.handle}/projects` : WORKSPACES_PATH} replace />;
 }

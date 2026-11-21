@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { silentLogger } from '#shared/logging/logger';
@@ -149,7 +149,7 @@ describe('the Runs page api', () => {
             status: 'completed',
             trigger: 'manual',
             projectName: 'Imports',
-            workspaceSlug: slugOf(workspaceId),
+            workspaceHandle: workspaceHandleOf(workspaceId),
             workspaceName: 'acme',
             startedBy: 'Ana',
             envelopesIn: 1,

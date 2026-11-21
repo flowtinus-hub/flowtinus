@@ -29,33 +29,33 @@ describe('workspaces and their members', () => {
 
     test('/me: the user and their workspaces, with their role', async () => {
         const me = await dev('GET', '/me');
-        expect(me.body).toMatchObject({ id: DEV_USER.id, isAdmin: true, workspaces: [{ slug: 'dev', name: 'Dev', role: 'admin' }] });
+        expect(me.body).toMatchObject({ id: DEV_USER.id, isAdmin: true, workspaces: [{ handle: 'dev', name: 'Dev', role: 'admin' }] });
         expect((await call(crypto.randomUUID(), 'GET', '/me')).status).toBe(404);
     });
 
-    test('only an admin of the environment creates a workspace, and becomes its admin; the slug is checked and unique', async () => {
-        const created = await dev('POST', '/workspaces', { slug: 'mydevworkspace', name: 'My dev workspace' });
-        expect(created).toMatchObject({ status: 201, body: { slug: 'mydevworkspace' } });
+    test('only an admin of the environment creates a workspace, and becomes its admin; the handle is checked and unique', async () => {
+        const created = await dev('POST', '/workspaces', { handle: 'mydevworkspace', name: 'My dev workspace' });
+        expect(created).toMatchObject({ status: 201, body: { handle: 'mydevworkspace' } });
         expect((await dev('GET', '/w/mydevworkspace')).body).toMatchObject({ name: 'My dev workspace', role: 'admin', icon: 'layers' });
 
-        const again = await dev('POST', '/workspaces', { slug: 'mydevworkspace', name: 'Other' });
-        expect(again).toMatchObject({ status: 409, body: { error: { fields: { slug: 'Already in use' } } } });
-        for (const slug of ['My-Space', '-dev', 'dev-', 'a'.repeat(41), 'with space', '']) {
-            expect((await dev('POST', '/workspaces', { slug, name: 'X' })).status).toBe(400);
+        const again = await dev('POST', '/workspaces', { handle: 'mydevworkspace', name: 'Other' });
+        expect(again).toMatchObject({ status: 409, body: { error: { fields: { handle: 'Already in use' } } } });
+        for (const handle of ['My-Space', '-dev', 'dev-', 'a'.repeat(41), 'with space', '']) {
+            expect((await dev('POST', '/workspaces', { handle, name: 'X' })).status).toBe(400);
         }
-        expect((await dev('POST', '/workspaces', { slug: 'ok', name: '' })).status).toBe(400);
+        expect((await dev('POST', '/workspaces', { handle: 'ok', name: '' })).status).toBe(400);
 
         const member = await insertMember(db, DEV_WORKSPACE_ID, { name: 'Edu', role: 'editor' });
-        const refused = await call(member, 'POST', '/workspaces', { slug: 'mine', name: 'Mine' });
+        const refused = await call(member, 'POST', '/workspaces', { handle: 'mine', name: 'Mine' });
         expect(refused).toMatchObject({ status: 403, body: { error: { code: 'forbidden' } } });
     });
 
     test('the list: the workspaces of the user only, with the role and what each holds', async () => {
-        await dev('POST', '/workspaces', { slug: 'listed', name: 'Listed' });
+        await dev('POST', '/workspaces', { handle: 'listed', name: 'Listed' });
         await dev('POST', '/w/listed/projects', { name: 'P1' });
         await dev('POST', '/w/listed/variables', { name: 'region', value: 'eu' });
-        const items = (await dev('GET', '/workspaces')).body.items as { slug: string; role: string; summary: Record<string, number> }[];
-        expect(items.find(w => w.slug === 'listed')).toMatchObject({
+        const items = (await dev('GET', '/workspaces')).body.items as { handle: string; role: string; summary: Record<string, number> }[];
+        expect(items.find(w => w.handle === 'listed')).toMatchObject({
             role: 'admin',
             summary: { projects: 1, connections: 0, secrets: 0, variables: 1, members: 1 },
         });
@@ -66,15 +66,15 @@ describe('workspaces and their members', () => {
         expect((await dev('GET', '/w/nothing-here/projects')).status).toBe(404);
     });
 
-    test('update: name, description, icon and color by its admins; the slug never changes', async () => {
-        await dev('POST', '/workspaces', { slug: 'editable', name: 'Editable' });
-        const changed = await dev('PATCH', '/w/editable', { name: 'Edited', description: 'About', color: 'green', slug: 'editable' });
-        expect(changed.body).toMatchObject({ name: 'Edited', description: 'About', color: 'green', slug: 'editable' });
-        expect((await dev('PATCH', '/w/editable', { slug: 'renamed' })).body.error.fields).toEqual({ slug: 'Cannot change' });
+    test('update: name, description, icon and color by its admins; the handle never changes', async () => {
+        await dev('POST', '/workspaces', { handle: 'editable', name: 'Editable' });
+        const changed = await dev('PATCH', '/w/editable', { name: 'Edited', description: 'About', color: 'green', handle: 'editable' });
+        expect(changed.body).toMatchObject({ name: 'Edited', description: 'About', color: 'green', handle: 'editable' });
+        expect((await dev('PATCH', '/w/editable', { handle: 'renamed' })).body.error.fields).toEqual({ handle: 'Cannot change' });
 
         const viewer = await insertUser(db, 'Vi');
         await db.query(
-            "INSERT INTO workspace_members (workspace_id, user_id, role) SELECT id, $1, 'viewer' FROM workspaces WHERE slug = 'editable'",
+            "INSERT INTO workspace_members (workspace_id, user_id, role) SELECT id, $1, 'viewer' FROM workspaces WHERE handle = 'editable'",
             [viewer],
         );
         expect((await call(viewer, 'GET', '/w/editable')).body.role).toBe('viewer');
@@ -82,7 +82,7 @@ describe('workspaces and their members', () => {
     });
 
     test('archive: only with every project archived; then its address answers only itself and restore', async () => {
-        await dev('POST', '/workspaces', { slug: 'old', name: 'Old' });
+        await dev('POST', '/workspaces', { handle: 'old', name: 'Old' });
         const project = (await dev('POST', '/w/old/projects', { name: 'Still here' })).body.id as string;
         const refused = await dev('POST', '/w/old/archive');
         expect(refused).toMatchObject({
@@ -94,15 +94,15 @@ describe('workspaces and their members', () => {
         expect((await dev('POST', '/w/old/archive')).status).toBe(200);
         expect((await dev('GET', '/w/old/projects')).status).toBe(404);
         expect((await dev('GET', '/w/old')).body.archivedAt).toBeString();
-        expect(((await dev('GET', '/workspaces?status=archived')).body.items as { slug: string }[]).map(w => w.slug)).toContain('old');
-        expect(((await dev('GET', '/me')).body.workspaces as { slug: string }[]).map(w => w.slug)).not.toContain('old');
+        expect(((await dev('GET', '/workspaces?status=archived')).body.items as { handle: string }[]).map(w => w.handle)).toContain('old');
+        expect(((await dev('GET', '/me')).body.workspaces as { handle: string }[]).map(w => w.handle)).not.toContain('old');
 
         expect((await dev('POST', '/w/old/restore')).status).toBe(200);
         expect((await dev('GET', '/w/old/projects?status=archived')).status).toBe(200);
     });
 
     test('members: added by email with a role, changed, removed; never without an admin', async () => {
-        await dev('POST', '/workspaces', { slug: 'team', name: 'Team' });
+        await dev('POST', '/workspaces', { handle: 'team', name: 'Team' });
         const bia = await insertUser(db, 'Bia');
         const email = `${bia}@example.com`;
 
@@ -128,38 +128,42 @@ describe('workspaces and their members', () => {
     });
 
     test('the Runs page: the runs of the user’s workspaces, or one of them; a run of another workspace is not found', async () => {
-        await dev('POST', '/workspaces', { slug: 'runs-a', name: 'Runs A' });
-        await dev('POST', '/workspaces', { slug: 'runs-b', name: 'Runs B' });
-        const runIn = async (slug: string) => {
-            const project = (await dev('POST', `/w/${slug}/projects`, { name: 'P' })).body.id as string;
-            const flow = (await dev('POST', `/w/${slug}/projects/${project}/flows`, { name: `Flow ${slug}` })).body.id as string;
+        await dev('POST', '/workspaces', { handle: 'runs-a', name: 'Runs A' });
+        await dev('POST', '/workspaces', { handle: 'runs-b', name: 'Runs B' });
+        const runIn = async (handle: string) => {
+            const project = (await dev('POST', `/w/${handle}/projects`, { name: 'P' })).body.id as string;
+            const flow = (await dev('POST', `/w/${handle}/projects/${project}/flows`, { name: `Flow ${handle}` })).body.id as string;
             // a run for real as it ended (no supervisor here)
             const id = crypto.randomUUID();
             await db.query(
                 `INSERT INTO runs (id, workspace_id, project_id, flow_id, mode, draft_hash, status, trigger, worker_tag, flow_name)
-         SELECT $1, w.id, $3, $4, 'execution', 'h', 'completed', 'manual', 'default', 'F' FROM workspaces w WHERE w.slug = $2`,
-                [id, slug, project, flow],
+         SELECT $1, w.id, $3, $4, 'execution', 'h', 'completed', 'manual', 'default', 'F' FROM workspaces w WHERE w.handle = $2`,
+                [id, handle, project, flow],
             );
             return id;
         };
         const a = await runIn('runs-a');
         const b = await runIn('runs-b');
 
-        const all = (await dev('GET', '/runs')).body.runs as { id: string; workspaceSlug: string }[];
+        const all = (await dev('GET', '/runs')).body.runs as { id: string; workspaceHandle: string }[];
         expect(
             all
                 .filter(r => r.id === a || r.id === b)
-                .map(r => r.workspaceSlug)
+                .map(r => r.workspaceHandle)
                 .sort(),
         ).toEqual(['runs-a', 'runs-b']);
         const onlyA = (await dev('GET', '/runs?workspace=runs-a')).body.runs as { id: string }[];
         expect(onlyA.map(r => r.id)).toEqual([a]);
         expect((await dev('GET', `/runs/${b}`)).status).toBe(200);
 
-        const member = await insertMember(db, (await db.query<{ id: string }>("SELECT id FROM workspaces WHERE slug = 'runs-a'"))[0]!.id, {
-            name: 'Only A',
-            role: 'viewer',
-        });
+        const member = await insertMember(
+            db,
+            (await db.query<{ id: string }>("SELECT id FROM workspaces WHERE handle = 'runs-a'"))[0]!.id,
+            {
+                name: 'Only A',
+                role: 'viewer',
+            },
+        );
         expect(((await call(member, 'GET', '/runs')).body.runs as { id: string }[]).map(r => r.id)).toEqual([a]);
         expect((await call(member, 'GET', '/runs?workspace=runs-b')).body.runs).toEqual([]);
         expect((await call(member, 'GET', `/runs/${b}`)).status).toBe(404);

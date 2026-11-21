@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
+import { scriptImportPrefix } from '@flowtinus/core';
 import { FileCode2, FileStack, TriangleAlert, Workflow, type LucideIcon } from 'lucide-react';
 import { projectsPath, projectTabPath, type ProjectTab } from '@/app/paths';
 import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/copy-button';
 import type { Folder } from '@/data/flows/flow';
 import { REMOVED_BRANCH } from '@/data/git/git-api';
 import { isReadOnly, type ProjectState } from '@/data/projects/use-project';
@@ -35,7 +37,7 @@ type Props = {
  * An archived project is read-only: no buttons to add things.
  */
 export function ProjectPage({ projectId, project, tab, folders, actions, children }: Props) {
-    const { slug: ws, canEdit } = useWorkspace();
+    const { handle: ws, canEdit } = useWorkspace();
     if (project.status === 'error') {
         return (
             <div className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col items-center justify-center gap-3 text-center">
@@ -58,6 +60,19 @@ export function ProjectPage({ projectId, project, tab, folders, actions, childre
                 <ProjectBreadcrumb project={project.status === 'ready' ? project.project : null} folders={folders} />
                 {!archived && canEdit && actions && <div className="flex gap-2">{actions}</div>}
             </div>
+
+            {project.status === 'ready' && (
+                <p className="-mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span title="Made from the project's name: its name in import paths">
+                        Handle <code className="rounded bg-muted px-1 py-0.5 font-mono">{project.project.handle}</code>
+                    </span>
+                    <span className="flex items-center gap-1">
+                        Import prefix
+                        <code className="rounded bg-muted px-1 py-0.5 font-mono">{scriptImportPrefix(ws, project.project.handle)}</code>
+                        <CopyButton text={scriptImportPrefix(ws, project.project.handle)} label="Copy the import prefix" />
+                    </span>
+                </p>
+            )}
 
             {/* the line under the tabs is an inset shadow, so the active tab's underline covers it without overflowing (no scrollbar) */}
             <nav

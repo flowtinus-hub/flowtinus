@@ -6,7 +6,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Label } from '@/components/ui/label';
 import type { Project } from '@/data/projects/project';
 import { moveProject } from '@/data/projects/projects-api';
-import { useMe, useWorkspaceSlug } from '@/data/workspaces/use-workspace';
+import { useMe, useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 import { roleAtLeast } from '@/data/workspaces/workspace';
 
 const KIND_LABEL: Record<string, string> = { connections: 'Connections', secrets: 'Secrets', variables: 'Variables' };
@@ -17,15 +17,15 @@ const KIND_LABEL: Record<string, string> = { connections: 'Connections', secrets
  * there. Its deployed flows are undeployed (said before).
  */
 export function MoveProjectDialog({ project, onClose }: { project: Project | null; onClose: () => void }) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const navigate = useNavigate();
     const { state } = useMe();
-    const targets = state.status === 'ready' ? state.me.workspaces.filter(w => w.slug !== ws && roleAtLeast(w.role, 'editor')) : [];
+    const targets = state.status === 'ready' ? state.me.workspaces.filter(w => w.handle !== ws && roleAtLeast(w.role, 'editor')) : [];
     const [target, setTarget] = useState('');
     const [missing, setMissing] = useState<Record<string, string> | null>(null);
     const [failure, setFailure] = useState('');
     const [moving, setMoving] = useState(false);
-    const chosen = target || targets[0]?.slug || '';
+    const chosen = target || targets[0]?.handle || '';
 
     const close = () => {
         setMissing(null);
@@ -78,8 +78,8 @@ export function MoveProjectDialog({ project, onClose }: { project: Project | nul
                             }}
                         >
                             {targets.map(w => (
-                                <option key={w.slug} value={w.slug}>
-                                    {w.name} ({w.slug})
+                                <option key={w.handle} value={w.handle}>
+                                    {w.name} ({w.handle})
                                 </option>
                             ))}
                         </select>

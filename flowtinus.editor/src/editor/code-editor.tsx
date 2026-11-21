@@ -33,7 +33,7 @@ export default function CodeEditor(props: {
     // and its `Data`, what reached this component in the runs: one set of globals at a time in Monaco, so the editor in
     // use (mounted, focused) puts its own
     const globals = useContext(ScriptGlobalsContext)(nodeId);
-    // the project's scripts as Monaco models: `import ... from '@myproject/scripts/<path>'` resolves (autocomplete, errors)
+    // the project's scripts as Monaco models: `import ... from '@w/<workspace>/<project>/scripts/<path>'` resolves (autocomplete, errors)
     const { projectId = '' } = useParams();
     useScriptModels(projectId);
     const latest = useRef(globals);

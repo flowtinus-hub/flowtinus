@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -21,7 +21,7 @@ describe('every change of the workspace follows into the repository', () => {
 
     async function newWorkspace(options: { on?: boolean } = {}) {
         const id = crypto.randomUUID();
-        const slug = slugOf(id);
+        const handle = workspaceHandleOf(id);
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
             const response = await app.request(wsPath(id, path), {
@@ -50,12 +50,12 @@ describe('every change of the workspace follows into the repository', () => {
         const tree = () =>
             git(repo, 'ls-tree', '-r', '--name-only', 'dev')
                 .split('\n')
-                .filter(path => path.startsWith(`${slug}/`) && path !== `${slug}/workspace.yaml`)
-                .map(path => path.slice(slug.length + 1));
-        const show = (path: string) => git(repo, 'show', `dev:${slug}/${path}`);
+                .filter(path => path.startsWith(`${handle}/`) && path !== `${handle}/workspace.yaml`)
+                .map(path => path.slice(handle.length + 1));
+        const show = (path: string) => git(repo, 'show', `dev:${handle}/${path}`);
         const lastCommit = () => git(repo, 'log', '-1', '--format=%an|%s', 'dev');
         const commit = async (message: string) => expect((await commitAll(call, message)).status).toBe(200);
-        return { id, slug, call, repo, newProject, newFlow, newFolder, deploy, tree, show, lastCommit, commit };
+        return { id, handle, call, repo, newProject, newFlow, newFolder, deploy, tree, show, lastCommit, commit };
     }
 
     beforeAll(async () => {
@@ -232,9 +232,9 @@ describe('every change of the workspace follows into the repository', () => {
         const orders = await from.newFlow(sales, 'Orders');
         await from.deploy(orders);
 
-        expect((await from.call('POST', `/projects/${sales}/move`, { toWorkspace: to.slug })).status).toBe(200);
-        await from.commit(`Move project Sales to ${to.slug}`);
-        await to.commit(`Move project Sales from ${from.slug}`);
+        expect((await from.call('POST', `/projects/${sales}/move`, { toWorkspace: to.handle })).status).toBe(200);
+        await from.commit(`Move project Sales to ${to.handle}`);
+        await to.commit(`Move project Sales from ${from.handle}`);
         expect(from.tree()).toEqual([]);
         expect(to.tree()).toEqual(['projects/Sales/flows/Orders.flow.yaml', 'projects/Sales/project.yaml']);
         expect(to.show('projects/Sales/flows/Orders.flow.yaml')).toContain(`id: ${orders}\n`);
@@ -242,7 +242,7 @@ describe('every change of the workspace follows into the repository', () => {
     }, 90_000);
 
     test('the first export writes the whole workspace: .gitattributes, workspace.yaml and what is deployed, with no value', async () => {
-        const { id, slug, call, repo, newProject, newFlow, newFolder, deploy, lastCommit } = await newWorkspace({ on: false });
+        const { id, handle, call, repo, newProject, newFlow, newFolder, deploy, lastCommit } = await newWorkspace({ on: false });
         await call('POST', '/variables', { name: 'region', value: 'eu-west-9' });
         const kafka = { bootstrapServers: 'b:9092', security: 'SASL_SSL', mechanism: 'PLAIN', user: 'u', password: 'kafka-pass' };
         const events = await call('POST', '/connections', {
@@ -261,18 +261,18 @@ describe('every change of the workspace follows into the repository', () => {
 
         expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev').split('\n')).toEqual([
             '.gitattributes',
-            `${slug}/connections/Events.yaml`,
-            `${slug}/projects/Sales/flows/Later/.gitkeep`,
-            `${slug}/projects/Sales/flows/Orders.flow.yaml`,
-            `${slug}/projects/Sales/project.yaml`,
-            `${slug}/projects/Sales/scripts/lib/money.ts`,
-            `${slug}/workspace.yaml`,
+            `${handle}/connections/Events.yaml`,
+            `${handle}/projects/Sales/flows/Later/.gitkeep`,
+            `${handle}/projects/Sales/flows/Orders.flow.yaml`,
+            `${handle}/projects/Sales/project.yaml`,
+            `${handle}/projects/Sales/scripts/lib/money.ts`,
+            `${handle}/workspace.yaml`,
         ]);
         expect(git(repo, 'show', 'dev:.gitattributes')).toBe('* text=auto eol=lf');
-        expect(git(repo, 'show', `dev:${slug}/workspace.yaml`)).toBe('format: 1');
-        expect(lastCommit()).toBe(`Ana|First export of ${slug}`);
+        expect(git(repo, 'show', `dev:${handle}/workspace.yaml`)).toBe('format: 1');
+        expect(lastCommit()).toBe(`Ana|First export of ${handle}`);
         const environment = { connections: [events.body.id as string], secrets: ['kafka-pass'], variables: ['region'] };
-        expect(validateWorkspaceTree({ workspace: slug, files: await exportWorkspace(db, id), environment })).toEqual({
+        expect(validateWorkspaceTree({ workspace: handle, files: await exportWorkspace(db, id), environment })).toEqual({
             errors: [],
             warnings: [],
         });

@@ -97,6 +97,7 @@ describe.each(SCENARIOS.map(s => [s.id, s] as const))('scenario %s', (id, scenar
                 variables: {},
                 connections: PERF_CONNECTIONS,
                 workspaceName: 'perf',
+                workspaceHandle: 'perf',
                 projectName: 'perf',
                 flowName: main.flow,
             },

@@ -1,6 +1,6 @@
 import { workBranch } from '#features/git/branch-read';
 import { z } from 'zod';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, inArray, isNull } from 'drizzle-orm';
 import { flowWithScriptsMoved, movedScriptImports, normalizeScriptPath, scriptCodeOf, scriptImports, type FlowFile } from '@flowtinus/core';
 import { loadDraft, writeDraft } from '#features/flows/flow-draft';
 import { flows as flowsTable } from '#features/flows/flow';
@@ -14,7 +14,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { workingScripts, writeScript } from './script-store';
+import { importPathIn, scriptScope, workingScripts, writeScript } from './script-store';
 
 export type ScriptState = { changed: boolean; conflict?: string };
 
@@ -51,29 +51,40 @@ export async function changedImports(db: Database, workspaceId: string, projectI
     if (!states) {
         return [];
     }
-    const contents = new Map((await workingScripts(db, workspaceId, projectId)).map(s => [s.path, s.content]));
+    const scope = await scriptScope(db, workspaceId);
+    const pathOf = new Map((await workingScripts(db, workspaceId, projectId)).map(s => [importPathIn(scope, projectId, s.path), s]));
     const seen = new Set<string>();
     const queue = flow.nodes.flatMap(n => scriptImports(scriptCodeOf(n.type, n.config) ?? ''));
     while (queue.length > 0) {
         const path = queue.shift()!;
-        if (!seen.has(path) && contents.has(path)) {
+        if (!seen.has(path) && pathOf.has(path)) {
             seen.add(path);
-            queue.push(...scriptImports(contents.get(path)!));
+            queue.push(...scriptImports(pathOf.get(path)!.content));
         }
     }
-    return [...seen].filter(path => states.get(path)?.changed).sort();
+    return [...seen]
+        .map(path => pathOf.get(path)!.path)
+        .filter(path => states.get(path)?.changed)
+        .sort();
 }
 
 export async function rewriteMovedScript(ctx: UseCaseContext, projectId: string, from: string, to: string): Promise<void> {
     const { db, workspaceId } = ctx;
-    for (const script of await workingScripts(db, workspaceId, projectId)) {
-        const content = movedScriptImports(script.content, from, to);
-        if (content !== script.content) {
-            await writeScript(db, workspaceId, projectId, script.path, content, ctx.userId);
+    const scope = await scriptScope(db, workspaceId);
+    [from, to] = [importPathIn(scope, projectId, from), importPathIn(scope, projectId, to)];
+    const projects = [...scope.projects.keys()];
+    for (const id of projects) {
+        for (const script of await workingScripts(db, workspaceId, id)) {
+            const content = movedScriptImports(script.content, from, to);
+            if (content !== script.content) {
+                await writeScript(db, workspaceId, id, script.path, content, ctx.userId);
+            }
         }
     }
 
-    const live = await new FlowRepository(db, workspaceId).findMany(and(eq(flowsTable.projectId, projectId), isNull(flowsTable.deletedAt)));
+    const live = await new FlowRepository(db, workspaceId).findMany(
+        and(inArray(flowsTable.projectId, projects), isNull(flowsTable.deletedAt)),
+    );
     for (const flow of live) {
         const moved = flowWithScriptsMoved((await loadDraft(db, workspaceId, flow)).flow, from, to);
         if (moved) {

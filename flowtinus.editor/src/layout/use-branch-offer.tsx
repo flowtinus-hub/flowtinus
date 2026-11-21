@@ -17,12 +17,12 @@ export type BranchOffer = {
 };
 
 export function useBranchOffer(): BranchOffer {
-    const { slug, canEdit } = useWorkspace();
+    const { handle, canEdit } = useWorkspace();
     const { state: me } = useMe();
-    const handle = me.status === 'ready' ? me.me.handle : null;
-    const current = useResource(`current-branch:${slug}`, () => getCurrentBranch(slug));
+    const userHandle = me.status === 'ready' ? me.me.handle : null;
+    const current = useResource(`current-branch:${handle}`, () => getCurrentBranch(handle));
     const branch = current.state.status === 'ready' ? current.state.value : null;
-    const offers = Boolean(branch?.offersBranch && branch.branch) && canEdit && handle !== null;
+    const offers = Boolean(branch?.offersBranch && branch.branch) && canEdit && userHandle !== null;
     const [offered, setOffered] = useState<{ edit: OfferedEdit; onCancel?: () => void } | null>(null);
 
     const offer = (edit: OfferedEdit, onCancel?: () => void) => setOffered({ edit, onCancel });
@@ -35,11 +35,11 @@ export function useBranchOffer(): BranchOffer {
     };
 
     const dialog =
-        offered && branch?.branch && handle ? (
+        offered && branch?.branch && userHandle ? (
             <CreateBranchDialog
-                slug={slug}
-                from={branch.branch}
                 handle={handle}
+                from={branch.branch}
+                userHandle={userHandle}
                 edit={offered.edit}
                 onClose={() => {
                     offered.onCancel?.();

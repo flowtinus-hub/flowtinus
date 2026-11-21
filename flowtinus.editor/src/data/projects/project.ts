@@ -1,4 +1,4 @@
-import { NAME_MAX, validateName } from '@flowtinus/core';
+import { handleHolder, NAME_MAX, validateName } from '@flowtinus/core';
 import { isProjectColor, isProjectIcon, type ProjectColorName, type ProjectIconName } from './project-appearance';
 
 /*
@@ -10,6 +10,7 @@ import { isProjectColor, isProjectIcon, type ProjectColorName, type ProjectIconN
 export type Project = {
     id: string;
     name: string;
+    handle: string;
     description: string;
     icon: ProjectIconName;
     color: ProjectColorName;
@@ -57,7 +58,14 @@ export function validateNewProject(
         'project',
     );
     const value = { ...input, name: name.value, description: input.description.trim() };
-    const errors: NewProjectErrors = name.error ? { name: name.error } : {};
+    const holder = name.error
+        ? undefined
+        : handleHolder(
+              name.value,
+              existing.filter(project => project.id !== exceptId),
+          );
+    const nameError = name.error ?? (holder ? `Handle taken by "${holder.name}"` : undefined);
+    const errors: NewProjectErrors = nameError ? { name: nameError } : {};
 
     if (value.description.length > DESCRIPTION_MAX) {
         errors.description = `At most ${DESCRIPTION_MAX} characters`;

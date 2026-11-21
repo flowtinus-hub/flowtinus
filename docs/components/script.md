@@ -2,7 +2,7 @@
 
 # Script Invoker
 
-Calls, for each envelope, a function a project script exports (`path#name`), its arguments in the order of its parameters, each a value or an expression on the envelope. What it returns goes to the output key (default `result`), or with Override the whole DATA.
+Calls, for each envelope, a function a script of its workspace exports (`@w/<workspace>/<project>/scripts/<path>#<name>`), its arguments in the order of its parameters, each a value or an expression on the envelope. What it returns goes to the output key (default `result`), or with Override the whole DATA.
 
 - Type: `script` (Scripting)
 - Inputs: `in-0`
@@ -14,20 +14,20 @@ Calls, for each envelope, a function a project script exports (`path#name`), its
 
 ## Settings
 
-| Key                 | Label         | Kind            | Required | Default                           | Notes                                                                       |
-| ------------------- | ------------- | --------------- | -------- | --------------------------------- | --------------------------------------------------------------------------- |
-| `function`          | Function      | script-function | yes      |                                   |                                                                             |
-| `functionPath`      | Function path | value           | yes      | `{"value":"","expression":true}`  | only when function is `"$dynamic"`; e.g. `'pricing/' + $country + '#total'` |
-| `arguments`         | Arguments     | list            |          |                                   |                                                                             |
-| `arguments[].name`  | Name          | text            | yes      |                                   |                                                                             |
-| `arguments[].value` | Value         | value           |          | `{"value":"","expression":false}` | stored as the item's own `value` and `expression`                           |
+| Key                 | Label         | Kind            | Required | Default                           | Notes                                                                                               |
+| ------------------- | ------------- | --------------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `function`          | Function      | script-function | yes      |                                   |                                                                                                     |
+| `functionPath`      | Function path | value           | yes      | `{"value":"","expression":true}`  | only when function is `"$dynamic"`; e.g. `'@w/acme/billing/scripts/pricing/' + $country + '#total'` |
+| `arguments`         | Arguments     | list            |          |                                   |                                                                                                     |
+| `arguments[].name`  | Name          | text            | yes      |                                   |                                                                                                     |
+| `arguments[].value` | Value         | value           |          | `{"value":"","expression":false}` | stored as the item's own `value` and `expression`                                                   |
 
 Every component also has `onError` (see [the flow format](../flow-format.md#on-error)).
 
 ## Example config
 
 ```yaml
-function: pricing/tax#total
+function: '@w/acme/billing/scripts/pricing/tax#total'
 arguments:
     - name: amount
       value: $price

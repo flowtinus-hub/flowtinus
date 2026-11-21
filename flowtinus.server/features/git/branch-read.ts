@@ -1,4 +1,5 @@
 import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, type ConnectionTypeName, type FlowFile, type RepoFlow } from '@flowtinus/core';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { activeFlow } from '#features/deployments/deployments';
 import type { Flow } from '#features/flows/flow';
 import type { FlowDraft } from '#features/flows/flow-draft';
@@ -29,7 +30,7 @@ export type WorkBranch = {
     removed: boolean;
     lostTip: boolean;
     mayChange: boolean;
-    slug: string;
+    handle: string;
     at: Date;
     tipFiles: RepoFiles;
     connections: BranchConnection[];
@@ -61,11 +62,6 @@ function cachedTip(key: string, load: () => Promise<Tip>): Promise<Tip> {
     return loading;
 }
 
-async function slugOf(ctx: UseCaseContext): Promise<string> {
-    const [row] = await ctx.db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [ctx.workspaceId]);
-    return row!.slug;
-}
-
 export async function onClone<T>(ctx: UseCaseContext, what: string, work: (remote: GitRemote) => Promise<T>): Promise<T> {
     const config = await readGitConfig(ctx.db, ctx.workspaceId);
     if (!config || !ctx.git) {
@@ -85,14 +81,14 @@ export async function onClone<T>(ctx: UseCaseContext, what: string, work: (remot
     }
 }
 
-function readTip(ctx: UseCaseContext, branch: string, sha: string, slug: string): Promise<Tip> {
+function readTip(ctx: UseCaseContext, branch: string, sha: string, handle: string): Promise<Tip> {
     return cachedTip(`${ctx.workspaceId}:${sha}`, () =>
         onClone(ctx, `The branch ${branch} could not be read from git`, async remote => {
             // a head another server fetched: this server's clone may not have it yet
             if (!(await remote.hasCommit(sha))) {
                 await remote.fetch(branch);
             }
-            const files = await remote.files(sha, [slug, '.gitattributes']);
+            const files = await remote.files(sha, [handle, '.gitattributes']);
             const at = new Date((await remote.run(['show', '-s', '--format=%cI', sha])).trim());
             return { files, at, flows: new Map() };
         }),
@@ -100,7 +96,7 @@ function readTip(ctx: UseCaseContext, branch: string, sha: string, slug: string)
 }
 
 export async function filesAt(ctx: UseCaseContext, branch: string, sha: string): Promise<RepoFiles> {
-    return (await readTip(ctx, branch, sha, await slugOf(ctx))).files;
+    return (await readTip(ctx, branch, sha, await workspaceHandleIn(ctx.db, ctx.workspaceId))).files;
 }
 
 function readFlow(tip: Tip, path: string, text: string, name: string): RepoFlow | null {
@@ -148,16 +144,16 @@ async function readWorkBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
         throw new UseCaseFailure('conflict', `The branch ${branch} is not in the repository: pick another branch.`);
     }
 
-    const slug = await slugOf(ctx);
+    const handle = await workspaceHandleIn(ctx.db, ctx.workspaceId);
     const [tip, rows, editor] = await Promise.all([
-        readTip(ctx, branch, head.sha, slug),
+        readTip(ctx, branch, head.sha, handle),
         workingRows(ctx.db, ctx.workspaceId, branch),
         editorOf(ctx.db, ctx.workspaceId, ctx.userId),
     ]);
     const mayChange = canEditBranch(branch, git.branch, editor);
     const removed = head.removed === true;
     return {
-        ...(await buildBranch(ctx, { branch, sha: head.sha, slug, tip, rows, editable: mayChange && !removed })),
+        ...(await buildBranch(ctx, { branch, sha: head.sha, handle, tip, rows, editable: mayChange && !removed })),
         removed,
         lostTip: head.lostTip === true,
         mayChange,
@@ -169,16 +165,16 @@ async function buildBranch(
     {
         branch,
         sha,
-        slug,
+        handle,
         tip,
         rows,
         editable,
-    }: { branch: string; sha: string; slug: string; tip: Tip; rows: WorkingRow[]; editable: boolean },
+    }: { branch: string; sha: string; handle: string; tip: Tip; rows: WorkingRow[]; editable: boolean },
 ): Promise<Omit<WorkBranch, 'removed' | 'lostTip' | 'mayChange'>> {
     const files = overlayRows(tip.files, rows);
     const byPath = new Map(rows.map(r => [r.path, r]));
     const entries = Object.entries(files)
-        .filter(([path]) => path.startsWith(`${slug}/`))
+        .filter(([path]) => path.startsWith(`${handle}/`))
         .map(([path, text]) => ({ path, text, entry: repoEntry(path) }));
 
     const connections: BranchConnection[] = [];
@@ -318,7 +314,7 @@ async function buildBranch(
         branch,
         tip: sha,
         editable,
-        slug,
+        handle,
         at: tip.at,
         tipFiles: tip.files,
         connections: connections.sort(byName),
@@ -364,7 +360,7 @@ export async function branchArchive(ctx: UseCaseContext, branch: WorkBranch): Pr
     // a file is archived as its last deletion left it: an older path of it (before a rename) is not
     const newest = new Set<string>();
     const rows = (await workingRows(ctx.db, ctx.workspaceId, branch.branch))
-        .filter(r => r.path.startsWith(`${branch.slug}/`) && r.deleted)
+        .filter(r => r.path.startsWith(`${branch.handle}/`) && r.deleted)
         .map(r => ({ ...r, updated_at: new Date(r.updated_at) }))
         .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime())
         .filter(r => {

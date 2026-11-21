@@ -26,9 +26,9 @@ const KINDS = ['all', 'secrets', 'variables'] as const;
  * a secret and a variable may have the same name.
  */
 export function SecretsPage() {
-    const { slug, canEdit } = useWorkspace();
-    const secrets = useResource(`secrets:${slug}`, () => listSecrets());
-    const variables = useResource(`variables:${slug}`, () => listVariables());
+    const { handle, canEdit } = useWorkspace();
+    const secrets = useResource(`secrets:${handle}`, () => listSecrets());
+    const variables = useResource(`variables:${handle}`, () => listVariables());
     const readOnly = !canEdit;
 
     const [secretDialog, setSecretDialog] = useState<SecretDialogTarget | null>(null);

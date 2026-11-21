@@ -50,12 +50,12 @@ const OUTCOME: Record<ReconcileOutcome, string> = {
  * or git unreachable since when); the warnings of the commit applied; Reconcile now.
  */
 export function GitStatusPanel({
-    slug,
+    handle,
     status,
     readOnly,
     onChanged,
 }: {
-    slug: string;
+    handle: string;
     status: GitStatus;
     readOnly: boolean;
     onChanged: () => Promise<void>;
@@ -69,7 +69,7 @@ export function GitStatusPanel({
     const reconcile = async () => {
         setBusy(true);
         setSaid(null);
-        const result = await reconcileNow(slug);
+        const result = await reconcileNow(handle);
         await onChanged();
         window.dispatchEvent(new Event(GIT_STATUS_CHANGED));
         setBusy(false);

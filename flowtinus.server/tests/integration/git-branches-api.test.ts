@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { newFlowFile, repoFlowToYaml } from '@flowtinus/core';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -52,8 +52,8 @@ describe('every head of the remote, read as a branch', () => {
         const orders = (await call('POST', `/projects/${projectId}/flows`, { name: 'Orders' })).body.id as string;
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
 
-        const slug = slugOf(id);
-        const handle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
+        const handle = workspaceHandleOf(id);
+        const userHandle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
         const push = (branch: string, changes: Record<string, string | null> = {}) => {
             git(repo, 'update-ref', `refs/heads/${branch}`, git(repo, 'rev-parse', 'dev'));
             const files: Record<string, string> = {};
@@ -62,9 +62,9 @@ describe('every head of the remote, read as a branch', () => {
             }
             for (const [path, text] of Object.entries(changes)) {
                 if (text === null) {
-                    delete files[`${slug}/${path}`];
+                    delete files[`${handle}/${path}`];
                 } else {
-                    files[`${slug}/${path}`] = text;
+                    files[`${handle}/${path}`] = text;
                 }
             }
             if (Object.keys(changes).length > 0) {
@@ -74,7 +74,7 @@ describe('every head of the remote, read as a branch', () => {
         const poll = async () => {
             await app.gitPoller.poll(id);
         };
-        return { id, as, call, projectId, orders, repo, slug, handle, push, poll };
+        return { id, as, call, projectId, orders, repo, handle, userHandle, push, poll };
     }
 
     beforeAll(async () => {
@@ -89,9 +89,9 @@ describe('every head of the remote, read as a branch', () => {
     });
 
     test("a poll fetches every head: the picker lists them by kind, the app's own left out, a branch dev contains marked merged", async () => {
-        const { call, as, handle, push, poll } = await workspace();
-        const ana = await handle(ANA);
-        const bia = await handle(BIA);
+        const { call, as, userHandle, push, poll } = await workspace();
+        const ana = await userHandle(ANA);
+        const bia = await userHandle(BIA);
         const only = repoFlowToYaml(newFlowFile('Only here', crypto.randomUUID()));
         push(`users/${ana}/try`, { 'projects/Sales/flows/Only here.flow.yaml': only });
         push(`users/${bia}/done`);
@@ -162,8 +162,8 @@ describe('every head of the remote, read as a branch', () => {
     });
 
     test("on another user's branch the project, flow and script endpoints answer from its tip, a flow only there included; it is read only", async () => {
-        const { call, as, projectId, orders, handle, push, poll } = await workspace();
-        const ana = await handle(BIA);
+        const { call, as, projectId, orders, userHandle, push, poll } = await workspace();
+        const ana = await userHandle(BIA);
         const onlyId = crypto.randomUUID();
         const begin = newFlowFile('Orders', orders);
         begin.nodes = begin.nodes.map(n => (n.id === 'start' ? { ...n, label: 'Begin' } : n));
@@ -228,7 +228,7 @@ describe('every head of the remote, read as a branch', () => {
     });
 
     test('a test run on a work branch takes its flow, the flows it calls and the scripts from that branch', async () => {
-        const { call, handle, push, poll } = await workspace();
+        const { call, handle, userHandle, push, poll } = await workspace();
         await db.query(`INSERT INTO supervisors (id, tags, workers, host) VALUES ($1, '{default}', 1, 'test')`, [crypto.randomUUID()]);
         const calleeId = crypto.randomUUID();
         const callerId = crypto.randomUUID();
@@ -240,7 +240,7 @@ describe('every head of the remote, read as a branch', () => {
                 id: 'ts',
                 type: 'typescript',
                 position: { x: 160, y: 0 },
-                config: { code: "import { value } from '@myproject/scripts/util';" },
+                config: { code: `import { value } from '@w/${handle}/sales/scripts/util';` },
             },
             { id: 'call', type: 'flow', position: { x: 160, y: 80 }, config: { flowId: calleeId } },
         );
@@ -250,7 +250,7 @@ describe('every head of the remote, read as a branch', () => {
                 { source: id, sourcePort: 'out-0', target: end, targetPort: 'in-0' },
             ]),
         );
-        const branch = `users/${await handle(ANA)}/run`;
+        const branch = `users/${await userHandle(ANA)}/run`;
         push(branch, {
             'projects/Sales/flows/Caller.flow.yaml': repoFlowToYaml(caller),
             'projects/Sales/flows/Callee.flow.yaml': repoFlowToYaml(newFlowFile('Callee', calleeId)),
@@ -272,7 +272,7 @@ describe('every head of the remote, read as a branch', () => {
         expect(run!.called_flows.map(c => [c.id, c.name, Boolean(c.flow)])).toEqual([[calleeId, 'Callee', true]]);
         const [blob] = await db.query<{ content: string }>('SELECT content FROM script_blobs WHERE workspace_id = $1 AND hash = $2', [
             (await db.query<{ id: string }>('SELECT workspace_id AS id FROM test_runs WHERE id = $1', [started.body.id]))[0]!.id,
-            run!.scripts.util,
+            run!.scripts[`@w/${handle}/sales/scripts/util`],
         ]);
         expect(blob!.content).toBe('export const value = 2;\n');
         expect((await call('GET', `/flows/${callerId}/last-run`)).status).toBe(200);

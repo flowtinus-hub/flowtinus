@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { ANA, insertWorkspace, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
 
@@ -240,7 +240,7 @@ describe('folders and flows api', () => {
             type: 'typescript',
             label: 'Prices',
             position: { x: 160, y: 200 },
-            config: { code: "import {round} from '@myproject/scripts/lib/prices';" },
+            config: { code: `import {round} from '@w/${workspaceHandleOf(workspaceId)}/api/scripts/lib/prices';` },
         } as never);
         uses.flow.edges.push(
             { source: 'start', sourcePort: 'out-0', target: 'ts', targetPort: 'in-0' },
@@ -248,7 +248,7 @@ describe('folders and flows api', () => {
         );
         await save(one, uses.flow);
         for (const [path, content] of [
-            ['lib/prices', "import {two} from '@myproject/scripts/lib/math';\nexport const round = 1;"],
+            ['lib/prices', `import {two} from '@w/${workspaceHandleOf(workspaceId)}/api/scripts/lib/math';\nexport const round = 1;`],
             ['lib/math', 'export const two = 2;'],
         ]) {
             expect((await call('POST', `/projects/${projectId}/scripts`, { path, kind: 'script', content })).status).toBe(201);

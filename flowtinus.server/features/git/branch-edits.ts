@@ -1,9 +1,10 @@
-import { canMoveFolder, connectionToYaml, flowWithScriptsMoved, folderPath, insideScriptFolder, isFolderVisible, movedScriptImports, movedScriptPath, nameKey, newFlowFile, projectToYaml, repoFlowToYaml, repoPath, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
+import { canMoveFolder, connectionToYaml, flowWithScriptsMoved, folderPath, insideScriptFolder, isFolderVisible, movedScriptImports, movedScriptPath, handleHolder, handleOf, scriptImportPrefix, newFlowFile, projectToYaml, repoFlowToYaml, repoPath, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
 import { and, eq } from 'drizzle-orm';
 import { connections, toConnectionView, type ConnectionView } from '#features/connections/connection';
 import { checkProfile, ConnectionRepository, usedSecrets } from '#features/connections/connection-store';
 import { nameInTree, pathTooLong, toFlowView, toFolderView, type FlowView, type FolderView } from '#features/folders/project-tree';
-import { toProjectView, type ProjectView } from '#features/projects/project-fields';
+import { handleTaken, toProjectView, type ProjectView } from '#features/projects/project-fields';
+import { ProjectRepository } from '#features/projects/project-repository';
 import { allFolders, pathIssueIn } from '#features/scripts/script-store';
 import { insertSecret } from '#features/secrets/secret-store';
 import type { Database } from '#shared/database/database';
@@ -38,7 +39,7 @@ function projectOn(branch: WorkBranch, projectId: string) {
 
 const flowPath = (branch: WorkBranch, project: string, folderId: string | null, name: string) =>
     repoPath.flow(
-        branch.slug,
+        branch.handle,
         project,
         folderPath(branch.folders, folderId).map(f => f.name),
         name,
@@ -173,7 +174,7 @@ export async function createFolderOnBranch(
     }
     await changeBranch(ctx, branch, files => ({
         ...files,
-        [repoPath.folder(branch.slug, on.project.name, [...parents, named.value])]: '',
+        [repoPath.folder(branch.handle, on.project.name, [...parents, named.value])]: '',
     }));
     return success({ id: branchFolderId(projectId, [...parents, named.value]) });
 }
@@ -192,7 +193,7 @@ export async function saveScriptOnBranch(
         return fail('not-found', 'Script not found.');
     }
     const saved = await saveBranchFile(ctx, branch, {
-        path: repoPath.script(branch.slug, on.project.name, path),
+        path: repoPath.script(branch.handle, on.project.name, path),
         content,
         fileId: scriptFileId(projectId, path),
         expected: revision,
@@ -217,7 +218,9 @@ export async function createScriptOnBranch(
             : fail('validation', 'The request has invalid fields.', { path: issue });
     }
     const file =
-        kind === 'folder' ? repoPath.scriptFolder(branch.slug, on.project.name, path) : repoPath.script(branch.slug, on.project.name, path);
+        kind === 'folder'
+            ? repoPath.scriptFolder(branch.handle, on.project.name, path)
+            : repoPath.script(branch.handle, on.project.name, path);
     await changeBranch(ctx, branch, files => ({ ...files, [file]: kind === 'folder' ? '' : content }));
     return success({ path, revision: 0 });
 }
@@ -236,10 +239,10 @@ export async function deleteScriptOnBranch(
     const folders = allFolders(on.listing.scripts, on.listing.folders).filter(f => insideScriptFolder(f, path));
     await changeBranch(ctx, branch, files => {
         for (const script of scripts) {
-            delete files[repoPath.script(branch.slug, on.project.name, script)];
+            delete files[repoPath.script(branch.handle, on.project.name, script)];
         }
         for (const folder of folders) {
-            delete files[repoPath.scriptFolder(branch.slug, on.project.name, folder)];
+            delete files[repoPath.scriptFolder(branch.handle, on.project.name, folder)];
         }
         return files;
     });
@@ -277,8 +280,8 @@ export async function moveScriptOnBranch(
         return tooLong;
     }
 
-    const script = (path: string) => repoPath.script(branch.slug, on.project.name, path);
-    const folder = (path: string) => repoPath.scriptFolder(branch.slug, on.project.name, path);
+    const script = (path: string) => repoPath.script(branch.handle, on.project.name, path);
+    const folder = (path: string) => repoPath.scriptFolder(branch.handle, on.project.name, path);
     await changeBranch(ctx, branch, files => {
         for (const path of scripts.filter(s => insideScriptFolder(s, from))) {
             moveFile(files, script(path), script(moved(path)));
@@ -286,12 +289,16 @@ export async function moveScriptOnBranch(
         for (const path of on.listing.folders.filter(f => insideScriptFolder(f, from))) {
             moveFile(files, folder(path), folder(moved(path)));
         }
-        for (const path of scripts.map(moved)) {
-            const content = movedScriptImports(files[script(path)]!, from, to);
-            files[script(path)] = content;
+        const prefix = scriptImportPrefix(branch.handle, handleOf(on.project.name));
+        for (const project of branch.projects.filter(p => p.deletedAt === null)) {
+            const own = project.id === projectId;
+            for (const { path } of branch.scripts.get(project.id) ?? []) {
+                const file = repoPath.script(branch.handle, project.name, own ? moved(path) : path);
+                files[file] = movedScriptImports(files[file]!, prefix + from, prefix + to);
+            }
         }
-        for (const flow of on.tree.flows) {
-            const rewritten = flowWithScriptsMoved(flow.file, from, to);
+        for (const flow of branch.flows) {
+            const rewritten = flowWithScriptsMoved(flow.file, prefix + from, prefix + to);
             if (rewritten) {
                 files[flow.path] = repoFlowToYaml({ ...rewritten, id: flow.id, name: flow.name }, { deployed: flow.deployed });
             }
@@ -366,9 +373,9 @@ export async function restoreFlowOnBranch(ctx: UseCaseContext, branch: WorkBranc
 }
 
 const flowsDir = (branch: WorkBranch, project: string, names: string[]) =>
-    `${branch.slug}/projects/${project}/flows/${names.map(name => `${name}/`).join('')}`;
+    `${branch.handle}/projects/${project}/flows/${names.map(name => `${name}/`).join('')}`;
 
-const projectDir = (branch: WorkBranch, project: string) => `${branch.slug}/projects/${project}/`;
+const projectDir = (branch: WorkBranch, project: string) => `${branch.handle}/projects/${project}/`;
 
 function moveDir(files: RepoFiles, from: string, to: string): RepoFiles {
     for (const path of Object.keys(files).filter(path => path.startsWith(from))) {
@@ -568,10 +575,18 @@ export async function deleteArchivedFolderOnBranch(
     return success({ id, flows: archive.flows.filter(f => f.path.startsWith(dir)).length });
 }
 
-const projectTaken = (name: string) => fail('conflict', `A project named "${name}" already exists.`, { name: 'Already in use' });
-
-const projectNamed = (branch: WorkBranch, name: string, exceptId?: string) =>
-    branch.projects.some(p => p.id !== exceptId && nameKey(p.name) === nameKey(name));
+// archived: on the branch, and in the environment unless live on the branch
+async function branchHandleHolder(ctx: UseCaseContext, branch: WorkBranch, name: string, exceptId?: string) {
+    const archived = [
+        ...(await branchArchive(ctx, branch)).projects,
+        ...(await new ProjectRepository(ctx.db, ctx.workspaceId).findDeleted()),
+    ];
+    const all = [...branch.projects.map(p => ({ ...p, deletedAt: null })), ...archived];
+    return handleHolder(
+        name,
+        all.filter((p, i) => p.id !== exceptId && all.findIndex(q => q.id === p.id) === i),
+    );
+}
 
 type ProjectFields = { name: string; description: string; icon: string; color: string };
 
@@ -581,11 +596,12 @@ export async function createProjectOnBranch(
     { name, ...fields }: ProjectFields,
 ): Promise<UseCaseResult<{ id: string }>> {
     await refuseReadOnly(ctx, branch);
-    if (projectNamed(branch, name)) {
-        return projectTaken(name);
+    const holder = await branchHandleHolder(ctx, branch, name);
+    if (holder) {
+        return handleTaken(name, holder);
     }
     const id = crypto.randomUUID();
-    await changeBranch(ctx, branch, files => ({ ...files, [repoPath.project(branch.slug, name)]: projectToYaml({ id, ...fields }) }));
+    await changeBranch(ctx, branch, files => ({ ...files, [repoPath.project(branch.handle, name)]: projectToYaml({ id, ...fields }) }));
     return success({ id });
 }
 
@@ -602,8 +618,9 @@ export async function updateProjectOnBranch(
     const defined = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined));
     const project = { ...on.project, ...defined };
     if (project.name !== on.project.name) {
-        if (projectNamed(branch, project.name, id)) {
-            return projectTaken(project.name);
+        const holder = await branchHandleHolder(ctx, branch, project.name, id);
+        if (holder) {
+            return handleTaken(project.name, holder);
         }
         const tooLong = await pathTooLong(ctx, id, { tree: on.tree, project: project.name, scripts: on.names.scripts });
         if (tooLong) {
@@ -616,7 +633,7 @@ export async function updateProjectOnBranch(
         branch,
         files => {
             moveDir(files, from, projectDir(branch, project.name));
-            files[repoPath.project(branch.slug, project.name)] = projectToYaml(project);
+            files[repoPath.project(branch.handle, project.name)] = projectToYaml(project);
             return files;
         },
         project.name === on.project.name ? {} : { gone: [from] },
@@ -642,8 +659,9 @@ export async function restoreProjectOnBranch(ctx: UseCaseContext, branch: WorkBr
     if (!project) {
         return fail('not-found', 'Archived project not found.');
     }
-    if (projectNamed(branch, project.name)) {
-        return fail('conflict', `An active project is already named "${project.name}". Rename it first.`, { name: 'Already in use' });
+    const holder = await branchHandleHolder(ctx, branch, project.name, id);
+    if (holder) {
+        return handleTaken(project.name, holder);
     }
     const dir = projectDir(branch, project.name);
     const back = archive.rows.filter(r => r.path.startsWith(dir) && sameTime(r.updated_at, project.deletedAt));
@@ -669,7 +687,7 @@ export async function branchConnections(ctx: UseCaseContext, branch: WorkBranch)
 type ProfileChange = { name: string; type: string; config: Record<string, string>; newSecrets: { name: string; value: string }[] };
 
 const declaration = (branch: WorkBranch, name: string, id: string, type: string) => ({
-    path: repoPath.connection(branch.slug, name),
+    path: repoPath.connection(branch.handle, name),
     text: connectionToYaml({ id, type: type as ConnectionTypeName }),
 });
 

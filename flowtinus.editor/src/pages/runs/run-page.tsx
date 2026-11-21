@@ -125,9 +125,9 @@ function Header({ run }: { run: RunView }) {
                 <Link to={runInHistoryPath(run.id)} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
                     <History /> In history
                 </Link>
-                {run.projectId && run.workspaceSlug && (
+                {run.projectId && run.workspaceHandle && (
                     <Link
-                        to={flowPath(run.workspaceSlug, run.projectId, run.flowId)}
+                        to={flowPath(run.workspaceHandle, run.projectId, run.flowId)}
                         className={buttonVariants({ variant: 'outline', size: 'sm' })}
                     >
                         <Workflow /> Open flow

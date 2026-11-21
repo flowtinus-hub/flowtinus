@@ -1,4 +1,5 @@
 import { folderPath, type TreeContents } from '../folders/folder-tree';
+import { handleOf } from './handle';
 
 // 150 in the repo leaves 109 of Windows' 259 for the clone's own folder (C:\Users\<user>\source\repos\<repo>\)
 export const NAME_MAX = 64;
@@ -42,6 +43,9 @@ export function fileNameIssue(name: string, kind?: NameKind): string | undefined
     }
     if (kind === 'folder' && name.toLowerCase().endsWith(FLOW_FILE)) {
         return `A folder name cannot end in ${FLOW_FILE}`;
+    }
+    if (kind === 'project' && handleOf(name) === '') {
+        return 'No letter or digit (a-z, 0-9) to make its handle from';
     }
     return undefined;
 }

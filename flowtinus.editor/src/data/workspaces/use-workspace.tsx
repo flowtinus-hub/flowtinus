@@ -32,20 +32,20 @@ export function MeProvider({ children }: { children: ReactNode }) {
 /** the user and their workspaces; `reload` after creating, archiving or leaving one */
 export const useMe = () => useContext(MeContext);
 
-/** the slug of the page's workspace (its address' :ws) */
-export function useWorkspaceSlug(): string {
+/** the handle of the page's workspace (its address' :ws) */
+export function useWorkspaceHandle(): string {
     const { ws } = useParams();
     return ws ?? getCurrentWorkspace();
 }
 
 /** the page's workspace as the user is in it (name, role), once /me answered; and whether the user may change things */
-export function useWorkspace(): { slug: string; membership: Membership | null; canEdit: boolean; isAdmin: boolean } {
-    const slug = useWorkspaceSlug();
+export function useWorkspace(): { handle: string; membership: Membership | null; canEdit: boolean; isAdmin: boolean } {
+    const handle = useWorkspaceHandle();
     const { state } = useMe();
-    const membership = state.status === 'ready' ? (state.me.workspaces.find(w => w.slug === slug) ?? null) : null;
+    const membership = state.status === 'ready' ? (state.me.workspaces.find(w => w.handle === handle) ?? null) : null;
     // while /me loads, nothing is hidden (the api refuses what the role does not allow)
     const role = state.status === 'ready' ? membership?.role : 'admin';
-    return { slug, membership, canEdit: roleAtLeast(role, 'editor'), isAdmin: roleAtLeast(role, 'admin') };
+    return { handle, membership, canEdit: roleAtLeast(role, 'editor'), isAdmin: roleAtLeast(role, 'admin') };
 }
 
 const LAST_KEY = 'flowtinus.lastWorkspace';
@@ -59,9 +59,9 @@ export function lastWorkspace(): string | null {
     }
 }
 
-export function rememberWorkspace(slug: string) {
+export function rememberWorkspace(handle: string) {
     try {
-        localStorage.setItem(LAST_KEY, slug);
+        localStorage.setItem(LAST_KEY, handle);
     } catch {
         // private mode: / then goes to the list
     }
@@ -70,6 +70,6 @@ export function rememberWorkspace(slug: string) {
 /** the workspace in the menu: the page's, else the one last used (on the environment's pages: Runs, Workers) */
 export function useMenuWorkspace(workspaces: Membership[]): Membership | null {
     const { ws } = useParams();
-    const slug = ws ?? lastWorkspace();
-    return workspaces.find(w => w.slug === slug) ?? workspaces[0] ?? null;
+    const handle = ws ?? lastWorkspace();
+    return workspaces.find(w => w.handle === handle) ?? workspaces[0] ?? null;
 }

@@ -79,11 +79,11 @@ async function carryScripts(db: Database): Promise<void> {
         content: string;
         revision: number;
         updated_by: string | null;
-        slug: string;
+        handle: string;
         project: string;
         committed: string | null;
     }>(
-        `SELECT s.workspace_id, s.project_id, s.path, s.content, s.revision, s.updated_by, w.slug, p.name AS project, b.content AS committed
+        `SELECT s.workspace_id, s.project_id, s.path, s.content, s.revision, s.updated_by, w.handle, p.name AS project, b.content AS committed
        FROM scripts_carryover s
        JOIN workspaces w ON w.id = s.workspace_id
        JOIN projects p ON p.id = s.project_id
@@ -92,7 +92,7 @@ async function carryScripts(db: Database): Promise<void> {
     );
     for (const script of scripts.filter(s => s.content !== s.committed)) {
         await writeFile(db, script.workspace_id, {
-            path: repoPath.script(script.slug, script.project, script.path),
+            path: repoPath.script(script.handle, script.project, script.path),
             content: script.content,
             fileId: scriptFileId(script.project_id, script.path),
             userId: script.updated_by,

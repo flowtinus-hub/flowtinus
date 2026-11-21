@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -41,7 +41,7 @@ describe('a work branch removed on the remote while git was off', () => {
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
         await app.gitPoller.poll(id);
 
-        const at = (path: string) => `${slugOf(id)}/${path}`;
+        const at = (path: string) => `${workspaceHandleOf(id)}/${path}`;
         const handle = (await call('GET', '/me')).body.handle as string;
         const branch = `users/${handle}/work`;
         const label = async () =>

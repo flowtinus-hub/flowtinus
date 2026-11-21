@@ -151,8 +151,8 @@ export type RunView = {
     /** the flow's name when it was queued, its project, what started it and when */
     flowName?: string | null;
     projectId?: string | null;
-    /** the slug of its workspace */
-    workspaceSlug?: string;
+    /** the handle of its workspace */
+    workspaceHandle?: string;
     trigger?: 'manual' | 'webhook' | 'schedule' | 'api' | 'flow-invoker';
     queuedAt?: string;
     startedAt?: string | null;

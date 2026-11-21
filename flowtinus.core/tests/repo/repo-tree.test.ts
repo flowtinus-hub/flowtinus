@@ -25,7 +25,7 @@ const LOAD_ORDERS = flow('00000000-0000-4000-8000-00000000f001', [
         type: 'typescript',
         position: at(200),
         config: {
-            code: "import { total } from '@myproject/scripts/lib/totals';\nasync function process($input: Data) {\n  return $SECRETS.token + VARIABLES.region;\n}\n",
+            code: "import { total } from '@w/acme/sales/scripts/lib/totals';\nasync function process($input: Data) {\n  return $SECRETS.token + VARIABLES.region;\n}\n",
         },
     },
     { id: 'call', type: 'flow', position: at(300), config: { flowId: '00000000-0000-4000-8000-00000000f002' } },
@@ -152,7 +152,7 @@ describe('errors, which refuse the tree', () => {
         ]);
     });
 
-    test('a call to a flow that is not in the workspace, or to a script that is not in the project', () => {
+    test('a call to a flow that is not in the workspace, or to a script that is not in the workspace', () => {
         const LOAD_ORDERS_PATH = 'acme/projects/Sales/flows/Daily/Load orders.flow.yaml';
         expect(errorsOf({ [NOTIFY_PATH]: undefined })).toEqual([
             {
@@ -165,13 +165,41 @@ describe('errors, which refuse the tree', () => {
                 'acme/projects/Sales/scripts/lib/totals.ts': undefined,
                 'acme/projects/Billing/project.yaml': projectToYaml({ id: '00000000-0000-4000-8000-00000000b002', description: '' }),
                 'acme/projects/Billing/scripts/lib/totals.ts': 'export const total = 1;\n',
-                'acme/projects/Billing/scripts/lib/tax.ts': "import { rate } from '@myproject/scripts/lib/rates';\n",
+                'acme/projects/Billing/scripts/lib/tax.ts':
+                    "import { rate } from '@w/acme/billing/scripts/lib/rates';\nimport { total } from '@w/acme/billing/scripts/lib/totals';\n",
             }),
         ).toEqual([
-            { path: LOAD_ORDERS_PATH, message: 'Node "ts" uses the script "lib/totals", which is not in the project.' },
+            {
+                path: LOAD_ORDERS_PATH,
+                message: 'Node "ts" uses the script "@w/acme/sales/scripts/lib/totals", which is not in the workspace.',
+            },
             {
                 path: 'acme/projects/Billing/scripts/lib/tax.ts',
-                message: 'It imports the script "lib/rates", which is not in the project.',
+                message: 'It imports the script "@w/acme/billing/scripts/lib/rates", which is not in the workspace.',
+            },
+        ]);
+    });
+
+    test("a script of another project is found by the project's handle; one of an archived project or another workspace is not", () => {
+        const billing = {
+            'acme/projects/Billing Ops/project.yaml': projectToYaml({ id: '00000000-0000-4000-8000-00000000b002', description: '' }),
+            'acme/projects/Billing Ops/scripts/tax.ts': "import { total } from '@w/acme/sales/scripts/lib/totals';\n",
+        };
+        expect(errorsOf(billing)).toEqual([]);
+        const files = {
+            ...validTree(),
+            ...billing,
+            'acme/projects/Billing Ops/scripts/tax.ts':
+                "import '@w/acme/old-reports/scripts/x';\nimport '@w/other/sales/scripts/lib/totals';\n",
+        };
+        expect(validateWorkspaceTree({ workspace: W, files, environment: HERE, archivedProjects: ['Old Reports'] }).errors).toEqual([
+            {
+                path: 'acme/projects/Billing Ops/scripts/tax.ts',
+                message: 'It imports the script "@w/acme/old-reports/scripts/x", which is not in the workspace.',
+            },
+            {
+                path: 'acme/projects/Billing Ops/scripts/tax.ts',
+                message: 'It imports the script "@w/other/sales/scripts/lib/totals", which is not in the workspace.',
             },
         ]);
     });
@@ -183,6 +211,24 @@ describe('errors, which refuse the tree', () => {
                 message:
                     'Node "read" uses the connection "00000000-0000-4000-8000-00000000c001", which is not declared in acme/connections.',
             },
+        ]);
+    });
+
+    test('a project whose handle another project has, archived ones included, or whose name makes no handle', () => {
+        const project = (id: string) => projectToYaml({ id: `00000000-0000-4000-8000-00000000b00${id}`, description: '' });
+        const files = {
+            ...validTree(),
+            'acme/projects/sales!/project.yaml': project('2'),
+            'acme/projects/Old Reports/project.yaml': project('3'),
+            'acme/projects/!!!/project.yaml': project('4'),
+        };
+        expect(validateWorkspaceTree({ workspace: W, files, environment: HERE, archivedProjects: ['old-reports'] }).errors).toEqual([
+            {
+                path: 'acme/projects/!!!',
+                message: 'The project name "!!!" is not valid: No letter or digit (a-z, 0-9) to make its handle from.',
+            },
+            { path: 'acme/projects/sales!', message: 'The handle "sales" is taken by the project "Sales".' },
+            { path: 'acme/projects/Old Reports', message: 'The handle "old-reports" is taken by the archived project "old-reports".' },
         ]);
     });
 

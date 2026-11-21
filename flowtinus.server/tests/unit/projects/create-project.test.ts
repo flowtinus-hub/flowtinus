@@ -72,7 +72,7 @@ describe('create project', () => {
         expect(result.ok).toBe(false);
         if (!result.ok) {
             expect(result.error.code).toBe('conflict');
-            expect(result.error.fields).toEqual({ name: 'Already in use' });
+            expect(result.error.fields).toEqual({ name: 'Handle taken by "Sales"' });
         }
     });
 

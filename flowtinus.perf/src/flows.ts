@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { flowFromYaml, toExecutableFlow, type ConnectionProfileData, type ExecutableFlow, type FlowFile } from '@flowtinus/core';
+import { flowFromYaml, scriptImport, toExecutableFlow, type ConnectionProfileData, type ExecutableFlow, type FlowFile } from '@flowtinus/core';
 import { MONGO_URL, PACKAGE_ROOT, PERF_PORTS, SA_PASSWORD } from '#perf/stack';
 
 /*
@@ -79,9 +79,11 @@ export function executableFlows(
     return { main, flows };
 }
 
+export const PERF_WORKSPACE = 'perf';
+
 /**
- * The project scripts a scenario's TypeScript components import (`@myproject/scripts/<path>`): the files under
- * `scenarios/<id>/scripts/`, by their path without `.ts` ({path: code}), and each one's hash, as the server's worker
+ * The scripts a scenario's TypeScript components import (`@w/perf/scenario/scripts/<path>`): the files under
+ * `scenarios/<id>/scripts/`, by their import path ({importPath: code}), and each one's hash, as the server's worker
  * gets them (the hashes let it keep the bundle between runs, as a worker does). None: an empty map.
  */
 export function scenarioScripts(scenarioId: string): { scripts: Record<string, string>; scriptHashes: Record<string, string> } {
@@ -99,8 +101,8 @@ export function scenarioScripts(scenarioId: string): { scripts: Record<string, s
 
         const path = relative(root, join(root, name)).replaceAll('\\', '/').replace(/\.ts$/, '');
         const code = readFileSync(join(root, name), 'utf8');
-        scripts[path] = code;
-        scriptHashes[path] = new Bun.CryptoHasher('sha256').update(code).digest('hex');
+        scripts[scriptImport(PERF_WORKSPACE, 'scenario', path)] = code;
+        scriptHashes[scriptImport(PERF_WORKSPACE, 'scenario', path)] = new Bun.CryptoHasher('sha256').update(code).digest('hex');
     }
 
     return { scripts, scriptHashes };
