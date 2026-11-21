@@ -3,14 +3,14 @@ import { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';
 import tsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
-import { boundNames, SCRIPT_IMPORT_PREFIX, SCRIPT_MODULE_DIR, scriptImport, scriptImportLine, scriptImports, scriptModuleUri } from '@flowtinus/core';
+import { boundNames, SCRIPT_IMPORT_ROOT, scriptImportLine, scriptImportOfModule, scriptImports, scriptModuleUri } from '@flowtinus/core';
 import { loadScriptContent, projectScripts, useProjectScripts, watchScripts, type ProjectScripts, type ScriptEntry } from '@/data/scripts/scripts-store';
 
 /*
  * Monaco, set up once (bundled in, no CDN, with Vite's workers) for every code editor: a component's settings and the
- * project's Scripts tab. The project's scripts are models at file:///myproject/scripts/<path>.ts and
- * `@myproject/scripts/<path>` points there, so a TypeScript component (or a script) imports them with autocomplete,
- * errors and go to definition.
+ * project's Scripts tab. A script is a model at file:///w/<workspace>/<project>/scripts/<path>.ts and its import path,
+ * `@w/<workspace>/<project>/scripts/<path>`, points there, so a TypeScript component (or a script) imports it with
+ * autocomplete, errors and go to definition.
  */
 
 self.MonacoEnvironment = {
@@ -29,10 +29,10 @@ ts.typescriptDefaults.setCompilerOptions({
     allowNonTsExtensions: true,
     // each component is a module: two open TypeScript components do not fight over the process function
     moduleDetection: 3,
-    // the project's scripts by their path
+    // the scripts by their import path
     moduleResolution: ts.ModuleResolutionKind.NodeJs,
     baseUrl: 'file:///',
-    paths: { [`${SCRIPT_IMPORT_PREFIX}*`]: [`${SCRIPT_MODULE_DIR}/*`] },
+    paths: { [`${SCRIPT_IMPORT_ROOT}*`]: ['w/*'] },
 } as monaco.typescript.CompilerOptions);
 // the TypeScript worker sees every model, not only the ones open in an editor: the scripts a code imports are not open
 ts.typescriptDefaults.setEagerModelSync(true);
@@ -44,17 +44,10 @@ let currentScripts: ScriptEntry[] = [];
 /** the project the open editors are in (its scripts are the ones imported) */
 let currentProject = '';
 
-/** the script a model is, or null (a component's code) */
-const scriptPathOf = (model: monaco.editor.ITextModel) => {
-    const prefix = `file:///${SCRIPT_MODULE_DIR}/`;
-    const uri = model.uri.toString();
-    return uri.startsWith(prefix) ? uri.slice(prefix.length).replace(/\.ts$/, '') : null;
-};
-
-/** what a model may import: every name another script exports */
+/** what a model may import: every name another script exports, by its import path */
 const importable = (model: monaco.editor.ITextModel) => {
-    const own = scriptPathOf(model);
-    return currentScripts.filter(s => s.path !== own).flatMap(s => s.exports.map(e => ({ ...e, path: s.path })));
+    const own = scriptImportOfModule(model.uri.toString());
+    return currentScripts.filter(s => s.importPath !== own).flatMap(s => s.exports.map(e => ({ ...e, path: s.importPath })));
 };
 
 /** the edit that adds the import of `name` (after the imports at the top), or none when it is imported already */
@@ -92,9 +85,9 @@ monaco.languages.registerCompletionItemProvider('typescript', {
             suggestions: importable(model)
                 .filter(e => e.name.toLowerCase().startsWith(typed) && !bound.has(e.name))
                 .map(e => ({
-                    label: { label: e.name, description: scriptImport(e.path) },
+                    label: { label: e.name, description: e.path },
                     kind: e.typeOnly ? monaco.languages.CompletionItemKind.Interface : monaco.languages.CompletionItemKind.Function,
-                    detail: `Import from '${scriptImport(e.path)}'`,
+                    detail: `Import from '${e.path}'`,
                     insertText: e.name,
                     range,
                     additionalTextEdits: importEdit(model, e.path, e.name, e.typeOnly),
@@ -107,7 +100,7 @@ monaco.languages.registerCompletionItemProvider('typescript', {
 const MISSING_NAME = new Set([2304, 2552]);
 
 // TypeScript's own quick fixes go through the provider below: its "Add import" would take a relative path
-// ('./types', '../myproject/scripts/...'), which the runner does not resolve
+// ('./types', '../billing/scripts/...'), which the runner does not resolve
 ts.typescriptDefaults.setModeConfiguration({ ...ts.typescriptDefaults.modeConfiguration, codeActions: false });
 
 type TsTextChange = { span: { start: number; length: number }; newText: string };
@@ -158,7 +151,7 @@ async function typescriptFixes(model: monaco.editor.ITextModel, range: monaco.Ra
         }));
 }
 
-// the quick fixes: "Add import from '@myproject/scripts/...'" on a name a script exports, then TypeScript's own
+// the quick fixes: "Add import from '@w/...'" on a name a script exports, then TypeScript's own
 monaco.languages.registerCodeActionProvider('typescript', {
     async provideCodeActions(model, range, context) {
         const actions: monaco.languages.CodeAction[] = [];
@@ -173,7 +166,7 @@ monaco.languages.registerCodeActionProvider('typescript', {
                 const edits = importEdit(model, found.path, found.name, found.typeOnly);
                 if (edits.length) {
                     actions.push({
-                        title: `Add import from '${scriptImport(found.path)}'`,
+                        title: `Add import from '${found.path}'`,
                         kind: 'quickfix',
                         diagnostics: [marker],
                         isPreferred: true,
@@ -198,9 +191,10 @@ function loadImports(model: monaco.editor.ITextModel) {
     }
 
     const project = projectScripts(currentProject);
-    for (const path of scriptImports(model.getValue())) {
-        if (!project.contents[path] && project.scripts.some(s => s.path === path)) {
-            void loadScriptContent(currentProject, path);
+    for (const importPath of scriptImports(model.getValue())) {
+        const script = project.scripts.find(s => s.importPath === importPath);
+        if (script && !project.contents[script.path]) {
+            void loadScriptContent(currentProject, script.path);
         }
     }
 }
@@ -218,17 +212,21 @@ monaco.editor.onDidCreateModel(model => {
 /** the scripts' models as the page has them: one per script loaded, kept as typed, gone with the script */
 export function syncScriptModels(project: ProjectScripts) {
     currentScripts = project.scripts;
-    const listed = new Set(project.scripts.map(s => scriptModuleUri(s.path)));
+    const listed = new Set(project.scripts.map(s => scriptModuleUri(s.importPath)));
     for (const model of monaco.editor.getModels()) {
         const uri = model.uri.toString();
-        if (uri.startsWith(`file:///${SCRIPT_MODULE_DIR}/`) && !listed.has(uri)) {
+        if (scriptImportOfModule(uri) && !listed.has(uri)) {
             model.dispose();
         }
     }
 
     let created = false;
     for (const [path, content] of Object.entries(project.contents)) {
-        const uri = monaco.Uri.parse(scriptModuleUri(path));
+        const script = project.scripts.find(s => s.path === path);
+        if (!script) {
+            continue;
+        }
+        const uri = monaco.Uri.parse(scriptModuleUri(script.importPath));
         const model = monaco.editor.getModel(uri);
         if (!model) {
             monaco.editor.createModel(content.code, 'typescript', uri);

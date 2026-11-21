@@ -349,11 +349,7 @@ function ScriptNode({ data }: NodeProps<Node<ScriptData>>) {
                 role === 'faded' && 'opacity-25',
                 match && 'ring-2 ring-ring',
             )}
-            title={
-                script.known
-                    ? `@myproject/scripts/${script.path} · Click: its impact`
-                    : 'Not found: no script at this path, each import of it fails'
-            }
+            title={script.known ? `${script.path} · Click: its impact` : 'Not found: no script at this path, each import of it fails'}
         >
             <Handle id="in" type="target" position={Position.Left} className="opacity-0" isConnectable={false} />
             <Handle

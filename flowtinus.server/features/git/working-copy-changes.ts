@@ -1,5 +1,5 @@
 import { branchKind, editorOf, gitBranchNameError, refuseOffEditableBranch } from './current-branch';
-import { flowCalls, flowResources, flowScriptUses, repoEntry, repoFlowFromYaml, repoFlowToYaml, scriptImports, toExecutableFlow, type RepoEntry } from '@flowtinus/core';
+import { flowCalls, flowResources, flowScriptUses, handleOf, repoEntry, repoFlowFromYaml, repoFlowToYaml, scriptImport, scriptImports, toExecutableFlow, type RepoEntry } from '@flowtinus/core';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { saveBlob, scriptBlobs } from '#features/scripts/script-store';
 import { withUpdatedByName } from '#features/users/user-names';
@@ -77,12 +77,13 @@ export function itemsOf(rows: WorkingRow[], userId: string): Item[] {
 
 export const changeCount = (rows: WorkingRow[]) => itemsOf(rows, '').length;
 
-function projectScripts(files: RepoFiles, workspace: string, project: string): Map<string, string> {
+/** the scripts of the workspace in the files, by import path */
+function workspaceScripts(files: RepoFiles, workspace: string): Map<string, string> {
     const scripts = new Map<string, string>();
     for (const [path, text] of Object.entries(files)) {
         const entry = repoEntry(path);
-        if (entry.kind === 'script' && entry.workspace === workspace && entry.project === project) {
-            scripts.set(entry.path, text);
+        if (entry.kind === 'script' && entry.workspace === workspace) {
+            scripts.set(scriptImport(workspace, handleOf(entry.project), entry.path), text);
         }
     }
     return scripts;
@@ -120,7 +121,7 @@ function addRequirements(items: Item[], files: RepoFiles): void {
         if (content === null || (entry.kind !== 'flow' && entry.kind !== 'script')) {
             continue;
         }
-        const scripts = projectScripts(files, entry.workspace, entry.project);
+        const scripts = workspaceScripts(files, entry.workspace);
         let wanted: string[];
         if (entry.kind === 'flow') {
             const read = repoFlowFromYaml(content, entry.name);
@@ -154,8 +155,7 @@ function addRequirements(items: Item[], files: RepoFiles): void {
                     o.change !== 'deleted' &&
                     at.kind === 'script' &&
                     at.workspace === entry.workspace &&
-                    at.project === entry.project &&
-                    at.path === path
+                    scriptImport(at.workspace, handleOf(at.project), at.path) === path
                 );
             });
             require(item, script, `It imports the script ${path}`);

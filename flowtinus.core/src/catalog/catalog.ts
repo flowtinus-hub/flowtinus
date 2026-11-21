@@ -261,7 +261,7 @@ edges:
 
 const EXPRESSIONS = {
     language:
-        'JavaScript expressions evaluated on each envelope (no statements, no `return`). Keep each one short: a value, a condition, a small formula. Logic with helpers, several statements or validation (an IIFE such as `(() => { ... })()`) reads better in a TypeScript component, which can import project scripts, or a Script Invoker; validate_flow warns about it (a suggestion, not an error).',
+        'JavaScript expressions evaluated on each envelope (no statements, no `return`). Keep each one short: a value, a condition, a small formula. Logic with helpers, several statements or validation (an IIFE such as `(() => { ... })()`) reads better in a TypeScript component, which can import scripts of the workspace, or a Script Invoker; validate_flow warns about it (a suggestion, not an error).',
     variables: [
         '$<key>: a top-level key of the envelope DATA ($price, $customer.name, $items[0])',
         '$DATA: the whole DATA object',
@@ -297,7 +297,7 @@ export const FLOW_RULES: string[] = [
     'Every component type exists; each enabled component passes its own checks (required settings, names, SQL read only, and so on).',
     'Expressions compile (syntax only; unknown $variables are not an error, a key may come from upstream).',
     'Output keys and field names are valid names (letters, digits, _; not a reserved name).',
-    "A Flow Invoker calls a flow of the same project; scripts are the project's. Connection profiles and secrets are the workspace's: one it does not have yet (by id, or a dynamic connection name known before the run) is a warning, not an issue: the draft is saved, and the run fails at that component until a person creates it.",
+    "A Flow Invoker calls a flow of the same project; scripts are any project's of the workspace, by import path (`@w/<workspace>/<project>/scripts/<path>`). Connection profiles and secrets are the workspace's: one it does not have yet (by id, or a dynamic connection name known before the run) is a warning, not an issue: the draft is saved, and the run fails at that component until a person creates it.",
     "The Start's parameters have unique valid names and defaults of their type; its default input is valid JSON.",
     `Pinned outputs take at most ${MAX_PINNED_BYTES / 1024 ** 2} MB in all.`,
 ];
@@ -340,7 +340,7 @@ export function buildCatalog(): Catalog {
         components: catalogComponents(),
         start: {
             description:
-                "Where every flow begins (not deletable, only an output). Its config holds whether the flow accepts an input (a webhook body, a calling flow's envelope, a test run's input), the input a test run uses by default, its type (a project script's type, `path#Name`) and the flow's parameters ($PARAMETERS). Without an input it yields one empty envelope; an input object is one envelope, a list one per item.",
+                "Where every flow begins (not deletable, only an output). Its config holds whether the flow accepts an input (a webhook body, a calling flow's envelope, a test run's input), the input a test run uses by default, its type (a script's type, `<import path>#Name`) and the flow's parameters ($PARAMETERS). Without an input it yields one empty envelope; an input object is one envelope, a list one per item.",
             settings: START_SETTINGS.map(toSetting),
         },
         end: {

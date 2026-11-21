@@ -5,7 +5,7 @@ import { evaluate } from '../helpers';
 
 describe('the functions a script exports', () => {
     test('their parameters in order: type as written, optional (?, a default, rest), destructured ones named by position', () => {
-        const code = `import type { Item } from '@myproject/scripts/types';
+        const code = `import type { Item } from '@w/acme/billing/scripts/types';
 // export function commented(x: number) {}
 export async function upload(items: Item[], options?: { retries: number; onDone: (n: number) => void }, timeoutMs = 30_000) {}
 export function sum(...values: number[]): number { return 0; }
@@ -76,7 +76,7 @@ describe('Script Invoker', () => {
             return (a[0] as number) * (a[1] as number);
         });
         const config = {
-            function: 'math/ops#times',
+            function: '@w/acme/math/scripts/ops#times',
             arguments: args(
                 { name: 'n', type: 'number', value: '$n + 1', expression: true },
                 { name: 'by', type: 'number', value: '10', expression: false },
@@ -87,8 +87,8 @@ describe('Script Invoker', () => {
         expect(COMPONENTS.script!.validate(config)).toEqual([]);
         const r = await flowRunner(flow(config), { mode: 'execution', id: 'si', evaluate, prepareScript });
         expect(r.status).toBe('completed');
-        expect(prepared).toEqual([invokerCode('math/ops', 'times')]);
-        expect(prepared[0]).toContain("import { times as __flowtinusCalled } from '@myproject/scripts/math/ops';");
+        expect(prepared).toEqual([invokerCode('@w/acme/math/scripts/ops', 'times')]);
+        expect(prepared[0]).toContain("import { times as __flowtinusCalled } from '@w/acme/math/scripts/ops';");
         // empty: undefined (its default applies)
         expect(seen).toEqual([
             [2, 10, undefined, { debug: true }],
@@ -100,7 +100,7 @@ describe('Script Invoker', () => {
         ]);
     });
 
-    test('by path (expression): each envelope names the function (folders/script#function), prepared once per function; a bad path is its error', async () => {
+    test('by path (expression): each envelope names the function (import path#function), prepared once per function; a bad path is its error', async () => {
         const prepared: string[] = [];
         const prepareScript = async (code: string) => {
             prepared.push(code);
@@ -108,7 +108,7 @@ describe('Script Invoker', () => {
         };
         const config = {
             function: '$dynamic',
-            functionPath: { value: "$n === 1 ? 'math/ops#one' : 'math/ops#two'", expression: true },
+            functionPath: { value: "$n === 1 ? '@w/acme/math/scripts/ops#one' : '@w/acme/math/scripts/ops#two'", expression: true },
             arguments: args({ name: 'n', value: '$n', expression: true }),
         };
         expect(COMPONENTS.script!.validate({ function: '$dynamic' })).toEqual(['has no function path.']);
@@ -119,18 +119,20 @@ describe('Script Invoker', () => {
             { n: 1, result: 'one(1)' },
             { n: 2, result: 'two(2)' },
         ]);
-        expect(prepared).toEqual([invokerCode('math/ops', 'one'), invokerCode('math/ops', 'two')]);
-        const bad = await flowRunner(flow({ ...config, functionPath: { value: "'math/ops'", expression: true } }), {
+        expect(prepared).toEqual([invokerCode('@w/acme/math/scripts/ops', 'one'), invokerCode('@w/acme/math/scripts/ops', 'two')]);
+        const bad = await flowRunner(flow({ ...config, functionPath: { value: "'math/ops#one'", expression: true } }), {
             mode: 'execution',
             id: 'sp2',
             evaluate,
             prepareScript,
         });
-        expect(bad.error).toContain('The function path "math/ops" is not a script and a function: folders/script#function');
+        expect(bad.error).toContain(
+            'The function path "math/ops#one" is not a script and a function: @w/<workspace>/<project>/scripts/<path>#<function>',
+        );
     });
 
     test('with Override the result is the DATA; an exception is an error of the envelope', async () => {
-        const config = { function: 'math/ops#twice', arguments: args({ name: 'n', value: '$n', expression: true }) };
+        const config = { function: '@w/acme/math/scripts/ops#twice', arguments: args({ name: 'n', value: '$n', expression: true }) };
         const { prepareScript } = runner(n => [{ v: n }, { v: n }]);
         const r = await flowRunner(flow(config, true), { mode: 'execution', id: 'si2', evaluate, prepareScript });
         expect(r.components.find(c => c.nodeId === 's')!.outputSample['out-0']).toEqual([{ v: 1 }, { v: 1 }, { v: 2 }, { v: 2 }]);
@@ -155,18 +157,18 @@ describe('Script Invoker', () => {
     test('no function chosen: a configuration issue; the code it runs names the script (the run takes it, its uses list it)', () => {
         expect(COMPONENTS.script!.validate({})).toEqual(['has no function selected.']);
         expect(scriptCodeOf('script', {})).toBeUndefined();
-        expect(scriptCodeOf('script', { function: 'a/b#c' })).toBe(invokerCode('a/b', 'c'));
+        expect(scriptCodeOf('script', { function: '@w/a/b/scripts/c#d' })).toBe(invokerCode('@w/a/b/scripts/c', 'd'));
         expect(scriptCodeOf('typescript', { code: 'x' })).toBe('x');
         expect(scriptCodeOf('mapper', {})).toBeUndefined();
-        const uses = flowScriptUses([{ ...flow({ function: 'math/ops#times' }), id: 'f1' }]);
-        expect(uses).toEqual([{ from: 'f1', path: 'math/ops', nodeId: 's', nodeLabel: 'Add', how: 'import' }]);
+        const uses = flowScriptUses([{ ...flow({ function: '@w/acme/math/scripts/ops#times' }), id: 'f1' }]);
+        expect(uses).toEqual([{ from: 'f1', path: '@w/acme/math/scripts/ops', nodeId: 's', nodeLabel: 'Add', how: 'import' }]);
         expect(
             componentSummary('script', {
-                function: 'math/ops#times',
+                function: '@w/acme/math/scripts/ops#times',
                 arguments: args({ name: 'n', value: '$n', expression: true }, { name: 'by', value: '', expression: false }),
             }),
         ).toEqual([
-            { title: 'Function', lines: [{ value: 'times (math/ops)', code: false }] },
+            { title: 'Function', lines: [{ value: 'times (@w/acme/math/scripts/ops)', code: false }] },
             { title: 'Arguments', lines: [{ label: 'n', value: '$n', code: true }] },
         ]);
     });

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { ANA, insertWorkspace, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import type { RunRecord } from '@flowtinus/core';
 import { followRunEvents } from '#features/runs/run-events';
 import { Keyring } from '#shared/crypto/keyring';
@@ -23,6 +23,7 @@ describe('scripts api', () => {
     let stopFollowing: () => Promise<void>;
     let projectId: string;
     const workspaceId = crypto.randomUUID();
+    const P = `@w/${workspaceHandleOf(workspaceId)}/scripts/scripts/`;
     const headers = { 'x-user-id': ANA, 'content-type': 'application/json' };
     const call = async (method: string, path: string, body?: unknown) => {
         const response = await app.request(wsPath(workspaceId, path), {
@@ -71,7 +72,12 @@ describe('scripts api', () => {
         const list = await scripts();
         expect(list.scripts.map(s => [s.path, s.revision, s.exports])).toEqual([['upload/types', 0, [{ name: 'a', typeOnly: false }]]]);
         expect(list.folders).toEqual(['empty', 'empty/inner', 'upload']);
-        expect(await content('upload/types')).toEqual({ path: 'upload/types', content: 'export const a = 1;', revision: 0 });
+        expect(await content('upload/types')).toEqual({
+            path: 'upload/types',
+            importPath: `${P}upload/types`,
+            content: 'export const a = 1;',
+            revision: 0,
+        });
         expect((await call('GET', `/projects/${projectId}/scripts/content?path=nope`)).status).toBe(404);
         const huge = await call('POST', `/projects/${projectId}/scripts`, {
             kind: 'script',
@@ -120,7 +126,7 @@ describe('scripts api', () => {
         });
         const flowId = (await call('POST', `/projects/${projectId}/flows`, { name: 'Uses a script', folderId: null })).body.id as string;
         const draft = (await call('GET', `/flows/${flowId}/draft`)).body as { flow: Record<string, unknown> };
-        const code = `import { double, type IItem } from '@myproject/scripts/upload/types';
+        const code = `import { double, type IItem } from '${P}upload/types';
 async function process($input: IItem) {
   log('doubling ' + $input.n);
   return double($input);
@@ -155,8 +161,8 @@ async function process($input: IItem) {
         const id = (await call('POST', `/flows/${flowId}/runs`, { mode: 'validation' })).body.id;
         // only the script it imports went with the run, by the hash of its code
         const [queued] = await db.query<{ scripts: Record<string, string> }>('SELECT scripts FROM test_runs WHERE id = $1', [id]);
-        expect(Object.keys(queued!.scripts)).toEqual(['upload/types']);
-        expect(queued!.scripts['upload/types']).toMatch(/^[0-9a-f]{64}$/);
+        expect(Object.keys(queued!.scripts)).toEqual([`${P}upload/types`]);
+        expect(queued!.scripts[`${P}upload/types`]).toMatch(/^[0-9a-f]{64}$/);
         // changed right after: the run keeps what it was queued with
         await call('PUT', `/projects/${projectId}/scripts/content`, {
             path: 'upload/types',
@@ -206,7 +212,7 @@ async function process($input: IItem) {
                         label: 'Shape',
                         position: { x: 160, y: 0 },
                         config: {
-                            code: `import { x } from '@myproject/scripts/missing/one';\nasync function process($input) { return x; }`,
+                            code: `import { x } from '${P}missing/one';\nasync function process($input) { return x; }`,
                         },
                     },
                     { id: 'end', type: 'end', position: { x: 320, y: 0 }, config: {} },
@@ -220,7 +226,7 @@ async function process($input: IItem) {
         const refused = await call('POST', `/flows/${flowId}/runs`, { mode: 'validation' });
         expect(refused.status).toBe(400);
         expect((refused.body.error as { message: string }).message).toBe(
-            'The flow cannot run: "Shape" imports @myproject/scripts/missing/one, which does not exist.',
+            `The flow cannot run: "Shape" imports ${P}missing/one, which does not exist.`,
         );
     });
 
@@ -249,7 +255,7 @@ async function process($input: IItem) {
                         type: 'script',
                         position: { x: 160, y: 0 },
                         config: {
-                            function: 'pricing/total#withVat',
+                            function: `${P}pricing/total#withVat`,
                             arguments: [
                                 { name: 'net', type: 'number', value: '$net', expression: true },
                                 { name: 'rate', type: '', value: '', expression: false },
@@ -271,7 +277,7 @@ async function process($input: IItem) {
 
         const id = (await call('POST', `/flows/${flowId}/runs`, { mode: 'validation' })).body.id;
         const [queued] = await db.query<{ scripts: Record<string, string> }>('SELECT scripts FROM test_runs WHERE id = $1', [id]);
-        expect(Object.keys(queued!.scripts)).toEqual(['pricing/total']);
+        expect(Object.keys(queued!.scripts)).toEqual([`${P}pricing/total`]);
         let record: RunRecord | null = null;
         for (let i = 0; i < 200 && !record; i++) {
             const run = await call('GET', `/runs/${id}`);
@@ -310,7 +316,7 @@ async function process($input: IItem) {
                     position: { x: 160, y: 0 },
                     config: {
                         function: '$dynamic',
-                        functionPath: { value: "'text/' + 'case#shout'", expression: true },
+                        functionPath: { value: `'${P}text/' + 'case#shout'`, expression: true },
                         arguments: [{ name: 's', value: '$word', expression: true }],
                     },
                 },
@@ -348,7 +354,7 @@ async function process($input: IItem) {
         });
         // a flow of the project whose script is gone does not stop the run: only a call to it would fail
         expect(queued!.called_flows.find(c => c.path === 'Uses a script')?.unavailable).toContain('which does not exist');
-        expect(Object.keys(queued!.scripts).sort()).toEqual((await scripts()).scripts.map(s => s.path).sort());
+        expect(Object.keys(queued!.scripts).sort()).toEqual((await scripts()).scripts.map(s => `${P}${s.path}`).sort());
         let record: RunRecord | null = null;
         for (let i = 0; i < 200 && !record; i++) {
             const run = await call('GET', `/runs/${id}`);
@@ -358,5 +364,81 @@ async function process($input: IItem) {
 
         expect(record!.status).toBe('completed');
         expect(record!.components.find(c => c.nodeId === 'call')!.outputSample['out-0']).toEqual([{ word: 'hi', result: 'HI!' }]);
+    });
+
+    test("the editor's Run imports a script of another project by its import path, as it is being edited; an archived project's or another workspace's is not one", async () => {
+        const ws = workspaceHandleOf(workspaceId);
+        const shared = (await call('POST', '/projects', { name: 'Shared Lib' })).body.id as string;
+        const old = (await call('POST', '/projects', { name: 'Old Lib' })).body.id as string;
+        await call('POST', `/projects/${shared}/scripts`, {
+            kind: 'script',
+            path: 'math/round',
+            content: `export const round = (n: number) => Math.round(n);\n`,
+        });
+        await call('POST', `/projects/${projectId}/scripts`, {
+            kind: 'script',
+            path: 'prices',
+            content: `import { round } from '@w/${ws}/shared-lib/scripts/math/round';\nexport const price = (n: number) => round(n * 1.5);\n`,
+        });
+        await call('POST', `/projects/${old}/scripts`, { kind: 'script', path: 'gone', content: 'export const x = 1;' });
+        await call('POST', `/projects/${old}/archive`);
+        const flowOf = async (name: string, code: string) => {
+            const id = (await call('POST', `/projects/${projectId}/flows`, { name, folderId: null })).body.id as string;
+            const draft = (await call('GET', `/flows/${id}/draft`)).body as { flow: Record<string, unknown> };
+            await call('PUT', `/flows/${id}/draft`, {
+                revision: 0,
+                flow: {
+                    ...draft.flow,
+                    nodes: [
+                        { id: 'start', type: 'start', position: { x: 0, y: 0 }, config: { acceptsInput: true, testInput: '[{"n": 3}]' } },
+                        { id: 'ts', type: 'typescript', label: 'Price', position: { x: 160, y: 0 }, config: { code } },
+                        { id: 'end', type: 'end', position: { x: 320, y: 0 }, config: {} },
+                    ],
+                    edges: [
+                        { source: 'start', sourcePort: 'out-0', target: 'ts', targetPort: 'in-0' },
+                        { source: 'ts', sourcePort: 'out-0', target: 'end', targetPort: 'in-0' },
+                    ],
+                },
+            });
+            return call('POST', `/flows/${id}/runs`, { mode: 'validation' });
+        };
+        const finished = async (id: unknown) => {
+            for (let i = 0; i < 200; i++) {
+                const run = await call('GET', `/runs/${id}`);
+                if (run.body.status !== 'queued' && run.body.status !== 'running') {
+                    return run.body.record as RunRecord;
+                }
+                await new Promise(resolve => setTimeout(resolve, 20));
+            }
+            throw new Error('the run did not end');
+        };
+
+        const ran = await flowOf(
+            'Cross project',
+            `import { price } from '${P}prices';\nasync function process($input) { return price($input.n); }`,
+        );
+        const [queued] = await db.query<{ scripts: Record<string, string> }>('SELECT scripts FROM test_runs WHERE id = $1', [ran.body.id]);
+        expect(Object.keys(queued!.scripts).sort()).toEqual([`${P}prices`, `@w/${ws}/shared-lib/scripts/math/round`]);
+        const record = await finished(ran.body.id);
+        expect(record.status).toBe('completed');
+        expect(record.components.find(c => c.nodeId === 'ts')!.outputSample['out-0']).toEqual([{ n: 3, result: 5 }]);
+
+        const archived = await flowOf(
+            'Archived import',
+            `import { x } from '@w/${ws}/old-lib/scripts/gone';\nasync function process() { return x; }`,
+        );
+        expect((archived.body.error as { message: string }).message).toBe(
+            `The flow cannot run: "Price" imports @w/${ws}/old-lib/scripts/gone, which does not exist.`,
+        );
+
+        const foreign = await flowOf(
+            'Foreign import',
+            `import { x } from '@w/elsewhere/shared-lib/scripts/math/round';\nasync function process() { return x; }`,
+        );
+        const refused = await finished(foreign.body.id);
+        expect(refused.status).toBe('failed');
+        expect(refused.error).toContain(
+            `"@w/elsewhere/shared-lib/scripts/math/round" cannot be imported: only scripts of this workspace (@w/${ws}/<project>/scripts/<path>).`,
+        );
     });
 });

@@ -8,20 +8,23 @@ import { OpenInNewTab } from './open-in-new-tab';
 import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
 /*
- * A Script Invoker's settings: the function it calls (one a project script exports, `path#name`) and its arguments,
+ * A Script Invoker's settings: the function it calls (one a project script exports, `<import path>#name`) and its arguments,
  * one row per parameter of that function, in its order (the call passes them by position).
  */
 
 const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 
-/** the functions the project's scripts export (`export function`), grouped by script, as `path#name` */
+/** the functions the project's scripts export (`export function`), grouped by script, as `<import path>#name` */
 export function ScriptFunctionPicker({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
     const ws = useWorkspaceHandle();
     const { projectId } = useContext(ProjectResourcesContext);
     const project = useProjectScripts(projectId);
-    const functions = project.scripts.flatMap(s => s.exports.filter(e => e.function).map(e => ({ path: s.path, name: e.name })));
+    const functions = project.scripts.flatMap(s =>
+        s.exports.filter(e => e.function).map(e => ({ path: s.path, importPath: s.importPath, name: e.name })),
+    );
     const chosen = inputTypeRef(value);
-    const missing = chosen && !functions.some(f => f.path === chosen.path && f.name === chosen.name);
+    const chosenScript = chosen && project.scripts.find(s => s.importPath === chosen.path);
+    const missing = chosen && !functions.some(f => f.importPath === chosen.path && f.name === chosen.name);
     // one chosen here (not by expression) opens its script in a new tab from the button beside it
     const open = chosen && !missing && value !== DYNAMIC_TARGET;
     return (
@@ -35,27 +38,30 @@ export function ScriptFunctionPicker({ id, value, onChange }: { id: string; valu
                         {functions
                             .filter(f => f.path === path)
                             .map(f => (
-                                <option key={f.name} value={`${f.path}#${f.name}`}>
+                                <option key={f.name} value={`${f.importPath}#${f.name}`}>
                                     {f.name}
                                 </option>
                             ))}
                     </optgroup>
                 ))}
             </select>
-            {open && <OpenInNewTab href={scriptPath(ws, projectId, chosen.path)} label={`Open ${chosen.path} in a new tab`} />}
+            {open && chosenScript && (
+                <OpenInNewTab href={scriptPath(ws, projectId, chosenScript.path)} label={`Open ${chosenScript.path} in a new tab`} />
+            )}
         </div>
     );
 }
 
 export type CalledFunction = { status: 'loading' } | { status: 'missing' } | { status: 'ready'; fn: ExportedFunction };
 
-/** the function `path#name` names, read from its script (loaded when needed, read again when it changes) */
+/** the function `<import path>#name` names, read from its script (loaded when needed, read again when it changes) */
 export function useScriptFunction(ref: string): CalledFunction {
     const { projectId } = useContext(ProjectResourcesContext);
     const project = useProjectScripts(projectId);
     const target = inputTypeRef(ref);
-    const path = target?.path ?? '';
-    const known = !!target && project.scripts.some(s => s.path === target.path);
+    const script = target && project.scripts.find(s => s.importPath === target.path);
+    const path = script?.path ?? '';
+    const known = !!script;
     useEffect(() => {
         if (path && known) {
             void loadScriptContent(projectId, path);
@@ -64,7 +70,7 @@ export function useScriptFunction(ref: string): CalledFunction {
     if (!target || (project.status === 'ready' && !known)) {
         return { status: 'missing' };
     }
-    const code = project.contents[target.path]?.code;
+    const code = project.contents[path]?.code;
     if (code === undefined) {
         return { status: 'loading' };
     }

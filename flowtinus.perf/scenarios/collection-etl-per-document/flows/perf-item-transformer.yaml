@@ -28,7 +28,7 @@ nodes:
       y: 0
     config:
       code: |
-        import { mapItemEntity } from '@myproject/scripts/Shared/ItemEntity';
+        import { mapItemEntity } from '@w/perf/scenario/scripts/Shared/ItemEntity';
         async function process($input: Data) {
           return mapItemEntity($input, $PARAMETERS.etlContextId);
         }

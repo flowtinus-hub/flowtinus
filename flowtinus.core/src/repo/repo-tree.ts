@@ -3,7 +3,7 @@ import { toExecutableFlow, type FlowFile } from '../flows/flow-file';
 import { flowResources } from '../flows/flow-resources';
 import { fileNameIssue, nameKey, REPO_PATH_MAX, type NameKind } from '../names/file-name';
 import { handleOf, handleTakenMessage } from '../names/handle';
-import { scriptPathIssue } from '../scripts/script-path';
+import { scriptImport, scriptPathIssue } from '../scripts/script-path';
 import { flowCalls, flowScriptUses, scriptLinks } from '../validation/flow-dependencies';
 import { connectionFromYaml, isRepoId, projectFromYaml, repoFlowFromYaml, workspaceFromYaml, type RepoFileResult } from './repo-files';
 import { repoEntry } from './repo-layout';
@@ -95,12 +95,7 @@ export function validateWorkspaceTree({ workspace, files, environment, archivedP
     };
 
     const flows: { path: string; project: string; flow: FlowFile }[] = [];
-    const projectScripts = new Map<string, Map<string, { path: string; content: string }>>();
-    const scriptsOf = (project: string) => {
-        const scripts = projectScripts.get(project) ?? new Map<string, { path: string; content: string }>();
-        projectScripts.set(project, scripts);
-        return scripts;
-    };
+    const scripts = new Map<string, { path: string; content: string }>();
 
     const workspaceFile = `${workspace}/workspace.yaml`;
     if (!(workspaceFile in files)) {
@@ -187,7 +182,7 @@ export function validateWorkspaceTree({ workspace, files, environment, archivedP
             }
         } else if (entry.kind === 'script') {
             checkScriptPath(path, entry.path);
-            scriptsOf(entry.project).set(entry.path, { path, content: text });
+            scripts.set(scriptImport(workspace, handleOf(entry.project), entry.path), { path, content: text });
         } else if (entry.kind === 'scriptFolder') {
             checkScriptPath(path, entry.path);
         } else if (entry.kind === 'unknown') {
@@ -225,8 +220,8 @@ export function validateWorkspaceTree({ workspace, files, environment, archivedP
         for (const call of flowCalls([executable]).filter(c => !ids.flow.has(c.to))) {
             errors.push({ path, message: `Node "${call.nodeId}" calls the flow "${call.to}", which is not in the workspace.` });
         }
-        for (const use of flowScriptUses([executable]).filter(u => !scriptsOf(project).has(u.path))) {
-            errors.push({ path, message: `Node "${use.nodeId}" uses the script "${use.path}", which is not in the project.` });
+        for (const use of flowScriptUses([executable]).filter(u => !scripts.has(u.path))) {
+            errors.push({ path, message: `Node "${use.nodeId}" uses the script "${use.path}", which is not in the workspace.` });
         }
         for (const node of flow.nodes) {
             for (const id of flowResources({ ...flow, nodes: [node] }).connectionIds.filter(id => !ids.connection.has(id))) {
@@ -244,13 +239,11 @@ export function validateWorkspaceTree({ workspace, files, environment, archivedP
             warnings.push({ path, message: `The variable "${name}" has no value on this server.` });
         }
     }
-    for (const scripts of projectScripts.values()) {
-        for (const link of scriptLinks([...scripts].map(([path, s]) => ({ path, content: s.content }))).filter(l => !scripts.has(l.to))) {
-            errors.push({
-                path: scripts.get(link.from)!.path,
-                message: `It imports the script "${link.to}", which is not in the project.`,
-            });
-        }
+    for (const link of scriptLinks([...scripts].map(([path, s]) => ({ path, content: s.content }))).filter(l => !scripts.has(l.to))) {
+        errors.push({
+            path: scripts.get(link.from)!.path,
+            message: `It imports the script "${link.to}", which is not in the workspace.`,
+        });
     }
     return { errors, warnings };
 }

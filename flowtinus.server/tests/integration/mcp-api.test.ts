@@ -450,7 +450,7 @@ describe('MCP (/mcp)', () => {
         });
 
         const read = await mcp.call('get_script', { projectId, path: 'pricing/tax' });
-        expect(read.body).toMatchObject({ content: code, revision: 0 });
+        expect(read.body).toMatchObject({ content: code, revision: 0, importPath: `@w/${ws}/agents/scripts/pricing/tax` });
 
         const saved = await mcp.call('save_script', {
             projectId,
@@ -462,7 +462,13 @@ describe('MCP (/mcp)', () => {
         expect(
             (await mcp.call('save_script', { projectId, path: 'pricing/tax', content: code, expectedRevision: 0 })).body.error,
         ).toMatchObject({ code: 'conflict', currentRevision: 1 });
-        expect((await mcp.call('list_scripts', { projectId })).body.scripts.map((s: { path: string }) => s.path)).toEqual(['pricing/tax']);
+        expect((await mcp.call('list_scripts', { projectId })).body.scripts).toEqual([
+            {
+                path: 'pricing/tax',
+                importPath: `@w/${ws}/agents/scripts/pricing/tax`,
+                exports: [expect.objectContaining({ name: 'total' })],
+            },
+        ]);
     });
 
     test('a token without the scope: forbidden, naming it', async () => {

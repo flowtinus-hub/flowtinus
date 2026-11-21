@@ -7,8 +7,8 @@ import { loadScriptContent, useProjectScripts } from '@/data/scripts/scripts-sto
 import { ProjectResourcesContext } from './project-resources';
 
 /*
- * A Start's input typed by a project script's type. The picker lists the types (never functions or values) the
- * project's scripts export; with one chosen, the default input is a form of that type (the core reads the type:
+ * A Start's input typed by a project script's type (`<import path>#Name`). The picker lists the types (never functions
+ * or values) the project's scripts export; with one chosen, the default input is a form of that type (the core reads the type:
  * scriptTypeShape), kept in sync with its JSON, which is what is stored and what a test run sends. A run whose input
  * does not fit the type does not start (the server checks it).
  */
@@ -16,13 +16,15 @@ import { ProjectResourcesContext } from './project-resources';
 const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 const INPUT = 'h-8 w-full min-w-0 rounded-md border bg-transparent px-2 text-sm';
 
-/** the types a project's scripts export, to pick one as `path#Name` (empty: none, the input is plain JSON) */
+/** the types a project's scripts export, to pick one as `<import path>#Name` (empty: none, the input is plain JSON) */
 export function ScriptTypePicker({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
     const { projectId } = useContext(ProjectResourcesContext);
     const project = useProjectScripts(projectId);
-    const types = project.scripts.flatMap(s => s.exports.filter(e => e.typeOnly).map(e => ({ path: s.path, name: e.name })));
+    const types = project.scripts.flatMap(s =>
+        s.exports.filter(e => e.typeOnly).map(e => ({ path: s.path, importPath: s.importPath, name: e.name })),
+    );
     const chosen = inputTypeRef(value);
-    const missing = chosen && !types.some(t => t.path === chosen.path && t.name === chosen.name);
+    const missing = chosen && !types.some(t => t.importPath === chosen.path && t.name === chosen.name);
     return (
         <select id={id} value={value} className={SELECT} onChange={event => onChange(event.target.value)}>
             <option value="">None (JSON)</option>
@@ -32,7 +34,7 @@ export function ScriptTypePicker({ id, value, onChange }: { id: string; value: s
                     {types
                         .filter(t => t.path === path)
                         .map(t => (
-                            <option key={t.name} value={`${t.path}#${t.name}`}>
+                            <option key={t.name} value={`${t.importPath}#${t.name}`}>
                                 {t.name}
                             </option>
                         ))}
@@ -46,9 +48,13 @@ export function ScriptTypePicker({ id, value, onChange }: { id: string; value: s
 export function useTypeShape(typeRef: string): { shape: TypeShape | null; loading: boolean } {
     const { projectId } = useContext(ProjectResourcesContext);
     const project = useProjectScripts(projectId);
+    // by import path, as code imports them
     const sources = useMemo(
-        () => Object.fromEntries(Object.entries(project.contents).map(([path, content]) => [path, content.code])),
-        [project.contents],
+        () =>
+            Object.fromEntries(
+                project.scripts.flatMap(s => (project.contents[s.path] ? [[s.importPath, project.contents[s.path]!.code]] : [])),
+            ),
+        [project.scripts, project.contents],
     );
     // what is still to load: the type's script, then whatever the loaded ones import
     const wanted = useMemo(() => {
@@ -62,7 +68,7 @@ export function useTypeShape(typeRef: string): { shape: TypeShape | null; loadin
             scriptImports(code).forEach(path => paths.add(path));
         }
 
-        return [...paths].filter(path => !(path in sources) && project.scripts.some(s => s.path === path));
+        return project.scripts.filter(s => paths.has(s.importPath) && !(s.importPath in sources)).map(s => s.path);
     }, [typeRef, sources, project]);
     useEffect(() => {
         wanted.forEach(path => void loadScriptContent(projectId, path));

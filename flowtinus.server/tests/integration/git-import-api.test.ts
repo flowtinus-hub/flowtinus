@@ -44,7 +44,7 @@ function sampleTree(handle: string) {
             type: 'typescript',
             position: at(200),
             config: {
-                code: "import { total } from '@myproject/scripts/lib/totals';\nasync function process($input: Data) {\n  return $SECRETS.token + VARIABLES.region;\n}\n",
+                code: `import { total } from '@w/${handle}/sales/scripts/lib/totals';\nasync function process($input: Data) {\n  return $SECRETS.token + VARIABLES.region;\n}\n`,
             },
         },
         { id: 'call', type: 'flow', position: at(300), config: { flowId: ids.notify } },
@@ -212,7 +212,7 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
             Object.fromEntries(
                 Object.entries(files).map(([path, text]) => [
                     path.replace('/Sales/', `/${decomposed}/`).replace('/Daily/', `/${decomposed}/`),
-                    text,
+                    text.replace('/sales/scripts/', '/cafe/scripts/'),
                 ]),
             ),
         );

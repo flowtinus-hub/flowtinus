@@ -14,7 +14,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { workingScripts, writeScript } from './script-store';
+import { importPathIn, scriptScope, workingScripts, writeScript } from './script-store';
 
 export type ScriptState = { changed: boolean; conflict?: string };
 
@@ -51,21 +51,27 @@ export async function changedImports(db: Database, workspaceId: string, projectI
     if (!states) {
         return [];
     }
-    const contents = new Map((await workingScripts(db, workspaceId, projectId)).map(s => [s.path, s.content]));
+    const scope = await scriptScope(db, workspaceId);
+    const pathOf = new Map((await workingScripts(db, workspaceId, projectId)).map(s => [importPathIn(scope, projectId, s.path), s]));
     const seen = new Set<string>();
     const queue = flow.nodes.flatMap(n => scriptImports(scriptCodeOf(n.type, n.config) ?? ''));
     while (queue.length > 0) {
         const path = queue.shift()!;
-        if (!seen.has(path) && contents.has(path)) {
+        if (!seen.has(path) && pathOf.has(path)) {
             seen.add(path);
-            queue.push(...scriptImports(contents.get(path)!));
+            queue.push(...scriptImports(pathOf.get(path)!.content));
         }
     }
-    return [...seen].filter(path => states.get(path)?.changed).sort();
+    return [...seen]
+        .map(path => pathOf.get(path)!.path)
+        .filter(path => states.get(path)?.changed)
+        .sort();
 }
 
 export async function rewriteMovedScript(ctx: UseCaseContext, projectId: string, from: string, to: string): Promise<void> {
     const { db, workspaceId } = ctx;
+    const scope = await scriptScope(db, workspaceId);
+    [from, to] = [importPathIn(scope, projectId, from), importPathIn(scope, projectId, to)];
     for (const script of await workingScripts(db, workspaceId, projectId)) {
         const content = movedScriptImports(script.content, from, to);
         if (content !== script.content) {

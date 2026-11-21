@@ -28,8 +28,8 @@ nodes:
       y: 0
     config:
       code: |
-        import { latestSnapshots } from '@myproject/scripts/Shared/SnapshotBatch';
-        import { transformerRoutes } from '@myproject/scripts/Shared/TransformerRoutes';
+        import { latestSnapshots } from '@w/perf/scenario/scripts/Shared/SnapshotBatch';
+        import { transformerRoutes } from '@w/perf/scenario/scripts/Shared/TransformerRoutes';
         async function process($input: Data) {
           if (typeof $input.collectionName !== 'string' || !Array.isArray($input.snapshots) || $input.snapshots.length > 500 || !$PARAMETERS.targetSchema || !$PARAMETERS.etlContextId) {
             throw new Error('A valid collection, a page of at most 500 snapshots, a target schema and a context are required');

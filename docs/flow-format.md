@@ -41,7 +41,7 @@ Inputs are in-0, in-1... and outputs out-0, out-1... in the order the component 
 
 ## The Start
 
-Where every flow begins (not deletable, only an output). Its config holds whether the flow accepts an input (a webhook body, a calling flow's envelope, a test run's input), the input a test run uses by default, its type (a project script's type, `path#Name`) and the flow's parameters ($PARAMETERS). Without an input it yields one empty envelope; an input object is one envelope, a list one per item.
+Where every flow begins (not deletable, only an output). Its config holds whether the flow accepts an input (a webhook body, a calling flow's envelope, a test run's input), the input a test run uses by default, its type (a script's type, `<import path>#Name`) and the flow's parameters ($PARAMETERS). Without an input it yields one empty envelope; an input object is one envelope, a list one per item.
 
 | Key                     | Label                | Kind        | Required | Default  | Notes                                                    |
 | ----------------------- | -------------------- | ----------- | -------- | -------- | -------------------------------------------------------- |
@@ -76,7 +76,7 @@ A Flow Invoker's flowId (or a Script Invoker's function) set to '$dynamic' takes
 
 ## Expressions
 
-JavaScript expressions evaluated on each envelope (no statements, no `return`). Keep each one short: a value, a condition, a small formula. Logic with helpers, several statements or validation (an IIFE such as `(() => { ... })()`) reads better in a TypeScript component, which can import project scripts, or a Script Invoker; validate_flow warns about it (a suggestion, not an error).
+JavaScript expressions evaluated on each envelope (no statements, no `return`). Keep each one short: a value, a condition, a small formula. Logic with helpers, several statements or validation (an IIFE such as `(() => { ... })()`) reads better in a TypeScript component, which can import scripts of the workspace, or a Script Invoker; validate_flow warns about it (a suggestion, not an error).
 
 - $<key>: a top-level key of the envelope DATA ($price, $customer.name, $items[0])
 - $DATA: the whole DATA object
@@ -115,7 +115,7 @@ What `validate_flow` (and every run) checks:
 - Every component type exists; each enabled component passes its own checks (required settings, names, SQL read only, and so on).
 - Expressions compile (syntax only; unknown $variables are not an error, a key may come from upstream).
 - Output keys and field names are valid names (letters, digits, _; not a reserved name).
-- A Flow Invoker calls a flow of the same project; scripts are the project's. Connection profiles and secrets are the workspace's: one it does not have yet (by id, or a dynamic connection name known before the run) is a warning, not an issue: the draft is saved, and the run fails at that component until a person creates it.
+- A Flow Invoker calls a flow of the same project; scripts are any project's of the workspace, by import path (`@w/<workspace>/<project>/scripts/<path>`). Connection profiles and secrets are the workspace's: one it does not have yet (by id, or a dynamic connection name known before the run) is a warning, not an issue: the draft is saved, and the run fails at that component until a person creates it.
 - The Start's parameters have unique valid names and defaults of their type; its default input is valid JSON.
 - Pinned outputs take at most 2 MB in all.
 
@@ -241,7 +241,7 @@ The project's `id`, and its `description`, `icon` and `color`, each optional.
 
 ### A flow
 
-`flows/<folder>/<flow name>.flow.yaml` is the flow file described above, with three differences: it has the flow's `id` (required); it has no `name`, which is the file name without `.flow.yaml`; it has no `pinned` outputs, which are test data and stay on the server. It may say `deployed: false` when the flow is not deployed; absent means `true`. A flow names the connections and the flows it calls by id, and scripts by path.
+`flows/<folder>/<flow name>.flow.yaml` is the flow file described above, with three differences: it has the flow's `id` (required); it has no `name`, which is the file name without `.flow.yaml`; it has no `pinned` outputs, which are test data and stay on the server. It may say `deployed: false` when the flow is not deployed; absent means `true`. A flow names the connections and the flows it calls by id, and scripts by import path (`@w/<workspace handle>/<project handle>/scripts/<path>`, the project's handle made from its folder's name).
 
 The server writes a flow once it has been deployed: the deployed version, or, after an undeploy, the version deployed last with `deployed: false`. A draft never reaches the repository, and an archived flow, folder or project leaves it.
 
@@ -261,7 +261,7 @@ A deploy makes a new version only when what the engine runs changed. A version's
 
 ### Validation of a tree
 
-The app checks a whole workspace tree before applying it (`validateWorkspaceTree` in the core). An error refuses the tree whole, with the reasons listed: a file that is not valid YAML or does not match its schema (an unknown key included); an `id` missing, not a UUID in lower case, or in two files of a kind; a `workspace.yaml` or a `project.yaml` missing; an edge to a node that does not exist; a call to a flow that is not in the workspace or to a script that is not in the project; a connection a flow uses and the workspace does not declare; a name breaking the rule above or a path too long; two names that differ only in case or Unicode normalization. A warning does not: a declared connection not configured on this server; a secret or variable a flow reads with no value on this server; a comment in a flow file; a repository without `.gitattributes`; a file that is not part of the format (it is left out).
+The app checks a whole workspace tree before applying it (`validateWorkspaceTree` in the core). An error refuses the tree whole, with the reasons listed: a file that is not valid YAML or does not match its schema (an unknown key included); an `id` missing, not a UUID in lower case, or in two files of a kind; a `workspace.yaml` or a `project.yaml` missing; an edge to a node that does not exist; a call to a flow that is not in the workspace or to a script that is not in the workspace (an import path of another workspace or of an archived project included); a connection a flow uses and the workspace does not declare; a name breaking the rule above or a path too long; two names that differ only in case or Unicode normalization. A warning does not: a declared connection not configured on this server; a secret or variable a flow reads with no value on this server; a comment in a flow file; a repository without `.gitattributes`; a file that is not part of the format (it is left out).
 
 ### JSON Schemas
 

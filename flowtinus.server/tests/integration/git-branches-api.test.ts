@@ -228,7 +228,7 @@ describe('every head of the remote, read as a branch', () => {
     });
 
     test('a test run on a work branch takes its flow, the flows it calls and the scripts from that branch', async () => {
-        const { call, userHandle, push, poll } = await workspace();
+        const { call, handle, userHandle, push, poll } = await workspace();
         await db.query(`INSERT INTO supervisors (id, tags, workers, host) VALUES ($1, '{default}', 1, 'test')`, [crypto.randomUUID()]);
         const calleeId = crypto.randomUUID();
         const callerId = crypto.randomUUID();
@@ -240,7 +240,7 @@ describe('every head of the remote, read as a branch', () => {
                 id: 'ts',
                 type: 'typescript',
                 position: { x: 160, y: 0 },
-                config: { code: "import { value } from '@myproject/scripts/util';" },
+                config: { code: `import { value } from '@w/${handle}/sales/scripts/util';` },
             },
             { id: 'call', type: 'flow', position: { x: 160, y: 80 }, config: { flowId: calleeId } },
         );
@@ -272,7 +272,7 @@ describe('every head of the remote, read as a branch', () => {
         expect(run!.called_flows.map(c => [c.id, c.name, Boolean(c.flow)])).toEqual([[calleeId, 'Callee', true]]);
         const [blob] = await db.query<{ content: string }>('SELECT content FROM script_blobs WHERE workspace_id = $1 AND hash = $2', [
             (await db.query<{ id: string }>('SELECT workspace_id AS id FROM test_runs WHERE id = $1', [started.body.id]))[0]!.id,
-            run!.scripts.util,
+            run!.scripts[`@w/${handle}/sales/scripts/util`],
         ]);
         expect(blob!.content).toBe('export const value = 2;\n');
         expect((await call('GET', `/flows/${callerId}/last-run`)).status).toBe(200);

@@ -2,10 +2,10 @@ import { COMPONENT_TYPE, CONNECTION_KEY, componentSettings, DYNAMIC_CONNECTION, 
 import { eq } from 'drizzle-orm';
 import { connections as connectionsTable } from '#features/connections/connection';
 import { loadTree } from '#features/folders/project-tree';
-import { branchScripts, branchTree, workBranch } from '#features/git/branch-read';
+import { branchTree, workBranch } from '#features/git/branch-read';
 import { secrets as secretsTable } from '#features/secrets/secret';
 import { variables as variablesTable } from '#features/variables/variable';
-import { listScripts } from '#features/scripts/script-store';
+import { scriptContents } from '#features/scripts/script-store';
 import { evaluate } from '#shared/runner/evaluate';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 
@@ -71,11 +71,8 @@ export async function projectIssues(ctx: UseCaseContext, projectId: string, flow
             .select({ name: variablesTable.name, value: variablesTable.value })
             .from(variablesTable)
             .where(eq(variablesTable.workspaceId, ctx.workspaceId)),
-        branch ? null : listScripts(ctx.db, ctx.workspaceId, projectId),
+        scriptContents(ctx.db, ctx.workspaceId, branch ? { branch } : 'editing'),
     ]);
-    const scripts = listed ?? {
-        scripts: branchScripts(branch!, projectId).map(s => ({ path: s.path, exports: scriptExports(s.content) })),
-    };
     const connectionById = new Map(connections.map(c => [c.id, c]));
     // by id or by name (whatever the case), as the run finds a dynamic one
     const profiles: Record<string, ConnectionProfileData> = Object.fromEntries(
@@ -84,7 +81,7 @@ export async function projectIssues(ctx: UseCaseContext, projectId: string, flow
     const secretNames = new Set(secrets.map(s => s.name));
     const variableValues = Object.fromEntries(variables.map(v => [v.name, v.value]));
     const parameters = defaultParameters(flow);
-    const exportsOf = new Map(scripts.scripts.map(s => [s.path, new Set((s.exports ?? []).map(e => e.name))]));
+    const exportsOf = new Map(listed.map(s => [s.path, new Set(scriptExports(s.content).map(e => e.name))]));
 
     const issues: FlowIssue[] = [];
     const warnings: FlowIssue[] = [];
@@ -165,7 +162,7 @@ export async function projectIssues(ctx: UseCaseContext, projectId: string, flow
         const code = typeof node.config.code === 'string' && node.type === COMPONENT_TYPE.typescript ? node.config.code : '';
         for (const path of scriptImports(code)) {
             if (!exportsOf.has(path)) {
-                issue('code', `imports the script ${path}, which this project does not have (list_scripts lists them).`);
+                issue('code', `imports the script ${path}, which this workspace does not have (list_scripts lists a project's).`);
             }
         }
         const refs: [string, unknown][] =
@@ -184,7 +181,7 @@ export async function projectIssues(ctx: UseCaseContext, projectId: string, flow
             }
             const names = exportsOf.get(ref.path);
             if (!names) {
-                issue(key, `names the script ${ref.path}, which this project does not have (list_scripts lists them).`);
+                issue(key, `names the script ${ref.path}, which this workspace does not have (list_scripts lists a project's).`);
             } else if (!names.has(ref.name)) {
                 issue(key, `names ${ref.name}, which the script ${ref.path} does not export.`);
             }

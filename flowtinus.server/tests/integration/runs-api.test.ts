@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { ANA, BIA, insertWorkspace, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import type { HttpRequest, HttpResponse, RunRecord } from '@flowtinus/core';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -448,7 +448,7 @@ describe('runs api', () => {
             [
                 node('start', 'start', {
                     acceptsInput: true,
-                    inputType: 'calls/types#Item',
+                    inputType: `@w/${workspaceHandleOf(workspaceId)}/runs/scripts/calls/types#Item`,
                     parameters: [{ name: 'times', type: 'number', default: '1' }],
                 }),
                 node('m', 'mapper', { fields: [{ target: 'total', value: '$n * $PARAMETERS.times', expression: true }] }, 200),
@@ -1022,7 +1022,7 @@ describe('runs api, queued runs', () => {
                     ],
                 },
             });
-        const typed = { acceptsInput: true, inputType: 'orders/types#Order' };
+        const typed = { acceptsInput: true, inputType: `@w/${workspaceHandleOf(workspaceId)}/typed/scripts/orders/types#Order` };
         expect((await draft({ ...typed, testInput: JSON.stringify({ id: '7', status: 'lost', items: [{ sku: 'A' }] }) }, 0)).status).toBe(
             200,
         );
@@ -1054,7 +1054,7 @@ describe('runs api, queued runs', () => {
             content: 'export const nothing = 1;',
         });
         expect(((await call('POST', `/flows/${flowId}/runs`, { mode: 'validation' })).body.error as { message: string }).message).toBe(
-            "The Start's input type Order no longer exists in the script orders/types.",
+            `The Start's input type Order no longer exists in the script @w/${workspaceHandleOf(workspaceId)}/typed/scripts/orders/types.`,
         );
 
         // a flow that takes no input: an input given is refused
