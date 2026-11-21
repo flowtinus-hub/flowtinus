@@ -19,6 +19,7 @@ export type ScheduleView = {
     cron: string;
     timezone: string;
     enabled: boolean;
+    arrivedDisabled: boolean;
     misfire: MisfireMode;
     parameters: Record<string, string>;
     input?: unknown;
@@ -36,6 +37,7 @@ type Row = {
     cron: string;
     timezone: string;
     enabled: boolean;
+    arrived_disabled: boolean;
     misfire: MisfireMode;
     parameters: Record<string, string>;
     input: unknown;
@@ -48,7 +50,7 @@ type Row = {
     updated_by: string | null;
 };
 
-const SELECT = `SELECT s.id, s.flow_id, s.cron, s.timezone, s.enabled, s.misfire, s.parameters, s.input, s.next_fire_at, s.last_fired_at,
+const SELECT = `SELECT s.id, s.flow_id, s.cron, s.timezone, s.enabled, s.arrived_disabled, s.misfire, s.parameters, s.input, s.next_fire_at, s.last_fired_at,
        s.last_run_id, r.status AS last_status, s.last_error, s.created_at, s.updated_by
   FROM flow_schedules s LEFT JOIN runs r ON r.id = s.last_run_id`;
 
@@ -58,6 +60,7 @@ const toView = (row: Row): ScheduleView => ({
     cron: row.cron,
     timezone: row.timezone,
     enabled: row.enabled,
+    arrivedDisabled: row.arrived_disabled,
     misfire: row.misfire,
     parameters: row.parameters ?? {},
     ...(row.input !== null && row.input !== undefined ? { input: row.input } : {}),
@@ -72,16 +75,16 @@ const toView = (row: Row): ScheduleView => ({
 });
 
 export async function listFlowSchedules(db: Database, workspaceId: string, flowId: string): Promise<ScheduleView[]> {
-    const rows = await db.query<Row>(`${SELECT} WHERE s.workspace_id = $1 AND s.flow_id = $2 ORDER BY s.created_at, s.id`, [
-        workspaceId,
-        flowId,
-    ]);
+    const rows = await db.query<Row>(
+        `${SELECT} WHERE s.workspace_id = $1 AND s.flow_id = $2 AND s.archived_at IS NULL ORDER BY s.created_at, s.id`,
+        [workspaceId, flowId],
+    );
     return withUpdatedByName(db, rows.map(toView));
 }
 
 export async function findSchedule(db: Database, workspaceId: string, id: string): Promise<(ScheduleView & { projectId: string }) | null> {
     const [row] = await db.query<Row & { project_id: string }>(
-        `${SELECT.replace('SELECT s.id', 'SELECT s.project_id, s.id')} WHERE s.workspace_id = $1 AND s.id = $2`,
+        `${SELECT.replace('SELECT s.id', 'SELECT s.project_id, s.id')} WHERE s.workspace_id = $1 AND s.id = $2 AND s.archived_at IS NULL`,
         [workspaceId, id],
     );
     return row ? { ...toView(row), projectId: row.project_id } : null;
@@ -120,7 +123,8 @@ export async function saveSchedule(
     } else {
         await db.query(
             `UPDATE flow_schedules SET cron = $5, timezone = $6, enabled = $7, misfire = $8, parameters = $9::text::jsonb,
-         input = $10::text::jsonb, next_fire_at = $11, updated_by = $12, updated_at = now(), last_error = NULL
+         input = $10::text::jsonb, next_fire_at = $11, updated_by = $12, updated_at = now(), last_error = NULL,
+         arrived_disabled = arrived_disabled AND NOT $7
        WHERE id = $1 AND workspace_id = $2 AND project_id = $3 AND flow_id = $4`,
             values,
         );
@@ -136,7 +140,7 @@ export async function scheduleCounts(
 ): Promise<Map<string, { total: number; on: number }>> {
     const rows = await db.query<{ flow_id: string; total: number | string; on: number | string }>(
         `SELECT flow_id, count(*) AS total, count(*) FILTER (WHERE enabled) AS "on" FROM flow_schedules
-     WHERE workspace_id = $1 AND project_id = $2 GROUP BY flow_id`,
+     WHERE workspace_id = $1 AND project_id = $2 AND archived_at IS NULL GROUP BY flow_id`,
         [workspaceId, projectId],
     );
     return new Map(rows.map(r => [r.flow_id, { total: Number(r.total), on: Number(r.on) }]));

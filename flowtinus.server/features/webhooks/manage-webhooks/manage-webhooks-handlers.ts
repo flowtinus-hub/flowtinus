@@ -8,7 +8,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { findWebhook, listFlowWebhooks, newToken, WebhookFieldsInput, type WebhookView } from '../webhooks';
+import { findWebhook, listFlowWebhooks, newToken, switchWebhook, WebhookFieldsInput, type WebhookView } from '../webhooks';
 
 const Id = z.object({ id: z.uuid('Invalid') });
 
@@ -57,8 +57,8 @@ export class CreateWebhookHandler implements UseCaseHandler<{ webhook: WebhookVi
     }
 }
 
-export class UpdateWebhookHandler implements UseCaseHandler<WebhookView> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<WebhookView>> {
+export class UpdateWebhookHandler implements UseCaseHandler<WebhookView & { token?: string }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<WebhookView & { token?: string }>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
             return denied;
@@ -71,11 +71,42 @@ export class UpdateWebhookHandler implements UseCaseHandler<WebhookView> {
 
         const { name, enabled, response } = parsed.value.fields;
         const [updated] = await ctx.db.query<{ id: string }>(
-            `UPDATE flow_webhooks SET name = $3, enabled = $4, response = $5, updated_by = $6, updated_at = now()
-       WHERE workspace_id = $1 AND id = $2 RETURNING id`,
-            [ctx.workspaceId, parsed.value.id, name, enabled, response, ctx.userId],
+            `UPDATE flow_webhooks SET name = $3, response = $4, updated_by = $5, updated_at = now()
+       WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id`,
+            [ctx.workspaceId, parsed.value.id, name, response, ctx.userId],
         );
-        return updated ? success((await findWebhook(ctx.db, ctx.workspaceId, updated.id))!) : fail('not-found', 'Webhook not found.');
+        if (!updated) {
+            return fail('not-found', 'Webhook not found.');
+        }
+
+        const minted = await switchWebhook(ctx.db, ctx, updated.id, enabled);
+        return success({ ...(await findWebhook(ctx.db, ctx.workspaceId, updated.id))!, ...minted });
+    }
+}
+
+export class SwitchWebhookHandler implements UseCaseHandler<{ webhook: WebhookView; token?: string }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ webhook: WebhookView; token?: string }>> {
+        const denied = requireRole(ctx, 'editor');
+        if (denied) {
+            return denied;
+        }
+
+        const parsed = validate(z.object({ id: z.uuid('Invalid'), enabled: z.boolean() }), input);
+        if (!parsed.ok) {
+            return parsed;
+        }
+
+        const { id, enabled } = parsed.value;
+        const webhook = await findWebhook(ctx.db, ctx.workspaceId, id);
+        if (!webhook) {
+            return fail('not-found', 'Webhook not found.');
+        }
+        if (enabled && !(await currentDeployment(ctx.db, ctx.workspaceId, webhook.flowId))) {
+            return fail('validation', 'Deploy the flow first: a webhook runs its deployed version.');
+        }
+
+        const minted = await switchWebhook(ctx.db, ctx, id, enabled);
+        return success({ webhook: (await findWebhook(ctx.db, ctx.workspaceId, id))!, ...minted });
     }
 }
 
@@ -94,7 +125,8 @@ export class NewWebhookTokenHandler implements UseCaseHandler<{ webhook: Webhook
 
         const { token, hash, hint } = newToken();
         const [updated] = await ctx.db.query<{ id: string }>(
-            `UPDATE flow_webhooks SET token_hash = $3, token_hint = $4, updated_by = $5, updated_at = now() WHERE workspace_id = $1 AND id = $2 RETURNING id`,
+            `UPDATE flow_webhooks SET token_hash = $3, token_hint = $4, updated_by = $5, updated_at = now()
+       WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL RETURNING id`,
             [ctx.workspaceId, parsed.value.id, hash, hint, ctx.userId],
         );
         return updated

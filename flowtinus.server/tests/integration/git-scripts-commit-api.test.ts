@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
-import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
+import { commitAll, commitFiles, createBranch, git, webhookInGit } from '../helpers/git-repos';
 import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -109,7 +109,7 @@ describe('scripts reach the branch through a Commit', () => {
     });
 
     test("the scripts page's Commit takes the changed scripts to the branch, and deployed runs then import them", async () => {
-        const { id, call, scripts, create, save, listed, flow, show, scriptFile, tip, lastMessage } = await newWorkspace();
+        const { id, call, repo, scripts, create, save, listed, flow, show, scriptFile, tip, lastMessage } = await newWorkspace();
         await create('lib/prices', 'export const value = 1;');
         await create('lib/other', 'export const value = 10;');
         expect(await listed()).toEqual([
@@ -118,11 +118,11 @@ describe('scripts reach the branch through a Commit', () => {
         ]);
         const orders = await flow('Orders', 'lib/prices');
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
-        const { webhook, token } = (await call('POST', `/flows/${orders}/webhooks`, { name: 'Shop' })).body;
+        const { id: webhook, token } = await webhookInGit(call, repo, orders);
         const deployedRun = async () => {
             // the worker seen just now: a long run of the suite would leave the one inserted at the start lost
             await db.query('UPDATE supervisors SET last_seen = now()');
-            const response = await app.request(`/wh/${webhook.id}`, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
+            const response = await app.request(`/wh/${webhook}`, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
             const [run] = await db.query<{ scripts: Record<string, string> }>('SELECT scripts FROM runs WHERE id = $1', [
                 ((await response.json()) as { runId: string }).runId,
             ]);

@@ -275,7 +275,7 @@ export async function undeployArchived(db: Database, ctx: Actor, flowIds: string
     }
 }
 
-async function turnOffTriggers(db: Database, ctx: Actor, flowIds: string[]): Promise<void> {
+export async function turnOffTriggers(db: Database, ctx: Actor, flowIds: string[]): Promise<void> {
     const schedules = await db.query<{ flow_id: string }>(
         `UPDATE flow_schedules SET enabled = false, next_fire_at = NULL, updated_by = $3, updated_at = now()
      WHERE workspace_id = $1 AND flow_id = ANY($2::uuid[]) AND enabled RETURNING flow_id`,
