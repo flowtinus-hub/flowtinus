@@ -2,7 +2,7 @@ import { branchDraft, branchFlow, branchTree, workBranch } from '#features/git/b
 import { z } from 'zod';
 import { COMPONENT_TYPE, callCycles, flowCalls, flowScriptUses, folderPath, isFolderVisible, scriptLinks, toExecutableFlow, type FlowCall, type ScriptUse } from '@flowtinus/core';
 import { loadDraft } from '#features/flows/flow-draft';
-import { importPathIn, scriptContents, scriptScope } from '#features/scripts/script-store';
+import { editingSource, importPathIn, scriptContents, scriptScope } from '#features/scripts/script-store';
 import { loadTree } from '#features/folders/project-tree';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -59,7 +59,7 @@ export class GetFlowCallsHandler implements UseCaseHandler<FlowCallsResponse> {
             const draft = branch ? branchDraft(branchFlow(branch, row.id)!).flow : (await loadDraft(ctx.db, ctx.workspaceId, row)).flow;
             active.push(toExecutableFlow(draft, project.value.name));
         }
-        const source = branch ? { branch } : 'editing';
+        const source = editingSource(branch);
         const scope = await scriptScope(ctx.db, ctx.workspaceId, source);
         const prefix = importPathIn(scope, parsed.value.projectId, '');
         // the project's own scripts by their path, another project's by their import path

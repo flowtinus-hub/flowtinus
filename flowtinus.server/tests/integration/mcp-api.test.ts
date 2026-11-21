@@ -159,6 +159,16 @@ describe('MCP (/mcp)', () => {
         );
         const missing = await mcp.call('validate_flow', { projectId, yaml: refs });
         expect(missing.body.issues).toContainEqual(expect.objectContaining({ nodeId: 'call', settingKey: 'flowId' }));
+        const foreign = flowYaml().replace(
+            '  - { id: end, type: end',
+            `  - { id: ts, type: typescript, position: { x: 600, y: 200 }, config: { code: "import { x } from '@w/elsewhere/lib/scripts/x';" } }
+  - { id: end, type: end`,
+        );
+        expect((await mcp.call('validate_flow', { projectId, yaml: foreign })).body.issues).toContainEqual({
+            nodeId: 'ts',
+            settingKey: 'code',
+            message: `"typescript": imports the script @w/elsewhere/lib/scripts/x: only scripts of this workspace (@w/${ws}/<project>/scripts/<path>).`,
+        });
     });
 
     /** the flow file with an HTTP Request before the End: by a profile's id, or by the name an expression gives */

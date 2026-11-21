@@ -1,4 +1,5 @@
 import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, newFlowFile, projectToYaml, repoFlowFromYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile } from '@flowtinus/core';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { loadTree } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
 import { bestRows, scriptFileId, workingRows } from './working-copy';
@@ -37,8 +38,8 @@ export const committedFlowText = (flowId: string, inRepo: Pick<FlowInRepo, 'defi
 export type Tree = { files: RepoFiles; ids: Record<string, string> };
 
 export async function exportTree(db: Database, workspaceId: string, mode: 'working' | 'committed' = 'working'): Promise<Tree> {
-    const [[workspace], connections, projects, flowVersions, deployedScripts, scriptFolders, rows] = await Promise.all([
-        db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [workspaceId]),
+    const [workspace, connections, projects, flowVersions, deployedScripts, scriptFolders, rows] = await Promise.all([
+        workspaceHandleIn(db, workspaceId),
         db.query<{ id: string; name: string; type: ConnectionTypeName }>(
             'SELECT id, name, type FROM connections WHERE workspace_id = $1 AND deleted_at IS NULL',
             [workspaceId],
@@ -58,7 +59,7 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
         ]),
         workingRows(db, workspaceId),
     ]);
-    const handle = workspace!.handle;
+    const handle = workspace;
     const versions = new Map(flowVersions.map(v => [v.flow_id, v]));
     const best = bestRows(rows);
     const files: RepoFiles = {

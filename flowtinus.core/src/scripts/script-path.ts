@@ -41,6 +41,9 @@ export const scriptImportPrefix = (workspace: string, project: string) => `${SCR
 
 export const scriptImport = (workspace: string, project: string, path: string) => `${scriptImportPrefix(workspace, project)}${path}`;
 
+export const onlyThisWorkspace = (workspace: string) =>
+    `only scripts of this workspace (${scriptImport(workspace, '<project>', '<path>')}).`;
+
 export function scriptAddress(importPath: string): ScriptAddress | null {
     const match = /^@w\/([^/]+)\/([^/]+)\/scripts\/(.+)$/.exec(importPath);
     return match ? { workspace: match[1]!, project: match[2]!, path: match[3]! } : null;

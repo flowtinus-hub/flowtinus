@@ -1,5 +1,5 @@
 import vm from 'node:vm';
-import { rethrow, scriptAddress, SCRIPT_IMPORT_ROOT, toError, type PrepareScript } from '@flowtinus/core';
+import { onlyThisWorkspace, rethrow, scriptAddress, SCRIPT_IMPORT_ROOT, toError, type PrepareScript } from '@flowtinus/core';
 import { bundleFrame, originalPosition, type SourceMap } from './source-position';
 
 /*
@@ -58,7 +58,7 @@ export async function bundleScript(code: string, scripts: Record<string, string>
                                 return { path: 'component.ts', namespace: 'flowtinus' };
                             }
 
-                            const only = `only scripts of this workspace (${SCRIPT_IMPORT_ROOT}${workspace || '<workspace>'}/<project>/scripts/<path>).`;
+                            const only = onlyThisWorkspace(workspace || '<workspace>');
                             const address = scriptAddress(args.path);
                             if (workspace && address && address.workspace !== workspace) {
                                 throw new Error(`"${args.path}" cannot be imported: ${only}`);

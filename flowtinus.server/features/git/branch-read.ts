@@ -1,4 +1,5 @@
 import { connectionFromYaml, isRepoId, projectFromYaml, repoEntry, repoFlowFromYaml, type ConnectionTypeName, type FlowFile, type RepoFlow } from '@flowtinus/core';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { activeFlow } from '#features/deployments/deployments';
 import type { Flow } from '#features/flows/flow';
 import type { FlowDraft } from '#features/flows/flow-draft';
@@ -61,11 +62,6 @@ function cachedTip(key: string, load: () => Promise<Tip>): Promise<Tip> {
     return loading;
 }
 
-async function workspaceHandleOf(ctx: UseCaseContext): Promise<string> {
-    const [row] = await ctx.db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [ctx.workspaceId]);
-    return row!.handle;
-}
-
 export async function onClone<T>(ctx: UseCaseContext, what: string, work: (remote: GitRemote) => Promise<T>): Promise<T> {
     const config = await readGitConfig(ctx.db, ctx.workspaceId);
     if (!config || !ctx.git) {
@@ -100,7 +96,7 @@ function readTip(ctx: UseCaseContext, branch: string, sha: string, handle: strin
 }
 
 export async function filesAt(ctx: UseCaseContext, branch: string, sha: string): Promise<RepoFiles> {
-    return (await readTip(ctx, branch, sha, await workspaceHandleOf(ctx))).files;
+    return (await readTip(ctx, branch, sha, await workspaceHandleIn(ctx.db, ctx.workspaceId))).files;
 }
 
 function readFlow(tip: Tip, path: string, text: string, name: string): RepoFlow | null {
@@ -148,7 +144,7 @@ async function readWorkBranch(ctx: UseCaseContext): Promise<WorkBranch | null> {
         throw new UseCaseFailure('conflict', `The branch ${branch} is not in the repository: pick another branch.`);
     }
 
-    const handle = await workspaceHandleOf(ctx);
+    const handle = await workspaceHandleIn(ctx.db, ctx.workspaceId);
     const [tip, rows, editor] = await Promise.all([
         readTip(ctx, branch, head.sha, handle),
         workingRows(ctx.db, ctx.workspaceId, branch),

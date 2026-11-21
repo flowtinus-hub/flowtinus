@@ -12,7 +12,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { allFolders, deleteScriptPath, getScript, importPathIn, listScripts, moveScriptPath, newPathIssue, scriptScope, scriptUsage, writeScript, type ScriptEntry, type ScriptUsage } from './script-store';
+import { allFolders, deleteScriptPath, getScript, importPathIn, listScripts, moveScriptPath, newPathIssue, editingScope, scriptUsage, writeScript, type ScriptEntry, type ScriptUsage } from './script-store';
 
 const projectId = z.uuid('Invalid');
 const path = z.string().transform(normalizeScriptPath);
@@ -36,7 +36,7 @@ export class ListScriptsHandler implements UseCaseHandler<ScriptsView> {
         }
 
         const branch = await workBranch(ctx);
-        const scope = await scriptScope(ctx.db, ctx.workspaceId, branch ? { branch } : 'editing');
+        const scope = await editingScope(ctx, branch);
         const importPath = (path: string) => importPathIn(scope, parsed.value.projectId, path);
         if (branch) {
             const states = await scriptStates(ctx.db, ctx.workspaceId, parsed.value.projectId, branch.branch);
@@ -277,7 +277,7 @@ export class GetScriptHandler implements UseCaseHandler<ScriptView> {
         if (!script) {
             return fail('not-found', 'Script not found.');
         }
-        const scope = await scriptScope(ctx.db, ctx.workspaceId, branch ? { branch } : 'editing');
+        const scope = await editingScope(ctx, branch);
         return success({ ...script, importPath: importPathIn(scope, parsed.value.projectId, script.path) });
     }
 }

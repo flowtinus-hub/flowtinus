@@ -1,4 +1,5 @@
 import { inArray } from 'drizzle-orm';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { connectionFromYaml, isRepoId, nameKey, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type WorkspaceTree } from '@flowtinus/core';
 import { ConnectionRepository } from '#features/connections/connection-store';
 import { contentHash, currentDeployment, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, undeployArchived, type Actor } from '#features/deployments/deployments';
@@ -549,7 +550,7 @@ async function importScripts(
                 row.path,
             ]);
         }
-        const handle = (await db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [workspaceId]))[0]!.handle;
+        const handle = await workspaceHandleIn(db, workspaceId);
         const names = new Map([...projectIds].map(([name, id]) => [id, name]));
         for (const [fileId, script] of inTree) {
             const path = repoPath.script(handle, names.get(script.projectId)!, script.path);
