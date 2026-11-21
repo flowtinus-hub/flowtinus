@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { nextTime } from '@flowtinus/core';
-import { currentDeployment } from '#features/deployments/deployments';
+import { refuseUndeployed } from '#features/deployments/deployments';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -27,8 +27,9 @@ export class SwitchScheduleHandler implements UseCaseHandler<ScheduleView> {
         if (!schedule) {
             return fail('not-found', 'Schedule not found.');
         }
-        if (enabled && !(await currentDeployment(ctx.db, ctx.workspaceId, schedule.flowId))) {
-            return fail('validation', 'Deploy the flow first: only a deployed flow runs on a schedule.');
+        const undeployed = enabled && (await refuseUndeployed(ctx.db, ctx.workspaceId, schedule.flowId, 'schedule'));
+        if (undeployed) {
+            return undeployed;
         }
 
         await ctx.db.query(

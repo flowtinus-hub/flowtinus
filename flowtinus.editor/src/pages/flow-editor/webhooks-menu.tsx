@@ -12,7 +12,7 @@ import type { FlowVersion } from '@/data/deployments/deployment';
 import { WEBHOOK_RESPONSE_OPTIONS, webhookCurl, webhookMethods, webhookUrl, type Webhook, type WebhookFields } from '@/data/webhooks/webhook';
 import { createWebhook, deleteWebhook, listWebhooks, regenerateToken, switchWebhook, updateWebhook } from '@/data/webhooks/webhooks-api';
 import { TRIGGERS_SWITCHED } from '@/data/git/git-api';
-import { ArrivedBadge, useTriggersChanged } from './use-triggers-changed';
+import { useTriggersChanged } from './use-triggers-changed';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
@@ -60,7 +60,6 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
     useTriggersChanged(load);
 
     const active = items.filter(w => w.enabled).length;
-    const arrived = items.filter(w => w.arrivedDisabled).length;
     // a flow whose Start takes no input may be called with GET too
     const acceptsInput = deployed ? startConfig(deployed.definition.nodes.find(n => n.type === START)?.config ?? {}).acceptsInput : true;
     const methods = webhookMethods(acceptsInput);
@@ -109,13 +108,7 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
                 size="sm"
                 className="bg-card shadow-md"
                 disabled={disabled || !deployed}
-                title={
-                    !deployed
-                        ? 'Deploy the flow first'
-                        : arrived > 0
-                          ? `Addresses other systems call to run the deployed version. ${arrived} arrived disabled: off until turned on here.`
-                          : 'Addresses other systems call to run the deployed version'
-                }
+                title={deployed ? 'Addresses other systems call to run the deployed version' : 'Deploy the flow first'}
                 onClick={() => setOpen(true)}
             >
                 <WebhookIcon /> Webhooks
@@ -129,7 +122,6 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
                         {active}/{items.length}
                     </span>
                 )}
-                {arrived > 0 && <span className="size-1.5 rounded-full bg-sky-500" aria-label={`${arrived} arrived disabled`} />}
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="sm:max-w-2xl">
@@ -180,6 +172,9 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
                         const result = await updateWebhook(editing.id, fields);
                         if (result.ok) {
                             setEditing(null);
+                            if (result.value.token) {
+                                setShown({ webhook: result.value.webhook, token: result.value.token });
+                            }
                             await load();
                         }
 
@@ -219,10 +214,7 @@ function WebhookRow(props: {
         <li className="flex items-center gap-3 px-3 py-2 text-sm">
             <Switch checked={webhook.enabled} onCheckedChange={onToggle} aria-label={webhook.enabled ? 'Turn off' : 'Turn on'} />
             <div className={cn('grid min-w-0 flex-1 gap-0.5', !webhook.enabled && 'opacity-60')}>
-                <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate font-medium">{webhook.name}</span>
-                    {webhook.arrivedDisabled && <ArrivedBadge />}
-                </span>
+                <span className="truncate font-medium">{webhook.name}</span>
                 <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
                     {methods.map(m => (
                         <span key={m} className="shrink-0 rounded bg-muted px-1 font-mono text-[10px]">

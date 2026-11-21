@@ -46,9 +46,9 @@ export async function listWebhooks(flowId: string): Promise<ApiResult<Webhook[]>
 /** a new webhook (refused while the flow is not deployed), with its token: shown once */
 export const createWebhook = (flowId: string, fields: WebhookFields) => withToken(`/flows/${flowId}/webhooks`, fields);
 
-export async function updateWebhook(id: string, fields: WebhookFields): Promise<ApiResult<Webhook>> {
-    const result = fieldErrors(await api<WebhookDto>(`/webhooks/${id}`, { method: 'PUT', body: fields }));
-    return result.ok ? { ok: true, value: toWebhook(result.value) } : result;
+export async function updateWebhook(id: string, fields: WebhookFields): Promise<ApiResult<{ webhook: Webhook; token?: string }>> {
+    const result = fieldErrors(await api<{ webhook: WebhookDto; token?: string }>(`/webhooks/${id}`, { method: 'PUT', body: fields }));
+    return result.ok ? { ok: true, value: { webhook: toWebhook(result.value.webhook), token: result.value.token } } : result;
 }
 
 /** a new token (the old one stops working at once), shown once */

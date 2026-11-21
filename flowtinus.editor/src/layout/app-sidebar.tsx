@@ -74,8 +74,7 @@ function WorkspaceSwitcher({
 /** looked at again on this interval, and on each page */
 const GIT_STATUS_MS = 60_000;
 
-/** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the git section */
-function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
+function GitItems({ slug, pathname }: { slug: string; pathname: string }) {
     const [status, setStatus] = useState<{ slug: string; value: GitStatus } | null>(null);
     useEffect(() => {
         let gone = false;
@@ -91,7 +90,17 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     }, [slug, pathname]);
 
     const value = status?.slug === slug ? status.value : null;
-    if (value?.on && !gitAhead(value) && value.mode !== 'direct') {
+    return value?.on ? (
+        <>
+            <GitAheadItem slug={slug} value={value} />
+            <ArrivedDisabledItem slug={slug} pathname={pathname} />
+        </>
+    ) : null;
+}
+
+/** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the git section */
+function GitAheadItem({ slug, value }: { slug: string; value: Extract<GitStatus, { on: true }> }) {
+    if (!gitAhead(value) && value.mode !== 'direct') {
         return (
             <SidebarMenuItem>
                 <SidebarMenuButton tooltip={ONLY_PULL_REQUESTS} asChild className="text-muted-foreground">
@@ -103,7 +112,7 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
             </SidebarMenuItem>
         );
     }
-    if (!value || !gitAhead(value) || !value.on) {
+    if (!gitAhead(value)) {
         return null;
     }
     const label = value.refused ? 'Git is ahead: commit refused' : 'Git unreachable';
@@ -197,8 +206,7 @@ export function AppSidebar() {
                     // with git off every item renders nothing: the group and its lines go too
                     <SidebarGroup className="mx-2 w-auto border-y border-sidebar-border px-0 has-[>ul:empty]:hidden">
                         <SidebarMenu>
-                            <GitAheadItem slug={current.slug} pathname={pathname} />
-                            <ArrivedDisabledItem slug={current.slug} pathname={pathname} />
+                            <GitItems slug={current.slug} pathname={pathname} />
                         </SidebarMenu>
                     </SidebarGroup>
                 )}

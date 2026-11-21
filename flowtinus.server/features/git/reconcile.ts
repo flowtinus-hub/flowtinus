@@ -1,6 +1,7 @@
 import { repoEntry, type TreeIssue } from '@flowtinus/core';
 import { workspaceSlug } from '#features/folders/project-tree';
 import { foldOverrides } from '#features/schedules/schedules';
+import { clearArrivedDisabled } from './arrived-disabled';
 import { deleteWorkspaceSetting, readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspaces/workspace-settings';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -67,6 +68,7 @@ export async function forgetReconcile(ctx: UseCaseContext) {
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, HEADS_SETTING);
     await ctx.db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1', [ctx.workspaceId]);
     await foldOverrides(ctx.db, ctx.workspaceId);
+    await clearArrivedDisabled(ctx.db, ctx.workspaceId);
 }
 
 /** mode: the environment's in the topology, kept for the editor (the refusal reads the topology itself) */

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { activeFlow, currentDeployment } from '#features/deployments/deployments';
+import { activeFlow, refuseUndeployed } from '#features/deployments/deployments';
 import { refuseTriggerTables } from '#features/git/git-config';
 import { flows } from '#features/flows/flow';
 import { FlowRepository } from '#features/folders/project-tree';
@@ -42,8 +42,9 @@ export class CreateWebhookHandler implements UseCaseHandler<{ webhook: WebhookVi
             return fail('not-found', 'Flow not found.');
         }
 
-        if (!(await currentDeployment(ctx.db, ctx.workspaceId, flow.id))) {
-            return fail('validation', 'Deploy the flow first: a webhook runs its deployed version.');
+        const undeployed = await refuseUndeployed(ctx.db, ctx.workspaceId, flow.id, 'webhook');
+        if (undeployed) {
+            return undeployed;
         }
 
         const { name, enabled, response } = parsed.value.fields;
@@ -58,8 +59,8 @@ export class CreateWebhookHandler implements UseCaseHandler<{ webhook: WebhookVi
     }
 }
 
-export class UpdateWebhookHandler implements UseCaseHandler<WebhookView & { token?: string }> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<WebhookView & { token?: string }>> {
+export class UpdateWebhookHandler implements UseCaseHandler<{ webhook: WebhookView; token?: string }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ webhook: WebhookView; token?: string }>> {
         const denied = requireRole(ctx, 'editor') ?? (await refuseTriggerTables(ctx.db, ctx.workspaceId));
         if (denied) {
             return denied;
@@ -81,7 +82,7 @@ export class UpdateWebhookHandler implements UseCaseHandler<WebhookView & { toke
         }
 
         const minted = await switchWebhook(ctx.db, ctx, updated.id, enabled);
-        return success({ ...(await findWebhook(ctx.db, ctx.workspaceId, updated.id))!, ...minted });
+        return success({ webhook: (await findWebhook(ctx.db, ctx.workspaceId, updated.id))!, ...minted });
     }
 }
 
@@ -102,8 +103,9 @@ export class SwitchWebhookHandler implements UseCaseHandler<{ webhook: WebhookVi
         if (!webhook) {
             return fail('not-found', 'Webhook not found.');
         }
-        if (enabled && !(await currentDeployment(ctx.db, ctx.workspaceId, webhook.flowId))) {
-            return fail('validation', 'Deploy the flow first: a webhook runs its deployed version.');
+        const undeployed = enabled && (await refuseUndeployed(ctx.db, ctx.workspaceId, webhook.flowId, 'webhook'));
+        if (undeployed) {
+            return undeployed;
         }
 
         const minted = await switchWebhook(ctx.db, ctx, id, enabled);

@@ -346,6 +346,35 @@ describe('the reconcile applies the schedules and webhooks in the flow files; wh
         expect(new Date(cleared.body.nextFireAt).getUTCMinutes()).toBe(0);
     });
 
+    test("an override can say no input, firing without git's input; null clears it back to git's", async () => {
+        const { call, commitOrders } = await newWorkspace();
+        const s = crypto.randomUUID();
+        await commitOrders({ schedules: [{ ...schedule(s), input: [1] }] });
+
+        expect((await call('PUT', `/schedules/${s}/overrides`, { noInput: true, input: [2] })).status).toBe(400);
+        const none = await call('PUT', `/schedules/${s}/overrides`, { noInput: true });
+        expect(none.status).toBe(200);
+        expect(none.body.input).toEqual([1]);
+        expect(none.body.overrides).toEqual({ noInput: true, parameters: {} });
+        expect(none.body.effective).toEqual({ cron: '0 6 * * *', timezone: 'UTC', parameters: {} });
+
+        await call('PUT', `/schedules/${s}/enabled`, { enabled: true });
+        await db.query("UPDATE flow_schedules SET next_fire_at = '2026-11-07T06:00:00Z' WHERE id = $1", [s]);
+        await fireDueSchedules(db, new Date('2026-11-07T06:00:02Z'));
+        expect(await runsOf(s)).toEqual([expect.objectContaining({ input: null })]);
+
+        const valued = await call('PUT', `/schedules/${s}/overrides`, { input: [2] });
+        expect(valued.body.overrides).toEqual({ input: [2], parameters: {} });
+        expect((await call('PUT', `/schedules/${s}/overrides`, { noInput: true })).body.overrides).toEqual({
+            noInput: true,
+            parameters: {},
+        });
+
+        const cleared = await call('PUT', `/schedules/${s}/overrides`, { input: null });
+        expect(cleared.body.overrides).toEqual({ parameters: {} });
+        expect(cleared.body.effective).toEqual({ cron: '0 6 * * *', timezone: 'UTC', parameters: {}, input: [1] });
+    });
+
     test('an override that does not make a valid schedule, or of misfire, is refused; archived, it is not found', async () => {
         const { call, commitOrders } = await newWorkspace();
         const s = crypto.randomUUID();
