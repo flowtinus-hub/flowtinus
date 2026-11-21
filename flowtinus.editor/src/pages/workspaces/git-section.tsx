@@ -585,6 +585,13 @@ function TurnOnPanel({
 
     const files = (changes: FileChange[]) => `${changes.length} ${changes.length === 1 ? 'file' : 'files'}`;
     const notes = (changes: FileChange[]) => changes.flatMap(c => (c.note ? [` ${c.note}`] : [])).join('');
+    const triggers = (changes: TriggerChange[]) => {
+        const count = (change: TriggerChange['change']) => changes.filter(t => t.change === change).length;
+        const said = (n: number, what: string) =>
+            n === 0 ? [] : [`${n} ${n === 1 ? 'schedule or webhook' : 'schedules or webhooks'} ${what}`];
+        const parts = [...said(count('arrives-disabled'), 'arrive disabled'), ...said(count('archived'), 'stop and are archived')];
+        return parts.length ? ` ${parts.join('; ')}.` : '';
+    };
 
     const start = (plan: TurnOnPlan) => {
         if (!plan.branchExists) {
@@ -596,11 +603,11 @@ function TurnOnPanel({
                 },
                 { createBranch: true },
             );
-        } else if (notes(plan.toServer)) {
+        } else if (notes(plan.toServer) || triggers(plan.triggersToServer)) {
             ask(
                 {
                     title: 'Import and turn git on?',
-                    description: `This server takes the workspace ${plan.branch} holds.${notes(plan.toServer)}`,
+                    description: `This server takes the workspace ${plan.branch} holds.${notes(plan.toServer)}${triggers(plan.triggersToServer)}`,
                     confirmLabel: 'Import and turn git on',
                     destructive: true,
                 },
@@ -681,7 +688,7 @@ function TurnOnPanel({
                                                 ask(
                                                     {
                                                         title: 'Git replaces the server?',
-                                                        description: `This server takes the workspace ${plan.branch} holds: ${files(plan.toServer)} change here.${notes(plan.toServer)}`,
+                                                        description: `This server takes the workspace ${plan.branch} holds: ${files(plan.toServer)} change here.${notes(plan.toServer)}${triggers(plan.triggersToServer)}`,
                                                         confirmLabel: 'Git replaces the server',
                                                         destructive: true,
                                                     },
