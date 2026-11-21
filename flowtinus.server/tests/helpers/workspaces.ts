@@ -4,15 +4,15 @@ import type { Database } from '#shared/database/database';
 export const ANA = '0a0a0a0a-0000-4000-8000-00000000a0a0';
 export const BIA = '0b0b0b0b-0000-4000-8000-00000000b0b0';
 
-export const slugOf = (id: string) => `w-${id.replaceAll('-', '').slice(0, 24)}`;
+export const workspaceHandleOf = (id: string) => `w-${id.replaceAll('-', '').slice(0, 24)}`;
 
-/** the workspace's address of an api path (/projects... becomes /w/<slug>/projects...); the environment's stay as they are */
+/** the workspace's address of an api path (/projects... becomes /w/<handle>/projects...); the environment's stay as they are */
 export const wsPath = (workspaceId: string, path: string) =>
-    /^\/(runs|workers|wh|me|workspaces|mcp|health|tokens)(\/|\?|$)/.test(path) ? path : `/w/${slugOf(workspaceId)}${path}`;
+    /^\/(runs|workers|wh|me|workspaces|mcp|health|tokens)(\/|\?|$)/.test(path) ? path : `/w/${workspaceHandleOf(workspaceId)}${path}`;
 
-/** a workspace for a test (its slug from its id unless given), with ANA and BIA its admins */
-export async function insertWorkspace(db: Database, id: string, name = 'acme', slug = slugOf(id)): Promise<void> {
-    await db.query('INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)', [id, slug, name]);
+/** a workspace for a test (its handle from its id unless given), with ANA and BIA its admins */
+export async function insertWorkspace(db: Database, id: string, name = 'acme', handle = workspaceHandleOf(id)): Promise<void> {
+    await db.query('INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $3)', [id, handle, name]);
     await insertMember(db, id, { id: ANA, name: 'Ana' });
     await insertMember(db, id, { id: BIA, name: 'Bia' });
 }

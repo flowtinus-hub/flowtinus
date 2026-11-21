@@ -9,8 +9,8 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { typeSources, type ScriptSource } from '#features/scripts/script-store';
-import { branchDraft, branchFlow, branchScripts, branchTree, workBranch } from '#features/git/branch-read';
+import { editingSource, typeSources, type ScriptSource } from '#features/scripts/script-store';
+import { branchDraft, branchFlow, branchTree, workBranch } from '#features/git/branch-read';
 import { ProjectRepository } from '#features/projects/project-repository';
 import { CHANNELS, notifyRunEvent } from '../run-queue';
 import { runSnapshot } from './run-snapshot';
@@ -29,7 +29,6 @@ export const StartRunCommand = z.object({
 
 export async function checkedInput(
     ctx: UseCaseContext,
-    projectId: string,
     file: FlowFile,
     given: unknown,
     scripts: ScriptSource = 'editing',
@@ -54,7 +53,7 @@ export async function checkedInput(
         return { ok: true, input };
     }
 
-    const shape = scriptTypeShape(await typeSources(ctx.db, ctx.workspaceId, projectId, typeRef.path, scripts), typeRef.path, typeRef.name);
+    const shape = scriptTypeShape(await typeSources(ctx.db, ctx.workspaceId, typeRef.path, scripts), typeRef.path, typeRef.name);
     if (!shape) {
         return { ok: false, error: `The Start's input type ${typeRef.name} no longer exists in the script ${typeRef.path}.` };
     }
@@ -113,7 +112,7 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
         }
 
         const draft = branch ? branchDraft(branchFlow(branch, flowId)!).flow : (await loadDraft(ctx.db, ctx.workspaceId, row)).flow;
-        const scriptSource: ScriptSource = branch ? { branch: branchScripts(branch, row.projectId) } : 'editing';
+        const scriptSource = editingSource(branch);
         const checked = validateFlowFile(
             mode === 'validation' ? withPins(draft, await pinsOf(ctx.db, ctx.workspaceId, ctx.userId, flowId)) : draft,
         );
@@ -121,9 +120,7 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('validation', `The flow cannot run: ${checked.errors.join(' ')}`);
         }
 
-        const runInput = fromNodeId
-            ? { ok: true as const, input: undefined }
-            : await checkedInput(ctx, row.projectId, checked.value, given, scriptSource);
+        const runInput = fromNodeId ? { ok: true as const, input: undefined } : await checkedInput(ctx, checked.value, given, scriptSource);
         if (!runInput.ok) {
             return fail('validation', runInput.error);
         }
@@ -143,7 +140,7 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             runFrom = { ...planned.plan, label: fromLabel ?? planned.plan.label };
         }
 
-        const snapshot = await runSnapshot(ctx, row.projectId, tree, checked.value, 'draft', branch);
+        const snapshot = await runSnapshot(ctx, tree, checked.value, 'draft', branch);
         if (!snapshot.ok) {
             return fail('validation', `The flow cannot run: ${snapshot.error}`);
         }

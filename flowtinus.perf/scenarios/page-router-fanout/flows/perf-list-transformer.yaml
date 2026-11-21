@@ -32,7 +32,7 @@ nodes:
       y: 0
     config:
       code: |
-        import { mapListRows } from '@myproject/scripts/Shared/ListRows';
+        import { mapListRows } from '@w/perf/scenario/scripts/Shared/ListRows';
         async function process($input: Data) {
           if (!$PARAMETERS.targetSchema) throw new Error('targetSchema is required');
           return mapListRows($input, $PARAMETERS.field, $PARAMETERS.etlContextId);

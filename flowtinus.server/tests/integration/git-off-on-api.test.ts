@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -44,8 +44,8 @@ describe("turning git off and on: the work branches' working copies are kept, hi
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
         await app.gitPoller.poll(id);
 
-        const slug = slugOf(id);
-        const at = (path: string) => `${slug}/${path}`;
+        const handle = workspaceHandleOf(id);
+        const at = (path: string) => `${handle}/${path}`;
         const branch = `users/${(await call('GET', '/me')).body.handle as string}/work`;
         const show = (ref: string, path: string) => git(repo, 'show', `${ref}:${at(path)}`);
         const changes = async (user: string) =>

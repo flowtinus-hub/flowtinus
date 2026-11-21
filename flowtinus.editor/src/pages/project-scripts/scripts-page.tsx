@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { ChevronRight, Copy, Ellipsis, FileCode2, Folder, FolderOpen, FolderPlus, GitCommitHorizontal, LoaderCircle, Pencil, Plus, Trash } from 'lucide-react';
-import { normalizeScriptPath, scriptImport } from '@flowtinus/core';
+import { normalizeScriptPath } from '@flowtinus/core';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -64,7 +64,7 @@ function treeRows(folders: string[], scripts: string[], open: { has: (path: stri
 
 /**
  * A project's scripts (/projects/:projectId/scripts): TypeScript modules in nested folders that a TypeScript component
- * imports by their path (`@myproject/scripts/<path>`). The tree on the left, the selected script's code on the right,
+ * imports by their import path (`@w/<workspace>/<project>/scripts/<path>`). The tree on the left, the selected script's code on the right,
  * saved a second after the last key (or at Ctrl+S). ?script=<path> opens that script first.
  */
 export function ScriptsPage() {
@@ -167,7 +167,7 @@ export function ScriptsPage() {
             title: row.kind === 'folder' ? 'Rename folder' : 'Rename script',
             initial: row.path,
             submitLabel: 'Rename',
-            warning: usage && `Imported by ${usage}: their imports keep the old path.`,
+            warning: usage && `Imported by ${usage}: their imports follow the new path.`,
             issue: path => (path.trim() === row.path ? null : newPathIssue(projectId, path, row.path)),
             onSave: async to => {
                 if (offered(row.path, () => renameScriptPath(projectId, row.path, to))) {
@@ -214,7 +214,7 @@ export function ScriptsPage() {
         scripts.scripts.map(s => s.path),
         open,
     );
-    const importLine = script ? scriptImport(script.path) : '';
+    const importLine = script?.importPath ?? '';
     // with git on the list says what changed since it was committed
     const git = scripts.scripts.some(s => s.changed !== undefined);
     const changedCount = scripts.scripts.filter(s => s.changed).length;
@@ -435,10 +435,10 @@ export function ScriptsPage() {
 }
 
 /** "2 flows (Orders, Daily) and 1 script (upload/headers)", or empty when nothing imports it */
-function usageText(usage: { flows: { name: string }[]; scripts: string[] }): string {
+function usageText(usage: { flows: { name: string; project?: string }[]; scripts: string[] }): string {
     const parts = [
         usage.flows.length
-            ? `${usage.flows.length} flow${usage.flows.length === 1 ? '' : 's'} (${usage.flows.map(f => f.name).join(', ')})`
+            ? `${usage.flows.length} flow${usage.flows.length === 1 ? '' : 's'} (${usage.flows.map(f => (f.project ? `${f.project} / ${f.name}` : f.name)).join(', ')})`
             : '',
         usage.scripts.length ? `${usage.scripts.length} script${usage.scripts.length === 1 ? '' : 's'} (${usage.scripts.join(', ')})` : '',
     ].filter(Boolean);

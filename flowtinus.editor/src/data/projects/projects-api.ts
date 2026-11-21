@@ -17,6 +17,7 @@ export function toProject(dto: ProjectDto): Project {
     return {
         id: dto.id,
         name: dto.name,
+        handle: dto.handle,
         description: dto.description,
         icon: isProjectIcon(dto.icon) ? dto.icon : DEFAULT_PROJECT_ICON,
         color: isProjectColor(dto.color) ? dto.color : DEFAULT_PROJECT_COLOR,
@@ -31,7 +32,7 @@ export function toProject(dto: ProjectDto): Project {
 const asProject = (result: ApiResult<ProjectDto>): ApiResult<Project> =>
     result.ok ? { ok: true, value: toProject(result.value) } : result;
 
-/** active projects newest first, or archived ones last archived first; of the page's workspace unless one is given (its slug) */
+/** active projects newest first, or archived ones last archived first; of the page's workspace unless one is given (its handle) */
 export async function listProjects(status: ProjectStatus = 'active', workspace?: string): Promise<ApiResult<Project[]>> {
     const result = await api<{ items: ProjectDto[] }>(`${workspace ? `/w/${workspace}` : ''}/projects?status=${status}`);
     if (!result.ok) {
@@ -65,7 +66,7 @@ export async function restoreProject(id: string): Promise<ApiResult<Project>> {
 }
 
 /**
- * to another workspace of the user (its slug): an admin here, an editor there. Refused ('conflict', with the names per
+ * to another workspace of the user (its handle): an admin here, an editor there. Refused ('conflict', with the names per
  * kind in `fields`) while the destination lacks a connection, secret or variable its flows use; its deployed flows are
  * undeployed.
  */

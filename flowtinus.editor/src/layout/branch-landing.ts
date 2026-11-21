@@ -4,7 +4,7 @@ import { getFlow } from '@/data/flows/flows-api';
 import { getProject } from '@/data/projects/projects-api';
 
 /** where a branch switch lands: the same page, or the projects when its flow or project is not on the new branch */
-export async function landingAfterSwitch(slug: string): Promise<string> {
+export async function landingAfterSwitch(handle: string): Promise<string> {
     const { pathname, search, hash } = window.location;
     const here = `${pathname}${search}${hash}`;
     const flow = matchPath('/w/:ws/projects/:projectId/flows/:flowId', pathname);
@@ -14,7 +14,7 @@ export async function landingAfterSwitch(slug: string): Promise<string> {
         : project?.params.projectId
           ? await getProject(project.params.projectId)
           : null;
-    return read && !read.ok && read.error.code === 'not-found' ? projectsPath(slug) : here;
+    return read && !read.ok && read.error.code === 'not-found' ? projectsPath(handle) : here;
 }
 
 const SWITCHED_KEY = 'flowtinus.branchSwitchedAt';

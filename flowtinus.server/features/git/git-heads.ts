@@ -1,4 +1,4 @@
-import { workspaceSlug } from '#features/folders/project-tree';
+import { workspaceHandle } from '#features/folders/project-tree';
 import { readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspaces/workspace-settings';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -98,7 +98,7 @@ async function followBranches(
         'SELECT DISTINCT branch FROM working_copy WHERE workspace_id = $1 AND branch <> $2 ORDER BY branch',
         [ctx.workspaceId, ENVIRONMENT_BRANCH],
     );
-    const slug = await workspaceSlug(ctx);
+    const handle = await workspaceHandle(ctx);
     const removed: Head[] = [];
     for (const { branch } of branches) {
         if (branch === environment) {
@@ -113,7 +113,7 @@ async function followBranches(
             if (was?.sha === sha && !was.removed) {
                 continue;
             }
-            const tip = await readBranchWorkspace(remote, sha, slug);
+            const tip = await readBranchWorkspace(remote, sha, handle);
             await ctx.db.transaction(async db => {
                 await lockBranch(db, ctx.workspaceId, branch);
                 // a Commit from this server moved it during the fetch: the next poll merges onto what it pushed

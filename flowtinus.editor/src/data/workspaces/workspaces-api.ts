@@ -1,7 +1,7 @@
 import { api, type ApiResult } from '@/lib/api';
 import { appearanceOf, type Me, type Member, type NewWorkspace, type Workspace, type WorkspaceRole } from './workspace';
 
-/* The user and their workspaces (the environment's: /me, /workspaces) and a workspace itself (/w/<slug>). */
+/* The user and their workspaces (the environment's: /me, /workspaces) and a workspace itself (/w/<handle>). */
 
 type WorkspaceDto = Omit<Workspace, 'icon' | 'color' | 'createdAt' | 'archivedAt'> & {
     icon: string;
@@ -30,12 +30,13 @@ export async function listWorkspaces(status: 'active' | 'archived' = 'active'): 
 }
 
 /** only for an admin of the environment; who creates it becomes its admin */
-export const createWorkspace = (fields: NewWorkspace) => api<{ id: string; slug: string }>('/workspaces', { method: 'POST', body: fields });
+export const createWorkspace = (fields: NewWorkspace) =>
+    api<{ id: string; handle: string }>('/workspaces', { method: 'POST', body: fields });
 
 export const getWorkspace = async (ws: string) => asWorkspace(await api<WorkspaceDto>(`/w/${ws}`));
 
-/** its name, description, icon or color (admins); the slug never changes */
-export const updateWorkspace = async (ws: string, changes: Partial<Omit<NewWorkspace, 'slug'>>) =>
+/** its name, description, icon or color (admins); the handle never changes */
+export const updateWorkspace = async (ws: string, changes: Partial<Omit<NewWorkspace, 'handle'>>) =>
     asWorkspace(await api<WorkspaceDto>(`/w/${ws}`, { method: 'PATCH', body: changes }));
 
 /** only when all its projects are archived */

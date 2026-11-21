@@ -1,4 +1,5 @@
 import { parse, stringify } from 'yaml';
+import { slugOf } from '../names/handle';
 import { END, START } from '#engine/constants';
 import type { ExecutableEdge } from '#types/executable-edge.type';
 import type { EnvelopeData } from '#types/envelope-data.type';
@@ -58,16 +59,8 @@ export type FlowFile = {
     groups?: FlowFileGroup[];
 };
 
-export const slugify = (name: string) =>
-    name
-        .normalize('NFD')
-        .replace(/\p{Diacritic}/gu, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-
 export function flowFileName(name: string): string {
-    return `${slugify(name) || 'flow'}.yaml`;
+    return `${slugOf(name) || 'flow'}.yaml`;
 }
 
 export function flowToYaml(file: FlowFile): string {

@@ -41,7 +41,7 @@ export async function resolveEditorUrl(ctx: UseCaseContext, url: string): Promis
         if (!found.ok || !found.value) {
             return { error: `The workspace of this link was not found: ${NOT_HERE}.` };
         }
-        const { ctx: inWorkspace, slug: workspace } = found.value;
+        const { ctx: inWorkspace, handle: workspace } = found.value;
         const rest = parts.slice(2);
         if (rest[0] === 'projects' && rest[1]) {
             const project = await new GetProjectHandler().handle({ id: rest[1] }, inWorkspace);
@@ -79,7 +79,7 @@ export async function resolveEditorUrl(ctx: UseCaseContext, url: string): Promis
         }
         return {
             kind: 'run',
-            workspace: found.value.slug,
+            workspace: found.value.handle,
             runId: run.value.id,
             flowId: run.value.flowId,
             projectId: run.value.projectId,

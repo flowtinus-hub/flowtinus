@@ -7,7 +7,7 @@ import { prepareScript } from '@flowtinus/server/runner/prepare-script';
 import { closeRedshiftPools, queryRedshift } from '@flowtinus/server/runner/redshift-driver';
 import { sendHttp } from '@flowtinus/server/runner/send-http';
 import { closeSqlServerPools, querySqlServer } from '@flowtinus/server/runner/sqlserver-driver';
-import { executableFlows, loadFlowFiles, PERF_CONNECTIONS, PERF_SECRETS, scenarioScripts } from '#perf/flows';
+import { executableFlows, loadFlowFiles, PERF_CONNECTIONS, PERF_SECRETS, PERF_WORKSPACE, scenarioScripts } from '#perf/flows';
 import { compactRecord } from '#perf/compact';
 import type { Sample, Scenario } from '#perf/scenario';
 import { scenarioById } from '#perf/scenarios';
@@ -86,7 +86,11 @@ async function warmUp(scenario: Scenario, flows: Record<string, ExecutableFlow>,
     for (const node of Object.values(flows).flatMap(f => f.nodes)) {
         if (node.type === 'typescript' && typeof node.config.code === 'string') {
             // with the scenario's scripts and their hashes: the bundle is kept, as a worker keeps it between runs
-            await prepareScript(node.config.code, globals, scripts.scripts, scripts.scriptHashes);
+            await prepareScript(node.config.code, globals, {
+                scripts: scripts.scripts,
+                hashes: scripts.scriptHashes,
+                workspace: PERF_WORKSPACE,
+            });
         }
     }
 }
@@ -134,6 +138,7 @@ async function main() {
         connections: PERF_CONNECTIONS,
         ...scripts,
         workspaceName: 'perf',
+        workspaceHandle: PERF_WORKSPACE,
         projectName: 'perf',
         flowName: flow.flow,
     };

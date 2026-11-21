@@ -212,9 +212,7 @@ describe('deploys in its own environment', () => {
         const calledOf = async () => {
             const row = (await loadTree(db, workspaceId, projectId)).flows.find(f => f.id === parent)!;
             const tree = await loadTree(db, workspaceId, projectId);
-            return (await calledFlows(ctx, projectId, tree, (await loadDraft(db, workspaceId, row)).flow, 'deployed')).find(
-                c => c.id === child,
-            )!;
+            return (await calledFlows(ctx, tree, (await loadDraft(db, workspaceId, row)).flow, 'deployed')).find(c => c.id === child)!;
         };
 
         expect(await calledOf()).toMatchObject({ unavailable: 'it is not deployed.' });

@@ -16,21 +16,21 @@ export type OfferedEdit = {
 };
 
 export function CreateBranchDialog({
-    slug,
+    handle,
     from,
     lostTip,
-    handle,
+    userHandle,
     edit,
     onClose,
 }: {
-    slug: string;
+    handle: string;
     from: string;
     lostTip?: boolean;
-    handle: string;
+    userHandle: string;
     edit?: OfferedEdit;
     onClose: () => void;
 }) {
-    const prefix = `users/${handle}/`;
+    const prefix = `users/${userHandle}/`;
     const [rest, setRest] = useState(() => (edit ? branchNamePart(edit.name) : ''));
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
@@ -38,13 +38,13 @@ export function CreateBranchDialog({
     const own = from.startsWith(prefix);
 
     // every page read so far was the other branch's: the same page again on the new one
-    const open = async () => (edit ? window.location.reload() : window.location.assign(await landingAfterSwitch(slug)));
+    const open = async () => (edit ? window.location.reload() : window.location.assign(await landingAfterSwitch(handle)));
 
     const create = async () => {
         setBusy(true);
         setError(null);
         const name = `${prefix}${rest.trim()}`;
-        const result = await createBranch(slug, name, edit?.draft?.() ?? undefined);
+        const result = await createBranch(handle, name, edit?.draft?.() ?? undefined);
         if (!result.ok) {
             setBusy(false);
             setError(result.error);

@@ -1,5 +1,5 @@
 import { repoEntry, repoPath } from '@flowtinus/core';
-import { workspaceSlug } from '#features/folders/project-tree';
+import { workspaceHandle } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { ENVIRONMENT_BRANCH, workingRows, type WorkingRow } from './working-copy';
 import type { RepoFiles } from './workspace-export';
@@ -89,14 +89,14 @@ async function uncommittedFolders(ctx: UseCaseContext, files: RepoFiles, folders
     const committed = [...Object.keys(files).filter(path => !rowPaths.has(path)), ...rows.filter(r => r.base).map(r => r.path)];
     const byId = new Map(folders.map(f => [f.id, f]));
     const projectNames = new Map(projects.map(p => [p.id, p.name]));
-    const slug = await workspaceSlug(ctx);
+    const handle = await workspaceHandle(ctx);
     return archived
         .filter(folder => {
             const names: string[] = [];
             for (let at: string | null = folder.id; at; at = byId.get(at)?.parent_id ?? null) {
                 names.unshift(byId.get(at)!.name);
             }
-            const inside = repoPath.folder(slug, projectNames.get(folder.project_id)!, names).slice(0, -'.gitkeep'.length);
+            const inside = repoPath.folder(handle, projectNames.get(folder.project_id)!, names).slice(0, -'.gitkeep'.length);
             return !committed.some(path => path.startsWith(inside));
         })
         .map(f => f.id);

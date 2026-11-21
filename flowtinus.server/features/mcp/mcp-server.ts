@@ -30,7 +30,7 @@ export function createMcpServer(options: McpOptions): McpServer {
         if (!found.ok) {
             return found;
         }
-        return { ok: true as const, value: found.value ? toolContext({ ...options, ctx: found.value.ctx }, found.value.slug) : base };
+        return { ok: true as const, value: found.value ? toolContext({ ...options, ctx: found.value.ctx }, found.value.handle) : base };
     };
 
     for (const tool of MCP_TOOLS) {

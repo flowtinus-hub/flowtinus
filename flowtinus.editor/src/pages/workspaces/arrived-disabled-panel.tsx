@@ -3,13 +3,13 @@ import { CirclePause } from 'lucide-react';
 import { ArrivedDisabledList } from '@/components/arrived-disabled-list';
 import { arrivedCount, CHANGES_CHANGED, GIT_STATUS_CHANGED, listArrivedDisabled, type ArrivedDisabled } from '@/data/git/git-api';
 
-export function ArrivedDisabledPanel({ slug }: { slug: string }) {
-    const [items, setItems] = useState<{ slug: string; value: ArrivedDisabled[]; read: number } | null>(null);
+export function ArrivedDisabledPanel({ handle }: { handle: string }) {
+    const [items, setItems] = useState<{ handle: string; value: ArrivedDisabled[]; read: number } | null>(null);
     useEffect(() => {
         let gone = false;
         const read = () =>
-            void listArrivedDisabled(slug).then(
-                result => !gone && result.ok && setItems(current => ({ slug, value: result.value, read: (current?.read ?? 0) + 1 })),
+            void listArrivedDisabled(handle).then(
+                result => !gone && result.ok && setItems(current => ({ handle, value: result.value, read: (current?.read ?? 0) + 1 })),
             );
         read();
         window.addEventListener(GIT_STATUS_CHANGED, read);
@@ -19,9 +19,9 @@ export function ArrivedDisabledPanel({ slug }: { slug: string }) {
             window.removeEventListener(GIT_STATUS_CHANGED, read);
             window.removeEventListener(CHANGES_CHANGED, read);
         };
-    }, [slug]);
+    }, [handle]);
 
-    const shown = items?.slug === slug ? items : null;
+    const shown = items?.handle === handle ? items : null;
     if (!shown) {
         return null;
     }
@@ -39,7 +39,7 @@ export function ArrivedDisabledPanel({ slug }: { slug: string }) {
                     </span>
                 </div>
             </div>
-            {count > 0 && <ArrivedDisabledList key={shown.read} slug={slug} items={shown.value} />}
+            {count > 0 && <ArrivedDisabledList key={shown.read} handle={handle} items={shown.value} />}
         </div>
     );
 }

@@ -97,29 +97,37 @@ test('scripts: what a TypeScript component imports, the Start input type (only w
         parameters: [],
         edges: [],
         nodes: [
-            { id: 'start', type: 'start', label: 'Start', config: { acceptsInput: true, inputType: 'upload/types#Order' } },
+            {
+                id: 'start',
+                type: 'start',
+                label: 'Start',
+                config: { acceptsInput: true, inputType: '@w/acme/sales/scripts/upload/types#Order' },
+            },
             {
                 id: 'ts',
                 type: 'typescript',
                 label: 'Prices',
                 config: {
-                    code: "import {round} from '@myproject/scripts/lib/math';\nimport type {Order} from '@myproject/scripts/upload/types';",
+                    code: "import {round} from '@w/acme/shared/scripts/lib/math';\nimport type {Order} from '@w/acme/sales/scripts/upload/types';",
                 },
             },
         ],
     };
     expect(flowScriptUses([uses]).map(u => [u.path, u.nodeLabel, u.how])).toEqual([
-        ['upload/types', 'Start', 'type'],
-        ['lib/math', 'Prices', 'import'],
-        ['upload/types', 'Prices', 'import'],
+        ['@w/acme/sales/scripts/upload/types', 'Start', 'type'],
+        ['@w/acme/shared/scripts/lib/math', 'Prices', 'import'],
+        ['@w/acme/sales/scripts/upload/types', 'Prices', 'import'],
     ]);
     // a Start that takes no input: its type is not in use
-    const off = { ...uses, nodes: [{ ...uses.nodes[0]!, config: { acceptsInput: false, inputType: 'upload/types#Order' } }] };
+    const off = {
+        ...uses,
+        nodes: [{ ...uses.nodes[0]!, config: { acceptsInput: false, inputType: '@w/acme/sales/scripts/upload/types#Order' } }],
+    };
     expect(flowScriptUses([off])).toEqual([]);
     expect(
         scriptLinks([
-            { path: 'upload/types', content: "import {round} from '@myproject/scripts/lib/math';" },
-            { path: 'lib/math', content: '' },
+            { path: '@w/acme/sales/scripts/upload/types', content: "import {round} from '@w/acme/shared/scripts/lib/math';" },
+            { path: '@w/acme/shared/scripts/lib/math', content: '' },
         ]),
-    ).toEqual([{ from: 'upload/types', to: 'lib/math' }]);
+    ).toEqual([{ from: '@w/acme/sales/scripts/upload/types', to: '@w/acme/shared/scripts/lib/math' }]);
 });

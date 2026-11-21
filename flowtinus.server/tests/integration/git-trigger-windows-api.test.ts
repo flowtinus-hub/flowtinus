@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { repoFlowFromYaml, repoFlowToYaml } from '@flowtinus/core';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -64,7 +64,7 @@ describe("the Schedules and Webhooks windows edit the flow's file on the current
             expect((await call('POST', '/git/reconcile')).status).toBe(200);
         }
         await app.gitPoller.poll(id);
-        const ordersPath = `${slugOf(id)}/projects/Sales/flows/Orders.flow.yaml`;
+        const ordersPath = `${workspaceHandleOf(id)}/projects/Sales/flows/Orders.flow.yaml`;
         const committed = (ref = 'dev') => {
             const read = repoFlowFromYaml(show(ref, ordersPath), 'Orders');
             return read.ok ? { schedules: read.value.schedules, webhooks: read.value.webhooks } : read;

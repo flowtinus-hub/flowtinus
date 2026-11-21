@@ -1,14 +1,15 @@
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Plus, Trash } from 'lucide-react';
 import { emptyOfShape, inputTypeRef, scriptImports, scriptTypeShape, inputIssues, needsFilling, unionValue, type TypeShape } from '@flowtinus/core';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { loadScriptContent, useProjectScripts } from '@/data/scripts/scripts-store';
+import { loadedContents, loadScriptContent, watchScripts } from '@/data/scripts/scripts-store';
+import { allScripts, scriptByImport, useWorkspaceScripts } from '@/data/scripts/workspace-scripts';
 import { ProjectResourcesContext } from './project-resources';
 
 /*
- * A Start's input typed by a project script's type. The picker lists the types (never functions or values) the
- * project's scripts export; with one chosen, the default input is a form of that type (the core reads the type:
+ * A Start's input typed by a script's type (`<import path>#Name`). The picker lists the types (never functions
+ * or values) the scripts of every project of the workspace export; with one chosen, the default input is a form of that type (the core reads the type:
  * scriptTypeShape), kept in sync with its JSON, which is what is stored and what a test run sends. A run whose input
  * does not fit the type does not start (the server checks it).
  */
@@ -16,39 +17,46 @@ import { ProjectResourcesContext } from './project-resources';
 const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 const INPUT = 'h-8 w-full min-w-0 rounded-md border bg-transparent px-2 text-sm';
 
-/** the types a project's scripts export, to pick one as `path#Name` (empty: none, the input is plain JSON) */
+/** the types the scripts of every project export, to pick one as `<import path>#Name` (empty: none, the input is plain JSON) */
 export function ScriptTypePicker({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
     const { projectId } = useContext(ProjectResourcesContext);
-    const project = useProjectScripts(projectId);
-    const types = project.scripts.flatMap(s => s.exports.filter(e => e.typeOnly).map(e => ({ path: s.path, name: e.name })));
+    const workspace = useWorkspaceScripts();
+    const projects = [...workspace.projects]
+        .sort((a, b) => Number(b.id === projectId) - Number(a.id === projectId))
+        .map(p => ({ ...p, types: p.scripts.flatMap(s => s.exports.filter(e => e.typeOnly).map(e => ({ script: s, name: e.name }))) }))
+        .filter(p => p.types.length > 0);
     const chosen = inputTypeRef(value);
-    const missing = chosen && !types.some(t => t.path === chosen.path && t.name === chosen.name);
+    const missing = chosen && !scriptByImport(workspace, chosen.path)?.exports.some(e => e.typeOnly && e.name === chosen.name);
     return (
         <select id={id} value={value} className={SELECT} onChange={event => onChange(event.target.value)}>
             <option value="">None (JSON)</option>
             {missing && <option value={value}>{`${chosen.name} (${chosen.path})`}</option>}
-            {[...new Set(types.map(t => t.path))].map(path => (
-                <optgroup key={path} label={path}>
-                    {types
-                        .filter(t => t.path === path)
-                        .map(t => (
-                            <option key={t.name} value={`${t.path}#${t.name}`}>
-                                {t.name}
-                            </option>
-                        ))}
+            {projects.map(p => (
+                <optgroup key={p.id} label={p.name}>
+                    {p.types.map(t => (
+                        <option key={`${t.script.path}#${t.name}`} value={`${t.script.importPath}#${t.name}`}>
+                            {`${t.script.path} › ${t.name}`}
+                        </option>
+                    ))}
                 </optgroup>
             ))}
         </select>
     );
 }
 
-/** the scripts a type may need (its own and what it imports, in turn) loaded, then its shape */
+/** the scripts a type may need (its own and what it imports, in turn, from any project) loaded, then its shape */
 export function useTypeShape(typeRef: string): { shape: TypeShape | null; loading: boolean } {
-    const { projectId } = useContext(ProjectResourcesContext);
-    const project = useProjectScripts(projectId);
+    const workspace = useWorkspaceScripts();
+    const contents = useSyncExternalStore(watchScripts, loadedContents, loadedContents);
     const sources = useMemo(
-        () => Object.fromEntries(Object.entries(project.contents).map(([path, content]) => [path, content.code])),
-        [project.contents],
+        () =>
+            Object.fromEntries(
+                allScripts(workspace).flatMap(s => {
+                    const code = contents.get(s.projectId)?.[s.path]?.code;
+                    return code === undefined ? [] : [[s.importPath, code]];
+                }),
+            ),
+        [workspace, contents],
     );
     // what is still to load: the type's script, then whatever the loaded ones import
     const wanted = useMemo(() => {
@@ -62,11 +70,11 @@ export function useTypeShape(typeRef: string): { shape: TypeShape | null; loadin
             scriptImports(code).forEach(path => paths.add(path));
         }
 
-        return [...paths].filter(path => !(path in sources) && project.scripts.some(s => s.path === path));
-    }, [typeRef, sources, project]);
+        return allScripts(workspace).filter(s => paths.has(s.importPath) && !(s.importPath in sources));
+    }, [typeRef, sources, workspace]);
     useEffect(() => {
-        wanted.forEach(path => void loadScriptContent(projectId, path));
-    }, [projectId, wanted]);
+        wanted.forEach(s => void loadScriptContent(s.projectId, s.path));
+    }, [wanted]);
     const ref = inputTypeRef(typeRef);
     const shape = useMemo(() => {
         const chosen = inputTypeRef(typeRef);

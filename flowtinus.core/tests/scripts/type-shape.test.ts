@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { emptyOfShape, inputTypeRef, scriptTypeShape, unionValue, type TypeShape } from '../../src/index';
 
-const ORDERS = `import type {Address} from '@myproject/scripts/shared/address';
+const ORDERS = `import type {Address} from '@w/acme/shared/scripts/address';
 
 /** an order, as the API sends it */
 export interface Order extends Base {
@@ -27,7 +27,7 @@ const shapeOf = (sources: Record<string, string>, path: string, name: string) =>
 const fieldOf = (shape: TypeShape | null, name: string) => (shape?.kind === 'object' ? shape.fields.find(f => f.name === name) : undefined);
 
 test('an interface becomes its fields: text, number, yes/no, a choice, lists, objects, its parent and imported types', () => {
-    const shape = shapeOf({ 'orders/types': ORDERS, 'shared/address': ADDRESS }, 'orders/types', 'Order');
+    const shape = shapeOf({ 'orders/types': ORDERS, '@w/acme/shared/scripts/address': ADDRESS }, 'orders/types', 'Order');
     expect(shape).toEqual({
         kind: 'object',
         fields: [
@@ -77,11 +77,11 @@ test('a TypeScript enum is a choice of its values (strings, or numbers counting 
 export enum Level { One = 1, Two, Five = 5, Six }
 export const enum Plain { A, B }`;
     const sources = {
-        common,
-        task: `import {Priority, Level} from '@myproject/scripts/common';
+        '@w/acme/billing/scripts/common': common,
+        task: `import {Priority, Level} from '@w/acme/billing/scripts/common';
 export interface Task { priority: Priority; level?: Level; urgent: Priority.High }`,
     };
-    expect(shapeOf(sources, 'common', 'Plain')).toEqual({ kind: 'enum', options: [0, 1] });
+    expect(shapeOf(sources, '@w/acme/billing/scripts/common', 'Plain')).toEqual({ kind: 'enum', options: [0, 1] });
     expect(shapeOf(sources, 'task', 'Task')).toEqual({
         kind: 'object',
         fields: [
@@ -218,7 +218,7 @@ test('members over several lines (a union one option per line) and what stays JS
 });
 
 test('an empty value of a shape (required fields only), and the setting as path#Name', () => {
-    const shape = shapeOf({ 'orders/types': ORDERS, 'shared/address': ADDRESS }, 'orders/types', 'Order');
+    const shape = shapeOf({ 'orders/types': ORDERS, '@w/acme/shared/scripts/address': ADDRESS }, 'orders/types', 'Order');
     expect(emptyOfShape(shape)).toEqual({
         createdAt: '',
         id: 0,

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { repoFlowFromYaml, repoFlowToYaml, type FlowFile } from '@flowtinus/core';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -49,10 +49,10 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
         await app.gitPoller.poll(id);
 
-        const slug = slugOf(id);
-        const at = (path: string) => `${slug}/${path}`;
+        const handle = workspaceHandleOf(id);
+        const at = (path: string) => `${handle}/${path}`;
         const ordersPath = at('projects/Sales/flows/Orders.flow.yaml');
-        const handle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
+        const userHandle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
         const changes = async (user = ANA) => (await as(user)('GET', '/git/changes')).body.changes as Change[];
         const draft = async (user = ANA) => (await as(user)('GET', `/flows/${orders}/draft`)).body;
         const relabel = async (user: string, type: string, label: string) => {
@@ -77,7 +77,7 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
             const read = repoFlowFromYaml(raw(repo, branch, ordersPath), 'Orders');
             return read.ok ? read.value.flow : null;
         };
-        return { id, as, call, projectId, orders, repo, at, ordersPath, handle, changes, draft, relabel, pushLabel, inGit };
+        return { id, as, call, projectId, orders, repo, at, ordersPath, userHandle, changes, draft, relabel, pushLabel, inGit };
     }
 
     beforeAll(async () => {
@@ -92,8 +92,8 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
     });
 
     test('a push on a work branch is merged into its working copy by the poll: clean, silently; a file equal to its base follows', async () => {
-        const { id, call, ordersPath, handle, changes, draft, relabel, pushLabel, inGit } = await workspace();
-        const branch = `users/${await handle(ANA)}/merge`;
+        const { id, call, ordersPath, userHandle, changes, draft, relabel, pushLabel, inGit } = await workspace();
+        const branch = `users/${await userHandle(ANA)}/merge`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
 
         expect((await relabel(ANA, 'start', 'Ana start')).status).toBe(200);
@@ -120,8 +120,8 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
     });
 
     test('a push that conflicts with an uncommitted change marks the file: no Commit until it is discarded', async () => {
-        const { id, call, ordersPath, handle, changes, draft, relabel, pushLabel, inGit } = await workspace();
-        const branch = `users/${await handle(ANA)}/clash`;
+        const { id, call, ordersPath, userHandle, changes, draft, relabel, pushLabel, inGit } = await workspace();
+        const branch = `users/${await userHandle(ANA)}/clash`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
 
         expect((await relabel(ANA, 'start', 'Ana start')).status).toBe(200);
@@ -146,8 +146,8 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
     });
 
     test('a Commit on a branch that moved since the last poll merges first, then commits on the new tip', async () => {
-        const { call, repo, handle, relabel, pushLabel, inGit } = await workspace();
-        const branch = `users/${await handle(ANA)}/race`;
+        const { call, repo, userHandle, relabel, pushLabel, inGit } = await workspace();
+        const branch = `users/${await userHandle(ANA)}/race`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
 
         expect((await relabel(ANA, 'start', 'Ana start')).status).toBe(200);
@@ -160,11 +160,11 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
     });
 
     test("a branch made from dev while dev moved in git has the changes it takes merged onto dev's tip", async () => {
-        const { call, repo, handle, draft, relabel, pushLabel } = await workspace();
+        const { call, repo, userHandle, draft, relabel, pushLabel } = await workspace();
         expect((await relabel(ANA, 'start', 'Ana start')).status).toBe(200);
         const devTip = pushLabel('dev', 'end', 'Laptop end');
 
-        const branch = `users/${await handle(ANA)}/late`;
+        const branch = `users/${await userHandle(ANA)}/late`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         expect(git(repo, 'rev-parse', branch)).toBe(devTip);
         const taken = await draft();
@@ -174,8 +174,8 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
     });
 
     test('a branch removed on the remote with changes here keeps them, marked: they go to a new branch or are discarded', async () => {
-        const { id, as, call, repo, ordersPath, handle, changes, draft, relabel } = await workspace();
-        const ana = await handle(ANA);
+        const { id, as, call, repo, ordersPath, userHandle, changes, draft, relabel } = await workspace();
+        const ana = await userHandle(ANA);
         const gone = `users/${ana}/gone`;
         expect((await call('POST', '/git/branches', { name: gone })).status).toBe(201);
         expect((await relabel(ANA, 'start', 'Kept start')).status).toBe(200);
@@ -221,8 +221,8 @@ describe('a moved branch is merged into its working copy; a removed one keeps it
     });
 
     test("a removed branch's changes can be discarded instead; then it goes", async () => {
-        const { id, call, repo, handle, changes, relabel } = await workspace();
-        const gone = `users/${await handle(ANA)}/dropped`;
+        const { id, call, repo, userHandle, changes, relabel } = await workspace();
+        const gone = `users/${await userHandle(ANA)}/dropped`;
         expect((await call('POST', '/git/branches', { name: gone })).status).toBe(201);
         expect((await relabel(ANA, 'start', 'Dropped start')).status).toBe(200);
         git(repo, 'update-ref', '-d', `refs/heads/${gone}`);

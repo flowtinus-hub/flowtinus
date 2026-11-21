@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import { LoaderCircle } from 'lucide-react';
 import { SCRIPT_GLOBALS, scriptModuleUri } from '@flowtinus/core';
-import { replaceScript, saveScript, useScriptContent } from '@/data/scripts/scripts-store';
+import { replaceScript, saveScript, useProjectScripts, useScriptContent } from '@/data/scripts/scripts-store';
 import { useBranchOffer } from '@/layout/use-branch-offer';
 import { ts, useScriptModels } from '@/editor/monaco-setup';
 
@@ -15,6 +15,7 @@ const isDark = () => document.documentElement.classList.contains('dark');
 export default function ScriptEditor({ projectId, path }: { projectId: string; path: string }) {
     const [dark, setDark] = useState(isDark);
     const content = useScriptContent(projectId, path);
+    const importPath = useProjectScripts(projectId).scripts.find(s => s.path === path)?.importPath;
     const branchOffer = useBranchOffer();
     const editor = useRef<Parameters<OnMount>[0] | null>(null);
     useScriptModels(projectId);
@@ -26,7 +27,7 @@ export default function ScriptEditor({ projectId, path }: { projectId: string; p
         return () => observer.disconnect();
     }, []);
 
-    if (!content) {
+    if (!content || !importPath) {
         return (
             <div className="flex h-full items-center justify-center text-muted-foreground">
                 <LoaderCircle className="size-4 animate-spin" aria-hidden />
@@ -52,7 +53,7 @@ export default function ScriptEditor({ projectId, path }: { projectId: string; p
         <>
             <Editor
                 language="typescript"
-                path={scriptModuleUri(path)}
+                path={scriptModuleUri(importPath)}
                 value={content.code}
                 theme={dark ? 'vs-dark' : 'light'}
                 onMount={mounted => {

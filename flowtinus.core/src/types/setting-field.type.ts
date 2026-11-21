@@ -14,8 +14,8 @@
  * - list: a list of items, each with the `item` settings (a Mapper's fields, a Router's cases);
  * - grid: a table, its columns (name and one of `options` as type) in `key` and its rows (text cells) in `rows`;
  * - flow: the id of another flow of the project;
- * - script-function: a function a project script exports, as `path#name` (a Script Invoker's);
- * - script-type: a type (interface or type alias) a project script exports, as `path#Name` (a Start's input type).
+ * - script-function: a function a script of the workspace exports, as `<import path>#name` (a Script Invoker's);
+ * - script-type: a type (interface or type alias) a script of the workspace exports, as `<import path>#Name` (a Start's input type).
  */
 export type SettingKind =
     | 'text'

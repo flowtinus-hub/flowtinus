@@ -12,17 +12,17 @@ import { ChangesDialog } from './changes-dialog';
 /** looked at again on this interval, and on each page */
 const CHANGES_MS = 60_000;
 
-function ChangesButton({ slug, pathname }: { slug: string; pathname: string }) {
-    const [count, setCount] = useState<{ slug: string; value: number; merging: boolean } | null>(null);
+function ChangesButton({ handle, pathname }: { handle: string; pathname: string }) {
+    const [count, setCount] = useState<{ handle: string; value: number; merging: boolean } | null>(null);
     const [open, setOpen] = useState(false);
     const unsaved = useUnsavedWork();
     useEffect(() => {
         let gone = false;
         const read = () =>
-            void getChanges(slug).then(
+            void getChanges(handle).then(
                 result =>
                     !gone &&
-                    setCount({ slug, value: result.ok ? result.value.changes.length : 0, merging: result.ok && !!result.value.merge }),
+                    setCount({ handle, value: result.ok ? result.value.changes.length : 0, merging: result.ok && !!result.value.merge }),
             );
         read();
         const timer = setInterval(read, CHANGES_MS);
@@ -34,10 +34,10 @@ function ChangesButton({ slug, pathname }: { slug: string; pathname: string }) {
             window.removeEventListener(CHANGES_CHANGED, read);
             window.removeEventListener(API_WRITE_DONE, read);
         };
-    }, [slug, pathname]);
+    }, [handle, pathname]);
 
-    const value = count?.slug === slug ? count.value : 0;
-    const merging = count?.slug === slug && count.merging;
+    const value = count?.handle === handle ? count.value : 0;
+    const merging = count?.handle === handle && count.merging;
     if (value === 0 && !merging && !open) {
         return null;
     }
@@ -57,7 +57,7 @@ function ChangesButton({ slug, pathname }: { slug: string; pathname: string }) {
                 <span>({value})</span>
                 {merging && <span className="text-xs text-muted-foreground">merging</span>}
             </Button>
-            {open && <ChangesDialog slug={slug} onClose={() => setOpen(false)} />}
+            {open && <ChangesDialog handle={handle} onClose={() => setOpen(false)} />}
         </>
     );
 }
@@ -72,8 +72,8 @@ export function SourceControlBar() {
     }
     return (
         <div className="flex min-w-0 items-center gap-1">
-            <BranchPicker slug={current.slug} />
-            <ChangesButton slug={current.slug} pathname={pathname} />
+            <BranchPicker handle={current.handle} />
+            <ChangesButton handle={current.handle} pathname={pathname} />
         </div>
     );
 }

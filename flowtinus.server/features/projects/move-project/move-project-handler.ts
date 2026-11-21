@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, nameKey, type FlowFile } from '@flowtinus/core';
+import { workspaceHandleIn } from '#features/workspaces/workspace';
+import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, flowWithScriptsMoved, handleOf, movedScriptImports, scriptImportPrefix, type FlowFile } from '@flowtinus/core';
 import { FlowRepository, longRepoPath } from '#features/folders/project-tree';
 import { loadDraft, writeDraft } from '#features/flows/flow-draft';
 import { scriptFileId } from '#features/git/working-copy';
@@ -11,6 +12,8 @@ import { undeployArchived } from '#features/deployments/deployments';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
 import { projects } from '#features/projects/project';
+import { handleTaken } from '#features/projects/project-fields';
+import { ProjectRepository } from '#features/projects/project-repository';
 import { workspaces } from '#features/workspaces/workspace';
 import { roleAtLeast, workspaceMembers } from '#features/workspaces/workspace-member';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -75,7 +78,7 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                 workspaceMembers,
                 and(eq(workspaceMembers.workspaceId, workspaces.id), sql`${workspaceMembers.userId}::text = ${ctx.userId}`),
             )
-            .where(and(eq(workspaces.slug, toWorkspace), isNull(workspaces.deletedAt)));
+            .where(and(eq(workspaces.handle, toWorkspace), isNull(workspaces.deletedAt)));
         if (!target || !target.role) {
             return fail('not-found', `Workspace "${toWorkspace}" not found among yours.`, { toWorkspace: 'Not found' });
         }
@@ -85,14 +88,9 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
         if (target.id === ctx.workspaceId) {
             return fail('validation', 'The project is already in this workspace.', { toWorkspace: 'Same workspace' });
         }
-        const namesThere = await ctx.db.orm
-            .select({ name: projects.name })
-            .from(projects)
-            .where(and(eq(projects.workspaceId, target.id), isNull(projects.deletedAt)));
-        if (namesThere.some(other => nameKey(other.name) === nameKey(project.name))) {
-            return fail('conflict', `"${toWorkspace}" already has a project named "${project.name}".`, {
-                toWorkspace: 'Name in use there',
-            });
+        const holder = await new ProjectRepository(ctx.db, target.id).handleHolder(project.name);
+        if (holder) {
+            return handleTaken(project.name, holder, { workspace: toWorkspace, field: 'toWorkspace' });
         }
 
         const tooLong = await longRepoPath(ctx, id, { project: project.name, workspaceId: target.id });
@@ -167,6 +165,10 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
             );
         }
 
+        const ownScripts = {
+            from: scriptImportPrefix(await workspaceHandleIn(ctx.db, ctx.workspaceId), handleOf(project.name)).slice(0, -1),
+            to: scriptImportPrefix(toWorkspace, handleOf(project.name)).slice(0, -1),
+        };
         const flowIds = flows.map(f => f.id);
         const deployed = flows.filter(f => f.deployed).length;
         await changeTree(
@@ -198,9 +200,8 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                         }
                         return { ...node, config };
                     });
-                    if (changed) {
-                        drafts.set(flow.id, { ...flow.draft.flow, nodes });
-                    }
+                    const remapped = changed ? { ...flow.draft.flow, nodes } : flow.draft.flow;
+                    drafts.set(flow.id, flowWithScriptsMoved(remapped, ownScripts.from, ownScripts.to) ?? remapped);
                 }
 
                 // the code the runs took, for the destination's runs to keep reading it
@@ -238,7 +239,14 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                     }
                 }
                 for (const script of scripts) {
-                    await writeScript(tx, target.id, id, script.path, script.content, ctx.userId);
+                    await writeScript(
+                        tx,
+                        target.id,
+                        id,
+                        script.path,
+                        movedScriptImports(script.content, ownScripts.from, ownScripts.to),
+                        ctx.userId,
+                    );
                 }
             },
             [target.id],

@@ -86,8 +86,8 @@ export function FlowEditorPage() {
     const onWorkBranch = Boolean(current?.flow?.workBranch);
     const { state: me } = useMe();
     const { canEdit } = useWorkspace();
-    const handle = me.status === 'ready' ? me.me.handle : null;
-    const offersBranch = Boolean(current?.flow?.offersBranch) && !archived && canEdit && handle !== null;
+    const userHandle = me.status === 'ready' ? me.me.handle : null;
+    const offersBranch = Boolean(current?.flow?.offersBranch) && !archived && canEdit && userHandle !== null;
     const [offering, setOffering] = useState<{ replay?: () => Promise<ApiResult<unknown>> } | null>(null);
     const [gitOn, setGitOn] = useState<boolean | null>(null);
     useEffect(() => {
@@ -401,7 +401,7 @@ export function FlowEditorPage() {
                     project={project.status === 'ready' ? project.project : null}
                     folders={current?.folders}
                     flowName={flowName}
-                    after={<BranchPicker slug={ws} />}
+                    after={<BranchPicker handle={ws} />}
                 />
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                     {onBranch &&
@@ -602,11 +602,11 @@ export function FlowEditorPage() {
                 )}
             </main>
             <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
-            {offering && handle && current?.flow && (
+            {offering && userHandle && current?.flow && (
                 <CreateBranchDialog
-                    slug={ws}
+                    handle={ws}
                     from={environmentBranch}
-                    handle={handle}
+                    userHandle={userHandle}
                     edit={{
                         name: current.flow.name,
                         draft: () => {

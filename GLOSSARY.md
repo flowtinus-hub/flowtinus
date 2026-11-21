@@ -1,6 +1,6 @@
 # Flowtinus
 
-Visual data flows: an engine that runs them, a server that schedules them and an editor that draws them. This glossary covers the vocabulary of the performance benchmarks (`flowtinus.perf`) and how their history is kept and read, loops, flow calls, how an agent reads a run, and git sync.
+Visual data flows: an engine that runs them, a server that schedules them and an editor that draws them. This glossary covers the vocabulary of the performance benchmarks (`flowtinus.perf`) and how their history is kept and read, loops, flow calls, how an agent reads a run, git sync, and how code imports scripts.
 
 ## Language
 
@@ -121,6 +121,16 @@ _Avoid_: Failed deploy, broken commit
 **Git ahead**:
 The state of an environment whose branch has a commit the server has not applied: refused, or not reconciled yet.
 _Avoid_: Out of sync, drift, behind
+
+### Scripts
+
+**Handle**:
+The name a workspace or a project goes by in an import path: lowercase letters, digits and hyphens, unique in its scope. A workspace's is chosen when it is created and never changes; a project's is made from its name and changes with it.
+_Avoid_: Slug, key
+
+**Import path**:
+How code names a script of any project in its workspace: `@w/<workspace handle>/<project handle>/scripts/<path>`, the same for the project's own scripts and another's.
+_Avoid_: Module path, `@myproject`
 
 **Deployed script set**:
 The scripts at the commit an environment last applied: what its schedules, webhooks and deployed runs import. The editor's Run uses the scripts being edited instead.

@@ -19,9 +19,9 @@ export type UpdateOutcome =
     | { outcome: 'merged'; commit: string }
     | { outcome: 'pending'; conflicts: string[]; errors?: Record<string, string> };
 
-const scopeOf = (slug: string) => [slug, '.gitattributes'];
+const scopeOf = (handle: string) => [handle, '.gitattributes'];
 
-const inScope = (path: string, slug: string) => path.startsWith(`${slug}/`) || path === '.gitattributes';
+const inScope = (path: string, handle: string) => path.startsWith(`${handle}/`) || path === '.gitattributes';
 
 async function updatable(ctx: UseCaseContext): Promise<{ branch: WorkBranch; environment: string }> {
     const git = await gitBranch(ctx.db, ctx.workspaceId);
@@ -58,8 +58,8 @@ export async function updateStatus(ctx: UseCaseContext): Promise<UseCaseResult<U
 export async function updateBranch(ctx: UseCaseContext): Promise<UseCaseResult<UpdateOutcome>> {
     const { branch, environment } = await updatable(ctx);
     const author = await gitAuthorOf(ctx);
-    const slug = branch.slug;
-    const scope = scopeOf(slug);
+    const handle = branch.handle;
+    const scope = scopeOf(handle);
     return onClone(ctx, 'Git could not be reached, nothing was merged', remote =>
         ctx.db.transaction(async (db): Promise<UseCaseResult<UpdateOutcome>> => {
             await lockBranch(db, ctx.workspaceId, branch.branch);
@@ -76,7 +76,7 @@ export async function updateBranch(ctx: UseCaseContext): Promise<UseCaseResult<U
             if (!theirs) {
                 return fail('conflict', `The branch ${environment} is not in the repository.`);
             }
-            const tipFiles = ours === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, ours, slug);
+            const tipFiles = ours === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, ours, handle);
             await followGit(db, ctx.workspaceId, tipFiles, ours, branch.branch);
             if (ours !== branch.tip) {
                 await noteHead(db, ctx.workspaceId, ctx.userId, branch.branch, ours);
@@ -90,7 +90,7 @@ export async function updateBranch(ctx: UseCaseContext): Promise<UseCaseResult<U
             }
 
             const merge = await remote.mergeTree(ours, theirs);
-            const outside = merge.conflicts.filter(path => !inScope(path, slug));
+            const outside = merge.conflicts.filter(path => !inScope(path, handle));
             if (outside.length > 0) {
                 return fail(
                     'conflict',
@@ -116,8 +116,8 @@ export async function updateBranch(ctx: UseCaseContext): Promise<UseCaseResult<U
             const message = `Merge ${environment} into ${branch.branch}`;
             if (merge.conflicts.length === 0) {
                 const commit = await remote.commit({ parent: ours, changes: {}, message, author, merge: { tree: merge.tree, theirs } });
-                const files = await readBranchWorkspace(remote, commit, slug);
-                const { errors } = await validateImport(db, ctx.workspaceId, slug, files);
+                const files = await readBranchWorkspace(remote, commit, handle);
+                const { errors } = await validateImport(db, ctx.workspaceId, handle, files);
                 if (errors.length === 0) {
                     const pushed = await pushOrRefuse(remote, commit, branch.branch, ours);
                     if (!pushed.ok) {
@@ -127,12 +127,12 @@ export async function updateBranch(ctx: UseCaseContext): Promise<UseCaseResult<U
                     await followGit(db, ctx.workspaceId, files, commit, branch.branch);
                     return success({ outcome: 'merged', commit });
                 }
-                await holdMerge(db, ctx, remote, { branch: branch.branch, slug, ours, theirs, base, environment, tipFiles, ...merge });
+                await holdMerge(db, ctx, remote, { branch: branch.branch, handle, ours, theirs, base, environment, tipFiles, ...merge });
                 return success({ outcome: 'pending', conflicts: [], errors: issueFields(errors) });
             }
             const pending = await holdMerge(db, ctx, remote, {
                 branch: branch.branch,
-                slug,
+                handle,
                 ours,
                 theirs,
                 base,
@@ -164,7 +164,7 @@ async function holdMerge(
     remote: GitRemote,
     merge: {
         branch: string;
-        slug: string;
+        handle: string;
         ours: string;
         theirs: string;
         base: string;
@@ -174,12 +174,16 @@ async function holdMerge(
         conflicts: string[];
     },
 ): Promise<PendingMerge> {
-    const scope = scopeOf(merge.slug);
-    const baseFiles = await readBranchWorkspace(remote, merge.base, merge.slug);
-    const theirsFiles = await readBranchWorkspace(remote, merge.theirs, merge.slug);
+    const scope = scopeOf(merge.handle);
+    const baseFiles = await readBranchWorkspace(remote, merge.base, merge.handle);
+    const theirsFiles = await readBranchWorkspace(remote, merge.theirs, merge.handle);
     const mergedFiles = await remote.files(merge.tree, scope);
     // a conflicted file's merged text has markers and reads as nothing: its id comes from either side
-    const ids = { ...branchIds(theirsFiles, merge.slug), ...branchIds(merge.tipFiles, merge.slug), ...branchIds(mergedFiles, merge.slug) };
+    const ids = {
+        ...branchIds(theirsFiles, merge.handle),
+        ...branchIds(merge.tipFiles, merge.handle),
+        ...branchIds(mergedFiles, merge.handle),
+    };
     const paths = [...new Set([...(await remote.changedPaths(merge.ours, merge.tree, scope)), ...merge.conflicts])].sort();
 
     const written: string[] = [];
@@ -243,7 +247,7 @@ async function holdMerge(
 
 export async function commitPendingMerge(ctx: UseCaseContext, branch: WorkBranch, message: string): Promise<UseCaseResult<string>> {
     const author = await gitAuthorOf(ctx);
-    const scope = scopeOf(branch.slug);
+    const scope = scopeOf(branch.handle);
     return onClone(ctx, 'Git could not be reached, nothing was committed', remote =>
         ctx.db.transaction(async (db): Promise<UseCaseResult<string>> => {
             await lockBranch(db, ctx.workspaceId, branch.branch);
@@ -272,7 +276,7 @@ export async function commitPendingMerge(ctx: UseCaseContext, branch: WorkBranch
             if (!(await remote.hasCommit(merge.theirs))) {
                 await remote.fetch(merge.source);
             }
-            const tipFiles = tip === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, tip, branch.slug);
+            const tipFiles = tip === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, tip, branch.handle);
             const { tree } = await remote.mergeTree(merge.ours, merge.theirs);
             const mergedFiles = await remote.files(tree, scope);
             const wanted = overlayRows(tipFiles, rows);
@@ -284,8 +288,8 @@ export async function commitPendingMerge(ctx: UseCaseContext, branch: WorkBranch
             }
 
             const commit = await remote.commit({ parent: tip, changes, message, author, merge: { tree, theirs: merge.theirs } });
-            const files = await readBranchWorkspace(remote, commit, branch.slug);
-            const { errors } = await validateImport(db, ctx.workspaceId, branch.slug, files);
+            const files = await readBranchWorkspace(remote, commit, branch.handle);
+            const { errors } = await validateImport(db, ctx.workspaceId, branch.handle, files);
             if (errors.length > 0) {
                 return fail(
                     'validation',

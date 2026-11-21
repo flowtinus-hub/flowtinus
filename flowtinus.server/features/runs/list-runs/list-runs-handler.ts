@@ -18,7 +18,7 @@ export type RunListItem = {
     id: string;
     status: RunRowStatus;
     trigger: string;
-    workspaceSlug: string;
+    workspaceHandle: string;
     workspaceName: string;
     projectId: string | null;
     projectName: string | null;
@@ -49,7 +49,7 @@ const SELECT = `
          r.started_at AS "startedAt", r.finished_at AS "finishedAt", r.duration_ms AS "durationMs",
          r.envelopes_in AS "envelopesIn", r.envelopes_out AS "envelopesOut", r.error, r.worker_id AS "workerId",
          r.parent_id AS "parentId", r.root_id AS "rootId", r.parent_node_label AS "calledBy", r.batch_size AS "batchSize",
-         fv.number AS version, r.rerun_of AS "rerunOf", w.slug AS "workspaceSlug", w.name AS "workspaceName"
+         fv.number AS version, r.rerun_of AS "rerunOf", w.handle AS "workspaceHandle", w.name AS "workspaceName"
   FROM runs r
   JOIN workspaces w ON w.id = r.workspace_id
   LEFT JOIN flow_versions fv ON fv.id = r.flow_version_id
@@ -102,13 +102,13 @@ async function treesOf(
     return { runs: rows.map(({ n: _n, total: _total, ...row }) => item(row)), sizes };
 }
 
-async function readableWorkspaces(ctx: UseCaseContext, slug: string | undefined): Promise<string[]> {
+async function readableWorkspaces(ctx: UseCaseContext, handle: string | undefined): Promise<string[]> {
     const ids = ctx.workspaceIds ?? [ctx.workspaceId];
-    if (!slug) {
+    if (!handle) {
         return ids;
     }
 
-    const [row] = await ctx.db.orm.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.slug, slug));
+    const [row] = await ctx.db.orm.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.handle, handle));
     return row && ids.includes(row.id) ? [row.id] : [];
 }
 

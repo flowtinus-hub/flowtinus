@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { GITATTRIBUTES, projectToYaml, repoFlowFromYaml, repoFlowToYaml, workspaceToYaml, type FlowFile, type RepoSchedule, type RepoWebhook } from '@flowtinus/core';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, git } from '../helpers/git-repos';
 import { fireDueSchedules } from '#features/schedules/fire-schedules';
 import { Keyring } from '#shared/crypto/keyring';
@@ -44,7 +44,7 @@ describe('the reconcile applies the schedules and webhooks in the flow files; wh
 
     async function newWorkspace(triggers: Triggers = {}) {
         const id = crypto.randomUUID();
-        const slug = slugOf(id);
+        const handle = workspaceHandleOf(id);
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
             const response = await app.request(wsPath(id, path), {
@@ -61,7 +61,7 @@ describe('the reconcile applies the schedules and webhooks in the flow files; wh
         expect((await call('POST', '/git/topology', { confirm: true })).status).toBe(201);
 
         const ids = { sales: crypto.randomUUID(), orders: crypto.randomUUID() };
-        const p = (path: string) => `${slug}/${path}`;
+        const p = (path: string) => `${handle}/${path}`;
         const paths = { project: p('projects/Sales/project.yaml'), orders: p('projects/Sales/flows/Orders.flow.yaml') };
         const ordersFile = (with_: Triggers) => repoFlowToYaml(logFlow(ids.orders, 'v1'), with_);
         commitFiles(repo, 'dev', {

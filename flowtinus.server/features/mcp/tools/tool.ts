@@ -130,4 +130,4 @@ export const defineTool = <S extends z.ZodRawShape>(tool: {
     run: (args: z.infer<z.ZodObject<S>>, t: ToolContext) => Promise<ToolResult>;
 }): McpTool => tool as McpTool;
 
-export const workspaceArg = z.string().describe("the workspace's slug, from list_workspaces or resolve_url");
+export const workspaceArg = z.string().describe("the workspace's handle, from list_workspaces or resolve_url");

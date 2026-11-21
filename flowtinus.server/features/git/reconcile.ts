@@ -1,5 +1,5 @@
 import { repoEntry, type TreeIssue } from '@flowtinus/core';
-import { workspaceSlug } from '#features/folders/project-tree';
+import { workspaceHandle } from '#features/folders/project-tree';
 import { foldOverrides } from '#features/schedules/schedules';
 import { clearArrivedDisabled } from './arrived-disabled';
 import { deleteWorkspaceSetting, readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspaces/workspace-settings';
@@ -78,12 +78,12 @@ export async function applyCommit(
     ctx: UseCaseContext,
     remote: GitRemote,
     applied: BranchCommit,
-    slug: string,
+    handle: string,
     files: RepoFiles,
     warnings: TreeIssue[] = [],
 ): Promise<RenamedDraft[]> {
     const by = await recordCommit(ctx, remote, applied.commit);
-    const { renamedDrafts } = await importWorkspace(ctx, slug, files, { commit: applied.commit, by });
+    const { renamedDrafts } = await importWorkspace(ctx, handle, files, { commit: applied.commit, by });
     await markApplied(ctx, applied, warnings);
     return renamedDrafts;
 }
@@ -116,8 +116,8 @@ export async function reconcile(
         return fail('conflict', `The branch ${branch} does not exist.`);
     }
 
-    const slug = await workspaceSlug(ctx);
-    const files = await readBranchWorkspace(remote, tip, slug);
+    const handle = await workspaceHandle(ctx);
+    const files = await readBranchWorkspace(remote, tip, handle);
     return ctx.db.transaction(async db => {
         const tx = { ...ctx, db };
         const [lock] = await db.query<{ locked: boolean }>('SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked', [
@@ -143,7 +143,7 @@ export async function reconcile(
             return success({ ...result, outcome: 'refused' as const, errors: state.refused.errors, refusedAt: state.refused.at });
         }
 
-        const validation = await validateImport(db, ctx.workspaceId, slug, files);
+        const validation = await validateImport(db, ctx.workspaceId, handle, files);
         if (validation.errors.length > 0) {
             await recordCommit(tx, remote, tip);
             const refused = { commit: tip, errors: validation.errors, at: new Date().toISOString() };
@@ -151,7 +151,7 @@ export async function reconcile(
             return success({ ...result, outcome: 'refused' as const, errors: refused.errors, refusedAt: refused.at });
         }
 
-        const renamedDrafts = await applyCommit(tx, remote, { branch, commit: tip, mode }, slug, files, validation.warnings);
+        const renamedDrafts = await applyCommit(tx, remote, { branch, commit: tip, mode }, handle, files, validation.warnings);
         return success({ ...result, outcome: 'applied' as const, warnings: validation.warnings, renamedDrafts });
     });
 }

@@ -1,4 +1,4 @@
-import { bool, id, int32, isoDate } from '@myproject/scripts/Shared/ExtendedJson';
+import { bool, id, int32, isoDate } from '@w/perf/scenario/scripts/Shared/ExtendedJson';
 
 /** one source document (a Data Lake snapshot, Extended JSON) as a warehouse row */
 export function mapItemEntity(input: Record<string, unknown>, contextId: string): Record<string, unknown> {

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { insertMember, insertWorkspace, slugOf } from '../helpers/workspaces';
+import { insertMember, insertWorkspace, workspaceHandleOf } from '../helpers/workspaces';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -33,7 +33,7 @@ describe('MCP (/mcp)', () => {
     let db: Database;
     let app: ReturnType<typeof createApp>;
     const workspaceId = crypto.randomUUID();
-    const ws = slugOf(workspaceId);
+    const ws = workspaceHandleOf(workspaceId);
     let ana: string;
 
     /** an MCP client over HTTP (the app's fetch), with a token of these scopes */
@@ -141,7 +141,7 @@ describe('MCP (/mcp)', () => {
         const folder = await mcp.call('create_folder', { projectId, name: 'Imports' });
         expect(folder.body.folderId).toBeString();
         const projects = await mcp.call('list_projects', { workspace: ws });
-        expect(projects.body.map((p: { name: string }) => p.name)).toContain('Agents');
+        expect(projects.body.find((p: { name: string }) => p.name === 'Agents')).toMatchObject({ handle: 'agents' });
     });
 
     test('validate_flow: every issue with its node and setting; a valid one is ok', async () => {
@@ -159,6 +159,16 @@ describe('MCP (/mcp)', () => {
         );
         const missing = await mcp.call('validate_flow', { projectId, yaml: refs });
         expect(missing.body.issues).toContainEqual(expect.objectContaining({ nodeId: 'call', settingKey: 'flowId' }));
+        const foreign = flowYaml().replace(
+            '  - { id: end, type: end',
+            `  - { id: ts, type: typescript, position: { x: 600, y: 200 }, config: { code: "import { x } from '@w/elsewhere/lib/scripts/x';" } }
+  - { id: end, type: end`,
+        );
+        expect((await mcp.call('validate_flow', { projectId, yaml: foreign })).body.issues).toContainEqual({
+            nodeId: 'ts',
+            settingKey: 'code',
+            message: `"typescript": imports the script @w/elsewhere/lib/scripts/x: only scripts of this workspace (@w/${ws}/<project>/scripts/<path>).`,
+        });
     });
 
     /** the flow file with an HTTP Request before the End: by a profile's id, or by the name an expression gives */
@@ -450,7 +460,7 @@ describe('MCP (/mcp)', () => {
         });
 
         const read = await mcp.call('get_script', { projectId, path: 'pricing/tax' });
-        expect(read.body).toMatchObject({ content: code, revision: 0 });
+        expect(read.body).toMatchObject({ content: code, revision: 0, importPath: `@w/${ws}/agents/scripts/pricing/tax` });
 
         const saved = await mcp.call('save_script', {
             projectId,
@@ -462,7 +472,13 @@ describe('MCP (/mcp)', () => {
         expect(
             (await mcp.call('save_script', { projectId, path: 'pricing/tax', content: code, expectedRevision: 0 })).body.error,
         ).toMatchObject({ code: 'conflict', currentRevision: 1 });
-        expect((await mcp.call('list_scripts', { projectId })).body.scripts.map((s: { path: string }) => s.path)).toEqual(['pricing/tax']);
+        expect((await mcp.call('list_scripts', { projectId })).body.scripts).toEqual([
+            {
+                path: 'pricing/tax',
+                importPath: `@w/${ws}/agents/scripts/pricing/tax`,
+                exports: [expect.objectContaining({ name: 'total' })],
+            },
+        ]);
     });
 
     test('a token without the scope: forbidden, naming it', async () => {
@@ -484,12 +500,12 @@ describe('MCP (/mcp)', () => {
     });
 
     test('create_workspace: with the scope workspaces:write, and only for an admin of the environment', async () => {
-        const created = await mcp.call('create_workspace', { slug: 'agents-ws', name: 'Agents' });
+        const created = await mcp.call('create_workspace', { handle: 'agents-ws', name: 'Agents' });
         expect(created.body.error).toEqual({ code: 'forbidden', message: 'Only an admin of the environment can create workspaces.' });
 
         const envAdmin = await insertMember(db, workspaceId, { name: 'Root', isAdmin: true });
         const root = await connect(API_SCOPES, envAdmin);
-        expect((await root.call('create_workspace', { slug: 'agents-ws', name: 'Agents' })).body).toEqual({
+        expect((await root.call('create_workspace', { handle: 'agents-ws', name: 'Agents' })).body).toEqual({
             workspace: 'agents-ws',
             editorUrl: 'http://localhost:5180/w/agents-ws/projects',
         });
@@ -497,7 +513,7 @@ describe('MCP (/mcp)', () => {
             (await root.call('list_workspaces')).body.map((w: { workspace: string; role: string }) => [w.workspace, w.role]),
         ).toContainEqual(['agents-ws', 'admin']);
         const narrow = await connect(['flows:read'], envAdmin);
-        expect((await narrow.call('create_workspace', { slug: 'other-ws', name: 'Other' })).body.error.message).toBe(
+        expect((await narrow.call('create_workspace', { handle: 'other-ws', name: 'Other' })).body.error.message).toBe(
             'This token does not have the scope workspaces:write.',
         );
     });

@@ -353,7 +353,7 @@ export function RunsPage() {
                             >
                                 <option value="">All workspaces</option>
                                 {workspaces.map(w => (
-                                    <option key={w.slug} value={w.slug}>
+                                    <option key={w.handle} value={w.handle}>
                                         {w.name}
                                     </option>
                                 ))}

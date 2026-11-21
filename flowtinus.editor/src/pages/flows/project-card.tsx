@@ -31,7 +31,7 @@ type Props = {
  * active, Restore once archived) sits above that link.
  */
 export function ProjectCard({ project, onEdit, onArchive, onRestore, onMove }: Props) {
-    const { slug: ws, canEdit, isAdmin } = useWorkspace();
+    const { handle: ws, canEdit, isAdmin } = useWorkspace();
     const archived = project.archivedAt !== null;
 
     return (

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git, webhookInGit } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -41,15 +41,16 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
             expect((await call('POST', '/git/on', { createBranch: true })).status).toBe(200);
         }
 
-        const script = async (path: string, content: string) => {
-            expect((await call('POST', `/projects/${projectId}/scripts`, { kind: 'script', path, content })).status).toBe(201);
+        const importOf = (path: string, project = 'sales') => `@w/${workspaceHandleOf(id)}/${project}/scripts/${path}`;
+        const script = async (path: string, content: string, project = projectId) => {
+            expect((await call('POST', `/projects/${project}/scripts`, { kind: 'script', path, content })).status).toBe(201);
             if (options.git !== false) {
                 expect((await commitAll(call, `Create script ${path}`)).status).toBe(200);
             }
         };
-        const save = async (path: string, content: string) => {
-            const { revision } = (await call('GET', `/projects/${projectId}/scripts/content?path=${encodeURIComponent(path)}`)).body;
-            expect((await call('PUT', `/projects/${projectId}/scripts/content`, { path, content, revision })).status).toBe(200);
+        const save = async (path: string, content: string, project = projectId) => {
+            const { revision } = (await call('GET', `/projects/${project}/scripts/content?path=${encodeURIComponent(path)}`)).body;
+            expect((await call('PUT', `/projects/${project}/scripts/content`, { path, content, revision })).status).toBe(200);
         };
         const editing = async (path: string) =>
             (await call('GET', `/projects/${projectId}/scripts/content?path=${encodeURIComponent(path)}`)).body.content as string;
@@ -66,7 +67,7 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
                     id: 'ts',
                     type: 'typescript',
                     position: { x: 160, y: 0 },
-                    config: { code: `import { value } from '@myproject/scripts/${imports}';` },
+                    config: { code: `import { value } from '${importOf(imports)}';` },
                 },
                 ...calls.map((to, i) => ({ id: `call${i}`, type: 'flow', position: { x: 160, y: 80 * (i + 1) }, config: { flowId: to } })),
             ];
@@ -90,7 +91,10 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
                 [id],
             );
             return Object.fromEntries(
-                Object.entries(run!.scripts).map(([path, hash]) => [path, blobs.find(b => b.hash === hash)!.content]),
+                Object.entries(run!.scripts).map(([path, hash]) => [
+                    path.replace(importOf(''), ''),
+                    blobs.find(b => b.hash === hash)!.content,
+                ]),
             );
         };
         const testRun = async (flowId: string) => {
@@ -114,14 +118,14 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
                 return scriptsOf(((await response.json()) as { runId: string }).runId);
             };
         };
-        const scriptPath = (path: string) => `${slugOf(id)}/projects/Sales/scripts/${path}.ts`;
+        const scriptPath = (path: string) => `${workspaceHandleOf(id)}/projects/Sales/scripts/${path}.ts`;
         const onBranch = (): Record<string, string> =>
             Object.fromEntries(
                 git(repo, 'ls-tree', '-r', '--name-only', 'dev')
                     .split('\n')
                     .map(path => [path, Bun.spawnSync(['git', 'show', `dev:${path}`], { cwd: repo, stdout: 'pipe' }).stdout.toString()]),
             );
-        return { call, repo, script, save, editing, flow, draft, deploy, testRun, webhookOf, scriptPath, onBranch };
+        return { call, repo, script, save, editing, flow, draft, deploy, testRun, webhookOf, scriptPath, onBranch, importOf };
     }
 
     beforeAll(async () => {
@@ -180,9 +184,10 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
     });
 
     test('a deployed run takes the deployed set through the scripts it imports and the flows it calls, with their deployed versions', async () => {
-        const { script, save, flow, draft, deploy, testRun, webhookOf } = await newWorkspace();
+        const { script, save, flow, draft, deploy, testRun, webhookOf, importOf } = await newWorkspace();
+        const prices = `import { two } from '${importOf('lib/math')}';\nexport const value = two;`;
         await script('lib/math', 'export const two = 2;');
-        await script('lib/prices', "import { two } from '@myproject/scripts/lib/math';\nexport const value = two;");
+        await script('lib/prices', prices);
         await script('lib/tax', 'export const value = 0.1;');
         await script('lib/fees', 'export const value = 5;');
         const tax = await flow('Tax', 'lib/tax');
@@ -197,15 +202,30 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
 
         expect(await webhook()).toEqual({
             'lib/math': 'export const two = 2;',
-            'lib/prices': "import { two } from '@myproject/scripts/lib/math';\nexport const value = two;",
+            'lib/prices': prices,
             'lib/tax': 'export const value = 0.1;',
         });
         expect(await testRun(orders)).toEqual({
             'lib/math': 'export const two = 3;',
-            'lib/prices': "import { two } from '@myproject/scripts/lib/math';\nexport const value = two;",
+            'lib/prices': prices,
             'lib/fees': 'export const value = 5;',
         });
         // several commits, each pushed and reconciled: beside the other suites it outlasts 30 s
+    }, 90_000);
+
+    test("a script of another project: a deployed run takes it from the deployed set, the editor's Run as it is being edited", async () => {
+        const { call, script, save, flow, deploy, testRun, webhookOf, importOf } = await newWorkspace();
+        const shared = (await call('POST', '/projects', { name: 'Shared Lib' })).body.id as string;
+        const prices = `import { two } from '${importOf('math', 'shared-lib')}';\nexport const value = two;`;
+        await script('math', 'export const two = 2;', shared);
+        await script('lib/prices', prices);
+        const orders = await flow('Orders', 'lib/prices');
+        await deploy(orders);
+        const webhook = await webhookOf(orders);
+
+        await save('math', 'export const two = 3;', shared);
+        expect(await webhook()).toEqual({ [importOf('math', 'shared-lib')]: 'export const two = 2;', 'lib/prices': prices });
+        expect(await testRun(orders)).toEqual({ [importOf('math', 'shared-lib')]: 'export const two = 3;', 'lib/prices': prices });
     }, 90_000);
 
     test('with git off, a deployed run takes the scripts as saved, as before', async () => {

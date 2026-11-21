@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -48,9 +48,9 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
 
         const newFlow = async (name: string, folderId?: string) =>
             (await call('POST', `/projects/${projectId}/flows`, { name, ...(folderId ? { folderId } : {}) })).body.id as string;
-        const flowPath = (...path: string[]) => `${slugOf(id)}/projects/Sales/flows/${path.join('/')}.flow.yaml`;
-        const firstExport = `First export of ${slugOf(id)}`;
-        return { id, slug: slugOf(id), call, repo, projectId, newFlow, flowPath, firstExport };
+        const flowPath = (...path: string[]) => `${workspaceHandleOf(id)}/projects/Sales/flows/${path.join('/')}.flow.yaml`;
+        const firstExport = `First export of ${workspaceHandleOf(id)}`;
+        return { id, handle: workspaceHandleOf(id), call, repo, projectId, newFlow, flowPath, firstExport };
     }
 
     const show = (repo: string, path: string) => git(repo, 'show', `dev:${path}`);
@@ -178,9 +178,9 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
     });
 
     test('when the branch moved before the push, the commit is rebuilt on the new tip once, and both apply', async () => {
-        const { call, repo, projectId, newFlow, flowPath, slug } = await newWorkspace();
+        const { call, repo, projectId, newFlow, flowPath, handle } = await newWorkspace();
         const orders = await newFlow('Orders');
-        const projectFile = `${slug}/projects/Sales/project.yaml`;
+        const projectFile = `${handle}/projects/Sales/project.yaml`;
         const moved = commitFiles(repo, 'outside', {
             ...onBranch(repo),
             [projectFile]: onBranch(repo)
@@ -316,8 +316,8 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
     });
 
     test('the app never pushes an invalid tree: a Commit on top of a refused commit fails with its errors', async () => {
-        const { call, repo, projectId, slug } = await newWorkspace();
-        const bad = `${slug}/connections/Bad.yaml`;
+        const { call, repo, projectId, handle } = await newWorkspace();
+        const bad = `${handle}/connections/Bad.yaml`;
         commitFiles(repo, 'dev', { ...onBranch(repo), [bad]: `id: ${crypto.randomUUID()}\ntype: oracle\n` });
         const tip = git(repo, 'rev-parse', 'dev');
 
@@ -338,7 +338,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
     });
 
     test('an MCP tool that changes the tree takes the same path: into the working copy, git or not, until a Commit', async () => {
-        const { slug, call, repo, projectId, firstExport } = await newWorkspace();
+        const { handle, call, repo, projectId, firstExport } = await newWorkspace();
         const { token } = newApiToken();
         await insertApiToken(db, { userId: ANA, name: 'test', token, scopes: API_SCOPES });
         const client = new Client({ name: 'test', version: '1.0.0' });
@@ -349,7 +349,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
             }),
         );
         const createFolder = async (name: string) =>
-            (await client.callTool({ name: 'create_folder', arguments: { workspace: slug, projectId, name } })) as {
+            (await client.callTool({ name: 'create_folder', arguments: { workspace: handle, projectId, name } })) as {
                 isError?: boolean;
                 content: { text: string }[];
             };
@@ -363,7 +363,7 @@ describe("a flow's deploy is a commit on the environment's branch", () => {
         expect(away.isError).toBeFalsy();
         expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev')).not.toContain('Exports');
         expect((await commitAll(call, 'Create folders')).status).toBe(200);
-        expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev')).toContain(`${slug}/projects/Sales/flows/Exports/.gitkeep`);
+        expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev')).toContain(`${handle}/projects/Sales/flows/Exports/.gitkeep`);
         await client.close();
     });
 

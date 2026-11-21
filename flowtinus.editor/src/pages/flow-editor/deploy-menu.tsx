@@ -388,7 +388,7 @@ export function DeployMenu({
                 />
             )}
             {resolving && (
-                <ConflictDialog slug={workspace} path={resolving} onClose={() => setResolving(null)} onResolved={() => void resolved()} />
+                <ConflictDialog handle={workspace} path={resolving} onClose={() => setResolving(null)} onResolved={() => void resolved()} />
             )}
         </>
     );
@@ -449,7 +449,7 @@ function CommitDialog(props: {
                                 <p className="text-sm text-muted-foreground">
                                     These triggers arrived disabled: none runs until it is turned on in this environment.
                                 </p>
-                                <ArrivedDisabledList slug={workspace} items={applied.arrived} className="max-h-[50vh] overflow-y-auto" />
+                                <ArrivedDisabledList handle={workspace} items={applied.arrived} className="max-h-[50vh] overflow-y-auto" />
                             </div>
                         )}
                     </div>

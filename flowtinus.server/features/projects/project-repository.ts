@@ -1,7 +1,7 @@
-import { nameKey } from '@flowtinus/core';
+import { handleHolder } from '@flowtinus/core';
 import type { Database } from '#shared/database/database';
 import { WorkspaceRepository } from '#shared/database/repository';
-import { projects } from './project';
+import { projects, type Project } from './project';
 
 /**
  * Projects of ONE workspace: the workspaceId comes in the constructor and every query filters by it, so a repository
@@ -12,8 +12,10 @@ export class ProjectRepository extends WorkspaceRepository<typeof projects> {
         super(db, projects, workspaceId);
     }
 
-    async existsByName(name: string, exceptId?: string): Promise<boolean> {
-        const key = nameKey(name);
-        return (await this.findMany()).some(project => project.id !== exceptId && nameKey(project.name) === key);
+    async handleHolder(name: string, exceptId?: string): Promise<Project | undefined> {
+        return handleHolder(
+            name,
+            (await this.findAll()).filter(project => project.id !== exceptId),
+        );
     }
 }

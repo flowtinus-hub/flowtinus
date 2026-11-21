@@ -2,8 +2,8 @@ import { COMPONENT_TYPE, dynamicTargets, flowPath, inputTypeRef, isFolderVisible
 import { deployedDefinitions } from '#features/deployments/deployments';
 import { loadDraft } from '#features/flows/flow-draft';
 import type { ProjectTree } from '#features/folders/project-tree';
-import { typeSources, type ScriptSource } from '#features/scripts/script-store';
-import { branchDraft, branchFlow, branchScripts, type WorkBranch } from '#features/git/branch-read';
+import { editingSource, typeSources, type ScriptSource } from '#features/scripts/script-store';
+import { branchDraft, branchFlow, type WorkBranch } from '#features/git/branch-read';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 
 export type CalledFlow = {
@@ -33,7 +33,6 @@ export const callsOf = (file: FlowFile) =>
 
 async function inputTypeOf(
     ctx: UseCaseContext,
-    projectId: string,
     file: FlowFile,
     scripts: ScriptSource,
 ): Promise<{ type?: CalledFlow['inputType']; error?: string }> {
@@ -43,7 +42,7 @@ async function inputTypeOf(
         return {};
     }
 
-    const shape = scriptTypeShape(await typeSources(ctx.db, ctx.workspaceId, projectId, ref.path, scripts), ref.path, ref.name);
+    const shape = scriptTypeShape(await typeSources(ctx.db, ctx.workspaceId, ref.path, scripts), ref.path, ref.name);
     return shape
         ? { type: { name: ref.name, shape } }
         : { error: `its input type ${ref.name} no longer exists in the script ${ref.path}.` };
@@ -51,13 +50,12 @@ async function inputTypeOf(
 
 export async function calledFlows(
     ctx: UseCaseContext,
-    projectId: string,
     tree: ProjectTree,
     root: FlowFile,
     source: 'draft' | 'deployed',
     branch: WorkBranch | null = null,
 ): Promise<CalledFlow[]> {
-    const scripts: ScriptSource = branch ? { branch: branchScripts(branch, projectId) } : 'editing';
+    const scripts = editingSource(branch);
     const found = new Map<string, CalledFlow>();
     const deployed =
         source === 'deployed'
@@ -101,7 +99,7 @@ export async function calledFlows(
             return [];
         }
 
-        const { type, error } = await inputTypeOf(ctx, projectId, checked.value, scripts);
+        const { type, error } = await inputTypeOf(ctx, checked.value, scripts);
         found.set(id, {
             id,
             name: row.name,

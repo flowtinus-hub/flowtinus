@@ -12,7 +12,7 @@ import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { TokenDialog } from '@/pages/flow-editor/webhooks-menu';
 import { cn } from '@/lib/utils';
 
-export function ArrivedDisabledList({ slug, items, className }: { slug: string; items: ArrivedDisabled[]; className?: string }) {
+export function ArrivedDisabledList({ handle, items, className }: { handle: string; items: ArrivedDisabled[]; className?: string }) {
     const { canEdit } = useWorkspace();
     const [enabled, setEnabled] = useState<Record<string, boolean>>({});
     const [busy, setBusy] = useState<string | null>(null);
@@ -66,7 +66,7 @@ export function ArrivedDisabledList({ slug, items, className }: { slug: string; 
             {items.map(item => (
                 <div key={item.flowId} className="grid rounded-md border">
                     <Link
-                        to={flowPath(slug, item.projectId, item.flowId)}
+                        to={flowPath(handle, item.projectId, item.flowId)}
                         className="flex items-center gap-2 border-b px-3 py-1.5 font-medium hover:underline"
                     >
                         <Workflow className="size-4 text-muted-foreground" /> {item.flowName}

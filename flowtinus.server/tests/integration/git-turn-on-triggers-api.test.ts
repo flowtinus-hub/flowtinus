@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { GITATTRIBUTES, projectToYaml, repoFlowFromYaml, repoFlowToYaml, workspaceToYaml, type FlowFile, type RepoSchedule, type RepoWebhook } from '@flowtinus/core';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { exportWorkspace } from '#features/git/workspace-export';
 import { fireDueSchedules } from '#features/schedules/fire-schedules';
@@ -42,7 +42,7 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
 
     async function newWorkspace() {
         const id = crypto.randomUUID();
-        const slug = slugOf(id);
+        const handle = workspaceHandleOf(id);
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
             const response = await app.request(wsPath(id, path), {
@@ -59,7 +59,7 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         await call('PUT', '/git', config);
         expect((await call('POST', '/git/topology', { confirm: true })).status).toBe(201);
 
-        const ordersPath = `${slug}/projects/Sales/flows/Orders.flow.yaml`;
+        const ordersPath = `${handle}/projects/Sales/flows/Orders.flow.yaml`;
         const deployedOrders = async () => {
             const sales = (await call('POST', '/projects', { name: 'Sales' })).body.id as string;
             const orders = (await call('POST', `/projects/${sales}/flows`, { name: 'Orders' })).body.id as string;
@@ -90,7 +90,7 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         const arrived = async () => (await call('GET', '/git/arrived-disabled')).body.items;
         return {
             id,
-            slug,
+            handle,
             call,
             repo,
             config,
@@ -151,12 +151,12 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
     });
 
     test('an import into an empty workspace brings every trigger disabled, listed as arrived; the preview says so', async () => {
-        const { slug, call, repo, ordersPath, schedules, webhooks, arrived } = await newWorkspace();
+        const { handle, call, repo, ordersPath, schedules, webhooks, arrived } = await newWorkspace();
         const ids = { sales: crypto.randomUUID(), orders: crypto.randomUUID(), s: crypto.randomUUID(), w: crypto.randomUUID() };
         commitFiles(repo, 'dev', {
             '.gitattributes': GITATTRIBUTES,
-            [`${slug}/workspace.yaml`]: workspaceToYaml(),
-            [`${slug}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: '' }),
+            [`${handle}/workspace.yaml`]: workspaceToYaml(),
+            [`${handle}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: '' }),
             [ordersPath]: repoFlowToYaml(logFlow(ids.orders), { schedules: [schedule(ids.s)], webhooks: [webhook(ids.w)] }),
         });
 
@@ -253,7 +253,7 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         expect(onBranch()[ordersPath]).toContain(fresh);
     });
     test("turning git off folds each schedule's overrides into its values; every trigger keeps its enabled", async () => {
-        const { slug, call, repo, ordersPath, schedules, webhooks } = await newWorkspace();
+        const { handle, call, repo, ordersPath, schedules, webhooks } = await newWorkspace();
         const ids = {
             sales: crypto.randomUUID(),
             orders: crypto.randomUUID(),
@@ -263,8 +263,8 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
         };
         commitFiles(repo, 'dev', {
             '.gitattributes': GITATTRIBUTES,
-            [`${slug}/workspace.yaml`]: workspaceToYaml(),
-            [`${slug}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: '' }),
+            [`${handle}/workspace.yaml`]: workspaceToYaml(),
+            [`${handle}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: '' }),
             [ordersPath]: repoFlowToYaml(logFlow(ids.orders), {
                 schedules: [{ ...schedule(ids.s, '0 6 * * *'), parameters: { since: '1', limit: '5' } }, schedule(ids.off)],
                 webhooks: [webhook(ids.w)],
@@ -302,12 +302,12 @@ describe('turning git on and off never starts or stops a trigger nobody saw', ()
     });
 
     test('with git off nothing has arrived disabled, and the environment overrides are refused', async () => {
-        const { slug, call, repo, ordersPath, schedules, webhooks, arrived } = await newWorkspace();
+        const { handle, call, repo, ordersPath, schedules, webhooks, arrived } = await newWorkspace();
         const ids = { sales: crypto.randomUUID(), orders: crypto.randomUUID(), s: crypto.randomUUID(), w: crypto.randomUUID() };
         commitFiles(repo, 'dev', {
             '.gitattributes': GITATTRIBUTES,
-            [`${slug}/workspace.yaml`]: workspaceToYaml(),
-            [`${slug}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: '' }),
+            [`${handle}/workspace.yaml`]: workspaceToYaml(),
+            [`${handle}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: '' }),
             [ordersPath]: repoFlowToYaml(logFlow(ids.orders), { schedules: [schedule(ids.s)], webhooks: [webhook(ids.w)] }),
         });
         expect((await call('POST', '/git/on', {})).body).toMatchObject({ outcome: 'imported' });

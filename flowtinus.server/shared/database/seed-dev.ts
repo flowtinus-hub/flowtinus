@@ -6,7 +6,7 @@ import type { Database } from './database';
  */
 
 export const DEV_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
-export const DEV_WORKSPACE_SLUG = 'dev';
+export const DEV_WORKSPACE_HANDLE = 'dev';
 export const DEV_USER = { id: '00000000-0000-4000-8000-000000000002', name: 'Dev', email: 'dev@example.com' };
 
 /**
@@ -18,9 +18,9 @@ export const DEV_PAT_ID = '00000000-0000-4000-8000-000000000003';
 
 export async function seedDev(db: Database, pat = process.env.SEED_DEV_PAT || DEV_PAT): Promise<void> {
     await db.query(
-        `INSERT INTO workspaces (id, slug, name)
+        `INSERT INTO workspaces (id, handle, name)
                     VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
-        [DEV_WORKSPACE_ID, DEV_WORKSPACE_SLUG, 'Dev'],
+        [DEV_WORKSPACE_ID, DEV_WORKSPACE_HANDLE, 'Dev'],
     );
     await db.query(
         `INSERT INTO users (id, name, email, is_admin)

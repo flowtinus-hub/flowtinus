@@ -1,7 +1,8 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect } from 'react';
 import { insideScriptFolder, normalizeScriptPath, pathCaseClash, scriptContentIssue, scriptExports, scriptPathIssue, type ScriptExport } from '@flowtinus/core';
 import { api, API_WRITE_DONE, type ApiResult } from '@/lib/api';
 import { CHANGES_CHANGED } from '@/data/git/git-api';
+import { keyedStore } from '@/lib/keyed-store';
 
 /*
  * A project's scripts from the server (/projects/:id/scripts), kept for every editor of the page: the Scripts tab, and
@@ -15,7 +16,7 @@ import { CHANGES_CHANGED } from '@/data/git/git-api';
  * a script in the list: its path (folders and name, no .ts) and the names it exports; with git on, whether it changed
  * since it was committed, and the commit it conflicts with
  */
-export type ScriptEntry = { path: string; exports: ScriptExport[]; changed?: boolean; conflict?: string };
+export type ScriptEntry = { path: string; importPath: string; exports: ScriptExport[]; changed?: boolean; conflict?: string };
 
 /** a script's code as loaded (and typed since), and the revision it was read at */
 export type ScriptContent = { code: string; revision: number };
@@ -39,31 +40,27 @@ const EMPTY: ProjectScripts = { status: 'loading', scripts: [], folders: [], con
 /** a second after the last key */
 const SAVE_DELAY_MS = 1000;
 
-const store = new Map<string, ProjectScripts>();
-const listeners = new Set<() => void>();
+let contentsSnapshot = new Map<string, Record<string, ScriptContent>>();
+const store = keyedStore(EMPTY, projects => {
+    contentsSnapshot = new Map([...projects].map(([id, project]) => [id, project.contents]));
+});
 const loading = new Map<string, Promise<void>>();
 const contentLoads = new Map<string, Promise<void>>();
 /** per project and path: the save waiting for its moment */
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
 const key = (projectId: string, path: string) => `${projectId}\n${path}`;
 
-const set = (projectId: string, next: Partial<ProjectScripts>) => {
-    store.set(projectId, { ...(store.get(projectId) ?? EMPTY), ...next });
-    listeners.forEach(listener => listener());
-};
+const set = store.set;
 
 /** the project's scripts as they are now */
-export const projectScripts = (projectId: string): ProjectScripts => store.get(projectId) ?? EMPTY;
+export const projectScripts = store.get;
 
-const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
-};
+export const loadedProjects = store.keys;
+
+export const loadedContents = () => contentsSnapshot;
 
 /** follows the project's scripts from outside React (Monaco): the listener runs at each change */
-export const watchScripts = subscribe;
+export const watchScripts = store.subscribe;
 
 type ListDto = { scripts: ScriptEntry[]; folders: string[] };
 
@@ -80,7 +77,13 @@ export function reloadScripts(projectId: string): Promise<void> {
         set(projectId, {
             status: 'ready',
             error: undefined,
-            scripts: result.value.scripts.map(s => ({ path: s.path, exports: s.exports, changed: s.changed, conflict: s.conflict })),
+            scripts: result.value.scripts.map(s => ({
+                path: s.path,
+                importPath: s.importPath,
+                exports: s.exports,
+                changed: s.changed,
+                conflict: s.conflict,
+            })),
             folders: result.value.folders,
             contents,
         });
@@ -109,12 +112,7 @@ export function useProjectScripts(projectId: string): ProjectScripts {
             window.removeEventListener(CHANGES_CHANGED, all);
         };
     }, [projectId]);
-    // the same on the server (a form rendered to text: tests)
-    return useSyncExternalStore(
-        subscribe,
-        () => projectScripts(projectId),
-        () => projectScripts(projectId),
-    );
+    return store.use(projectId);
 }
 
 /** loads a script's code (once; again with `fresh`) */
@@ -318,9 +316,9 @@ export async function deleteScriptPath(projectId: string, path: string): Promise
 }
 
 /** who imports a path (a script, or anything in a folder): what a move or a delete would break */
-export async function scriptUsage(projectId: string, path: string): Promise<{ flows: { id: string; name: string }[]; scripts: string[] }> {
-    const result = await api<{ flows: { id: string; name: string }[]; scripts: string[] }>(
-        `/projects/${projectId}/scripts/usage?path=${encodeURIComponent(path)}`,
-    );
+export type ScriptUsage = { flows: { id: string; name: string; project?: string }[]; scripts: string[] };
+
+export async function scriptUsage(projectId: string, path: string): Promise<ScriptUsage> {
+    const result = await api<ScriptUsage>(`/projects/${projectId}/scripts/usage?path=${encodeURIComponent(path)}`);
     return result.ok ? result.value : { flows: [], scripts: [] };
 }

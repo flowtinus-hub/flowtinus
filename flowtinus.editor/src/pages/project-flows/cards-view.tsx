@@ -12,7 +12,7 @@ import { WebhooksChip } from '@/components/webhooks-chip';
 import { WorkerTagChip } from '@/components/worker-tag-chip';
 import { useTagColors } from '@/data/workers/use-tag-colors';
 import { FlowMenu, FolderMenu, type ItemActions } from './item-menus';
-import { useWorkspaceSlug } from '@/data/workspaces/use-workspace';
+import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
 type Props = {
     contents: ProjectContents;
@@ -28,7 +28,7 @@ const COVER = "outline-none after:absolute after:inset-0 after:content-['']";
 
 /** One folder's contents as cards: its folders first (a click goes into them), then its flows. */
 export function CardsView({ contents, projectId, folderId, actions }: Props) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     // the tags' colors (WORKER_COLOR of their supervisors)
     const colors = useTagColors();
     const { folders, flows } = childrenOf(contents, folderId);

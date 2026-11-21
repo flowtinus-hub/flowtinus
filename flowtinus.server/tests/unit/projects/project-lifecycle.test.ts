@@ -68,7 +68,7 @@ describe('update, archive and restore projects', () => {
         expect((await update.handle({ id, name: 'FINANCE' }, ctx)).ok).toBe(true);
         expect(await update.handle({ id, name: 'taken' }, ctx)).toMatchObject({
             ok: false,
-            error: { code: 'conflict', fields: { name: 'Already in use' } },
+            error: { code: 'conflict', fields: { name: 'Handle taken by "Taken"' } },
         });
     });
 

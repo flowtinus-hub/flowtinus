@@ -87,6 +87,7 @@ describe('OAuth 2.0 tokens kept by the supervisor', () => {
                 },
             },
             workspaceName: 'Workspace',
+            workspaceHandle: 'workspace',
             projectName: 'Project',
             flowName: 'Tokens',
         };

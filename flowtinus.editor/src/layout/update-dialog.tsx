@@ -7,9 +7,9 @@ import type { ApiError } from '@/lib/api';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-const shortPath = (slug: string, path: string) => (path.startsWith(`${slug}/`) ? path.slice(slug.length + 1) : path);
+const shortPath = (handle: string, path: string) => (path.startsWith(`${handle}/`) ? path.slice(handle.length + 1) : path);
 
-export function UpdateDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
+export function UpdateDialog({ handle, onClose }: { handle: string; onClose: () => void }) {
     const [status, setStatus] = useState<{ value?: UpdateStatus; error?: string } | null>(null);
     const [busy, setBusy] = useState(false);
     const [outcome, setOutcome] = useState<UpdateOutcome | null>(null);
@@ -17,18 +17,18 @@ export function UpdateDialog({ slug, onClose }: { slug: string; onClose: () => v
 
     useEffect(() => {
         let gone = false;
-        void getUpdateStatus(slug).then(
+        void getUpdateStatus(handle).then(
             answer => !gone && setStatus(answer.ok ? { value: answer.value } : { error: answer.error.message }),
         );
         return () => {
             gone = true;
         };
-    }, [slug]);
+    }, [handle]);
 
     const update = async () => {
         setBusy(true);
         setError(null);
-        const result = await updateBranch(slug);
+        const result = await updateBranch(handle);
         setBusy(false);
         if (result.ok) {
             setOutcome(result.value);
@@ -95,12 +95,12 @@ export function UpdateDialog({ slug, onClose }: { slug: string; onClose: () => v
                         <ul className="grid gap-1">
                             {outcome.conflicts.map(path => (
                                 <li key={path} className="font-mono text-xs text-red-700 dark:text-red-400">
-                                    {shortPath(slug, path)}
+                                    {shortPath(handle, path)}
                                 </li>
                             ))}
                             {Object.entries(outcome.errors ?? {}).map(([path, errors]) => (
                                 <li key={path} className="grid">
-                                    <span className="font-mono text-xs">{shortPath(slug, path)}</span>
+                                    <span className="font-mono text-xs">{shortPath(handle, path)}</span>
                                     <span className="text-xs whitespace-pre-line text-destructive">{errors}</span>
                                 </li>
                             ))}
@@ -112,7 +112,7 @@ export function UpdateDialog({ slug, onClose }: { slug: string; onClose: () => v
                         <span>{error.message}</span>
                         {Object.entries(error.fields ?? {}).map(([path, why]) => (
                             <span key={path} className="grid">
-                                <span className="font-mono text-xs">{shortPath(slug, path)}</span>
+                                <span className="font-mono text-xs">{shortPath(handle, path)}</span>
                                 <span className="text-xs">{why}</span>
                             </span>
                         ))}
