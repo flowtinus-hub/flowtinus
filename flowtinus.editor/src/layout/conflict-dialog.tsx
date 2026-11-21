@@ -10,7 +10,7 @@ import { CHANGES_CHANGED, discardChanges, getConflict, resolveConflict, type Con
 import type { ApiError, ApiResult } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-const shortPath = (slug: string, path: string) => (path.startsWith(`${slug}/`) ? path.slice(slug.length + 1) : path);
+const shortPath = (handle: string, path: string) => (path.startsWith(`${handle}/`) ? path.slice(handle.length + 1) : path);
 
 const hunkCount = (segments: ConflictSegment[]) => segments.filter(s => 'hunk' in s).length;
 
@@ -37,12 +37,12 @@ const Radio = ({ checked, onChange, label, disabled }: { checked: boolean; onCha
 );
 
 export function ConflictDialog({
-    slug,
+    handle,
     path,
     onClose,
     onResolved,
 }: {
-    slug: string;
+    handle: string;
     path: string;
     onClose: () => void;
     onResolved: () => void;
@@ -55,7 +55,7 @@ export function ConflictDialog({
 
     useEffect(() => {
         let gone = false;
-        void getConflict(slug, path).then(result => {
+        void getConflict(handle, path).then(result => {
             if (gone) {
                 return;
             }
@@ -68,7 +68,7 @@ export function ConflictDialog({
         return () => {
             gone = true;
         };
-    }, [slug, path]);
+    }, [handle, path]);
 
     const resolution = view ? resolutionOf(view, pick) : null;
     const act = async (action: () => Promise<ApiResult<unknown>>) => {
@@ -92,7 +92,7 @@ export function ConflictDialog({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <TriangleAlert className="size-4 text-amber-500" />
-                        {shortPath(slug, path)}
+                        {shortPath(handle, path)}
                     </DialogTitle>
                     <DialogDescription>
                         {view ? (
@@ -110,7 +110,7 @@ export function ConflictDialog({
                 ) : (
                     <div className="grid max-h-[65vh] gap-3 overflow-auto pr-1">
                         <ConflictBody
-                            slug={slug}
+                            handle={handle}
                             view={view}
                             pick={pick}
                             disabled={busy}
@@ -123,7 +123,7 @@ export function ConflictDialog({
                         <span>{error.message}</span>
                         {Object.entries(error.fields ?? {}).map(([file, errors]) => (
                             <span key={file} className="grid">
-                                <span className="font-mono text-xs">{shortPath(slug, file)}</span>
+                                <span className="font-mono text-xs">{shortPath(handle, file)}</span>
                                 <span className="text-xs whitespace-pre-line">{errors}</span>
                             </span>
                         ))}
@@ -137,13 +137,13 @@ export function ConflictDialog({
                             title="Your change goes; the file takes what git has"
                             onClick={() =>
                                 setConfirm({
-                                    title: `Discard the changes of ${shortPath(slug, path)}?`,
+                                    title: `Discard the changes of ${shortPath(handle, path)}?`,
                                     description: "The file takes git's content; your change is lost.",
                                     confirmLabel: 'Discard mine',
                                     busyLabel: 'Discarding…',
                                     destructive: true,
                                     onConfirm: async () => {
-                                        const result = await discardChanges(slug, { paths: [path] });
+                                        const result = await discardChanges(handle, { paths: [path] });
                                         if (result.ok) {
                                             window.dispatchEvent(new Event(CHANGES_CHANGED));
                                             onResolved();
@@ -173,7 +173,7 @@ export function ConflictDialog({
                         </Button>
                         <Button
                             disabled={busy || !view || !resolution}
-                            onClick={() => void act(() => resolveConflict(slug, path, view!.revision, resolution!))}
+                            onClick={() => void act(() => resolveConflict(handle, path, view!.revision, resolution!))}
                         >
                             {busy && <LoaderCircle className="animate-spin" />}
                             Use this result
@@ -187,13 +187,13 @@ export function ConflictDialog({
 }
 
 function ConflictBody({
-    slug,
+    handle,
     view,
     pick,
     disabled,
     onPick,
 }: {
-    slug: string;
+    handle: string;
     view: ConflictView;
     pick: ConflictResolution;
     disabled: boolean;
@@ -258,13 +258,13 @@ function ConflictBody({
                         disabled={disabled}
                         checked={pick.name === 'mine'}
                         onChange={() => onPick({ name: 'mine' })}
-                        label={`Yours: ${shortPath(slug, conflict.names.mine)}`}
+                        label={`Yours: ${shortPath(handle, conflict.names.mine)}`}
                     />
                     <Radio
                         disabled={disabled}
                         checked={pick.name === 'theirs'}
                         onChange={() => onPick({ name: 'theirs' })}
-                        label={`The branch's: ${shortPath(slug, conflict.names.theirs)}`}
+                        label={`The branch's: ${shortPath(handle, conflict.names.theirs)}`}
                     />
                 </div>
             )}

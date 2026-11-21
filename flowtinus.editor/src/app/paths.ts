@@ -1,5 +1,5 @@
 /**
- * The app's URLs, in one place: every link and the router use these. A workspace's pages are under /w/<its slug>; the
+ * The app's URLs, in one place: every link and the router use these. A workspace's pages are under /w/<its handle>; the
  * runs, the workers and the list of workspaces are the environment's.
  */
 

@@ -3,7 +3,7 @@ import { isProjectColor, isProjectIcon, type ProjectColorName, type ProjectIconN
 
 /*
  * Workspaces as the editor sees them (workspaces-api.ts loads and saves them on flowtinus.server): what holds projects
- * and, for all of them, connection profiles, secrets and variables. The slug is what the urls carry (/w/<slug>/...): typed
+ * and, for all of them, connection profiles, secrets and variables. The handle is what the urls carry (/w/<handle>/...): typed
  * when the workspace is created (suggested from the name), never changed. Icons and colors are the projects' (same list).
  */
 
@@ -12,7 +12,7 @@ export type WorkspaceRole = 'viewer' | 'editor' | 'admin';
 
 export type Workspace = {
     id: string;
-    slug: string;
+    handle: string;
     name: string;
     description: string;
     icon: ProjectIconName;
@@ -28,7 +28,7 @@ export type Workspace = {
 export type WorkspaceSummary = { projects: number; connections: number; secrets: number; variables: number; members: number };
 
 /** a workspace of the user, as /me lists them */
-export type Membership = { workspaceId: string; slug: string; name: string; role: WorkspaceRole };
+export type Membership = { workspaceId: string; handle: string; name: string; role: WorkspaceRole };
 
 /** who is using the editor: an admin of the environment creates workspaces */
 export type Me = { id: string; name: string; email: string; handle: string; isAdmin: boolean; workspaces: Membership[] };
@@ -43,20 +43,20 @@ const ORDER: WorkspaceRole[] = ['viewer', 'editor', 'admin'];
 export const roleAtLeast = (role: WorkspaceRole | undefined, required: WorkspaceRole) =>
     role !== undefined && ORDER.indexOf(role) >= ORDER.indexOf(required);
 
-export type NewWorkspace = { slug: string; name: string; description: string; icon: ProjectIconName; color: ProjectColorName };
+export type NewWorkspace = { handle: string; name: string; description: string; icon: ProjectIconName; color: ProjectColorName };
 
-/** the form's errors (the server checks again): the slug's rule, a name */
-export function validateNewWorkspace(fields: Pick<NewWorkspace, 'slug' | 'name'>): Partial<Record<'slug' | 'name', string>> {
-    const errors: Partial<Record<'slug' | 'name', string>> = {};
+/** the form's errors (the server checks again): the handle's rule, a name */
+export function validateNewWorkspace(fields: Pick<NewWorkspace, 'handle' | 'name'>): Partial<Record<'handle' | 'name', string>> {
+    const errors: Partial<Record<'handle' | 'name', string>> = {};
     if (!fields.name.trim()) {
         errors.name = 'Required';
     } else if (fields.name.trim().length > 100) {
         errors.name = 'At most 100 characters';
     }
-    if (!fields.slug) {
-        errors.slug = 'Required';
-    } else if (!HANDLE.test(fields.slug)) {
-        errors.slug = 'Lowercase letters, digits and hyphens; not starting or ending with a hyphen';
+    if (!fields.handle) {
+        errors.handle = 'Required';
+    } else if (!HANDLE.test(fields.handle)) {
+        errors.handle = 'Lowercase letters, digits and hyphens; not starting or ending with a hyphen';
     }
     return errors;
 }

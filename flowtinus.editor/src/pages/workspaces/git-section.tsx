@@ -14,9 +14,9 @@ import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, GIT_STATUS_C
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
-export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean }) {
-    const saved = useResource(`git:${slug}`, () => getGitConfig(slug));
-    const status = useResource(`git-status:${slug}`, () => getGitStatus(slug));
+export function GitSection({ handle, readOnly }: { handle: string; readOnly: boolean }) {
+    const saved = useResource(`git:${handle}`, () => getGitConfig(handle));
+    const status = useResource(`git-status:${handle}`, () => getGitStatus(handle));
     // the sidebar's link: the section loads after the page, so the browser's own jump to #git finds nothing yet
     const { hash } = useLocation();
     const section = useRef<HTMLElement>(null);
@@ -51,7 +51,7 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                 <>
                     <GitForm
                         key={`form:${JSON.stringify(saved.state.value.config)}`}
-                        slug={slug}
+                        handle={handle}
                         saved={saved.state.value.config}
                         readOnly={readOnly}
                         onChanged={saved.reload}
@@ -59,7 +59,7 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                     {saved.state.value.config && (
                         <TurnOnPanel
                             key={`turn-on:${JSON.stringify(saved.state.value.config)}`}
-                            slug={slug}
+                            handle={handle}
                             on={saved.state.value.on}
                             readOnly={readOnly}
                             run={saved.run}
@@ -67,7 +67,7 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                     )}
                     {saved.state.value.on && status.state.status === 'ready' && (
                         <GitStatusPanel
-                            slug={slug}
+                            handle={handle}
                             status={status.state.value}
                             readOnly={readOnly}
                             onChanged={async () => {
@@ -79,7 +79,7 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                     )}
                     {saved.state.value.on && (
                         <HookPanel
-                            slug={slug}
+                            handle={handle}
                             hook={saved.state.value.hook}
                             lastPoll={saved.state.value.lastPoll}
                             readOnly={readOnly}
@@ -89,7 +89,7 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                     {saved.state.value.config && (
                         <TopologyPanel
                             key={`topology:${JSON.stringify(saved.state.value.config)}:${saved.state.value.on}`}
-                            slug={slug}
+                            handle={handle}
                             config={saved.state.value.config}
                             readOnly={readOnly}
                         />
@@ -102,13 +102,13 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
 
 /** with git on: the webhook's URL for the git provider (copy, a new token) and the last fetch of the branch */
 function HookPanel({
-    slug,
+    handle,
     hook,
     lastPoll,
     readOnly,
     onChanged,
 }: {
-    slug: string;
+    handle: string;
     hook?: string;
     lastPoll?: LastPoll;
     readOnly: boolean;
@@ -148,7 +148,7 @@ function HookPanel({
                                     confirmLabel: 'New token',
                                     busyLabel: 'Making…',
                                     onConfirm: async () => {
-                                        const result = await renewHookToken(slug);
+                                        const result = await renewHookToken(handle);
                                         if (result.ok) {
                                             await onChanged();
                                         }
@@ -176,7 +176,7 @@ function HookPanel({
                         className="ml-auto"
                         disabled={readOnly}
                         onClick={() =>
-                            void renewHookToken(slug).then(async result => {
+                            void renewHookToken(handle).then(async result => {
                                 if (result.ok) {
                                     await onChanged();
                                 }
@@ -200,17 +200,17 @@ function HookPanel({
 }
 
 function GitForm({
-    slug,
+    handle,
     saved,
     readOnly,
     onChanged,
 }: {
-    slug: string;
+    handle: string;
     saved: GitConfig | null;
     readOnly: boolean;
     onChanged: () => Promise<void>;
 }) {
-    const secrets = useResource(`secrets:${slug}`, listSecrets);
+    const secrets = useResource(`secrets:${handle}`, listSecrets);
     const [config, setConfig] = useState<GitConfig>(saved ?? EMPTY);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [message, setMessage] = useState('');
@@ -234,7 +234,7 @@ function GitForm({
 
     const runTest = async () => {
         setBusy('test');
-        const result = await testGitAccess(slug, trimmed);
+        const result = await testGitAccess(handle, trimmed);
         setBusy('');
         setErrors(result.ok ? {} : (result.error.fields ?? {}));
         setMessage(result.ok || result.error.fields ? '' : result.error.message);
@@ -244,7 +244,7 @@ function GitForm({
     const save = async (event: FormEvent) => {
         event.preventDefault();
         setBusy('save');
-        const result = await saveGitConfig(slug, trimmed);
+        const result = await saveGitConfig(handle, trimmed);
         setBusy('');
         setErrors(result.ok ? {} : (result.error.fields ?? {}));
         setMessage(result.ok ? '' : result.error.fields ? '' : result.error.message);
@@ -351,7 +351,7 @@ function GitForm({
                                     busyLabel: 'Removing...',
                                     destructive: true,
                                     onConfirm: async () => {
-                                        const result = await removeGitConfig(slug);
+                                        const result = await removeGitConfig(handle);
                                         if (result.ok) {
                                             await onChanged();
                                         }
@@ -410,8 +410,8 @@ function AccessTestResult({ test, environment }: { test: AccessTest; environment
     );
 }
 
-function TopologyPanel({ slug, config, readOnly }: { slug: string; config: GitConfig; readOnly: boolean }) {
-    const topology = useResource(`topology:${slug}`, () => getTopology(slug));
+function TopologyPanel({ handle, config, readOnly }: { handle: string; config: GitConfig; readOnly: boolean }) {
+    const topology = useResource(`topology:${handle}`, () => getTopology(handle));
     const [branch, setBranch] = useState(config.environment.toLowerCase());
     const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
 
@@ -421,7 +421,7 @@ function TopologyPanel({ slug, config, readOnly }: { slug: string; config: GitCo
             description: `The repository gets the branch ${CONFIG_BRANCH} with topology.yaml, holding ${config.environment} alone: branch ${branch.trim()}, mode direct. Every server of this workspace reads its environments from it.`,
             confirmLabel: 'Create',
             busyLabel: 'Creating...',
-            onConfirm: () => topology.run(createTopology(slug, { branch: branch.trim() })),
+            onConfirm: () => topology.run(createTopology(handle, { branch: branch.trim() })),
         });
 
     return (
@@ -525,12 +525,12 @@ const OUTCOMES: Record<TurnOnResult['outcome'], (branch: string) => string> = {
 type TurnOnOptions = { createBranch?: boolean; choice?: 'git' | 'server' };
 
 function TurnOnPanel({
-    slug,
+    handle,
     on,
     readOnly,
     run,
 }: {
-    slug: string;
+    handle: string;
     on: boolean;
     readOnly: boolean;
     run: <R>(change: Promise<ApiResult<R>>) => Promise<ApiResult<R>>;
@@ -558,7 +558,7 @@ function TurnOnPanel({
     const readPlan = async () => {
         setBusy(true);
         setFailure(null);
-        const result = await getTurnOnPlan(slug);
+        const result = await getTurnOnPlan(handle);
         setBusy(false);
         setPlan(result.ok ? result.value : null);
         if (!result.ok) {
@@ -568,7 +568,7 @@ function TurnOnPanel({
 
     const turnOn = async (options: TurnOnOptions) => {
         setBusy(true);
-        const result = await run(turnGitOn(slug, options));
+        const result = await run(turnGitOn(handle, options));
         setBusy(false);
         if (result.ok) {
             setDone(result.value);
@@ -635,8 +635,8 @@ function TurnOnPanel({
                     {plan.case === 'export' && (
                         <>
                             <p>
-                                {plan.branch} has no workspace {slug}: the first export makes what is deployed here its first commit. Drafts
-                                stay drafts, out of git.
+                                {plan.branch} has no workspace {handle}: the first export makes what is deployed here its first commit.
+                                Drafts stay drafts, out of git.
                             </p>
                             <Changes title={`On ${plan.branch}`} changes={plan.toGit} />
                         </>
@@ -644,8 +644,8 @@ function TurnOnPanel({
                     {plan.case === 'import' && (
                         <>
                             <p>
-                                {plan.branch} holds the workspace {slug} and this workspace is empty: it is imported. Connections arrive not
-                                configured.
+                                {plan.branch} holds the workspace {handle} and this workspace is empty: it is imported. Connections arrive
+                                not configured.
                             </p>
                             <Issues tone="error" issues={plan.errors} />
                             <Issues tone="warn" issues={plan.warnings} />
@@ -655,7 +655,7 @@ function TurnOnPanel({
                     {plan.case === 'choice' && (
                         <>
                             <p>
-                                Both {plan.branch} and this server have the workspace {slug}. Nothing happens until you choose which one
+                                Both {plan.branch} and this server have the workspace {handle}. Nothing happens until you choose which one
                                 replaces the other. Drafts stay drafts either way.
                             </p>
                             <div className="grid gap-3 md:grid-cols-2">

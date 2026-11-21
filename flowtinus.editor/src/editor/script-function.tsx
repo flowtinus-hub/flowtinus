@@ -5,7 +5,7 @@ import { loadScriptContent, useProjectScripts } from '@/data/scripts/scripts-sto
 import { ProjectResourcesContext } from './project-resources';
 import { scriptPath } from '@/app/paths';
 import { OpenInNewTab } from './open-in-new-tab';
-import { useWorkspaceSlug } from '@/data/workspaces/use-workspace';
+import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
 /*
  * A Script Invoker's settings: the function it calls (one a project script exports, `path#name`) and its arguments,
@@ -16,7 +16,7 @@ const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 
 /** the functions the project's scripts export (`export function`), grouped by script, as `path#name` */
 export function ScriptFunctionPicker({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const { projectId } = useContext(ProjectResourcesContext);
     const project = useProjectScripts(projectId);
     const functions = project.scripts.flatMap(s => s.exports.filter(e => e.function).map(e => ({ path: s.path, name: e.name })));

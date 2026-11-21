@@ -12,7 +12,7 @@ type RunDto = {
     id: string;
     status: RunStatus;
     trigger: RunTrigger;
-    workspaceSlug: string;
+    workspaceHandle: string;
     workspaceName: string;
     projectId: string | null;
     projectName: string | null;
@@ -42,7 +42,7 @@ export const toRunSummary = (dto: RunDto): RunSummary => ({
     id: dto.id,
     status: dto.status,
     trigger: dto.trigger,
-    workspaceSlug: dto.workspaceSlug,
+    workspaceHandle: dto.workspaceHandle,
     workspaceName: dto.workspaceName,
     projectId: dto.projectId ?? '',
     projectName: dto.projectName ?? '',

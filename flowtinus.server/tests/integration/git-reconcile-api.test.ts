@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { connectionToYaml, GITATTRIBUTES, projectToYaml, repoFlowToYaml, workspaceToYaml, type FlowFile, type FlowFileNode } from '@flowtinus/core';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -41,7 +41,7 @@ describe("the reconcile applies the tip of the environment's branch", () => {
 
     async function newWorkspace() {
         const id = crypto.randomUUID();
-        const slug = slugOf(id);
+        const handle = workspaceHandleOf(id);
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
             const response = await app.request(wsPath(id, path), {
@@ -58,7 +58,7 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         expect((await call('POST', '/git/topology', { confirm: true })).status).toBe(201);
 
         const ids = { sales: crypto.randomUUID(), orders: crypto.randomUUID(), notify: crypto.randomUUID() };
-        const p = (path: string) => `${slug}/${path}`;
+        const p = (path: string) => `${handle}/${path}`;
         const paths = {
             project: p('projects/Sales/project.yaml'),
             orders: p('projects/Sales/flows/Daily/Orders.flow.yaml'),
@@ -83,7 +83,7 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         const contents = async () => (await call('GET', `/projects/${ids.sales}/contents`)).body;
         const flowNamed = async (name: string) => (await contents()).flows.find((f: { name: string }) => f.name === name);
         const deployments = async (flowId: string) => (await call('GET', `/flows/${flowId}/deployments`)).body;
-        return { id, slug, call, repo, ids, paths, p, onBranch, commit, reconcile, contents, flowNamed, deployments };
+        return { id, handle, call, repo, ids, paths, p, onBranch, commit, reconcile, contents, flowNamed, deployments };
     }
 
     beforeAll(async () => {

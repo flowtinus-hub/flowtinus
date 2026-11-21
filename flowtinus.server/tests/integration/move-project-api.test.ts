@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
-import { ANA, insertMember, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertMember, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { createApp } from '../../api/app';
 
 setDefaultTimeout(30_000);
@@ -64,7 +64,7 @@ describe('move a project to another workspace', () => {
 
     test('refused, nothing moved, while the destination lacks a connection, a secret or a variable the flows use', async () => {
         const { projectId } = await project('Lacking', await connection(from));
-        const refused = await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: slugOf(to) });
+        const refused = await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: workspaceHandleOf(to) });
         expect(refused.status).toBe(409);
         expect(refused.body.error.fields).toEqual({ connections: 'Warehouse', secrets: 'token', variables: 'region' });
         expect(refused.body.error.message).toContain('connection "Warehouse", secret "token", variable "region"');
@@ -76,11 +76,13 @@ describe('move a project to another workspace', () => {
         const { projectId } = await project('Guarded', (await call(from, 'GET', '/connections')).body.items[0].id);
         const editor = await insertMember(db, from, { name: 'Ed', role: 'editor' });
         await insertMember(db, to, { id: editor, name: 'Ed', role: 'admin' });
-        expect((await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: slugOf(to) }, editor)).status).toBe(403);
+        expect((await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: workspaceHandleOf(to) }, editor)).status).toBe(403);
 
         const viewerThere = await insertMember(db, from, { name: 'Vi', role: 'admin' });
         await insertMember(db, to, { id: viewerThere, name: 'Vi', role: 'viewer' });
-        expect((await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: slugOf(to) }, viewerThere)).status).toBe(403);
+        expect((await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: workspaceHandleOf(to) }, viewerThere)).status).toBe(
+            403,
+        );
         expect((await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: 'not-mine' })).status).toBe(404);
     });
 
@@ -91,8 +93,8 @@ describe('move a project to another workspace', () => {
         await call(to, 'POST', '/secrets', { name: 'TOKEN', value: 'x' });
         await call(to, 'POST', '/variables', { name: 'region', value: 'eu' });
 
-        const moved = await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: slugOf(to) });
-        expect(moved).toMatchObject({ status: 200, body: { id: projectId, workspace: slugOf(to), undeployed: 1 } });
+        const moved = await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: workspaceHandleOf(to) });
+        expect(moved).toMatchObject({ status: 200, body: { id: projectId, workspace: workspaceHandleOf(to), undeployed: 1 } });
 
         expect((await call(from, 'GET', `/projects/${projectId}`)).status).toBe(404);
         expect((await call(to, 'GET', `/projects/${projectId}`)).body.name).toBe('Moving');

@@ -78,11 +78,11 @@ export async function getScript(
 }
 
 async function scriptRepoPath(db: Database, workspaceId: string, projectId: string, path: string): Promise<string> {
-    const [names] = await db.query<{ slug: string; project: string }>(
-        'SELECT w.slug, p.name AS project FROM workspaces w JOIN projects p ON p.workspace_id = w.id WHERE w.id = $1 AND p.id = $2',
+    const [names] = await db.query<{ handle: string; project: string }>(
+        'SELECT w.handle, p.name AS project FROM workspaces w JOIN projects p ON p.workspace_id = w.id WHERE w.id = $1 AND p.id = $2',
         [workspaceId, projectId],
     );
-    return repoPath.script(names!.slug, names!.project, path);
+    return repoPath.script(names!.handle, names!.project, path);
 }
 
 export async function writeScript(

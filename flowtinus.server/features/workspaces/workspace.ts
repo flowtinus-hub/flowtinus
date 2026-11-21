@@ -1,9 +1,9 @@
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-/** The slug (unique, never changed) is what the urls carry (/w/<slug>/...). */
+/** The handle (unique, never changed) is what the urls carry (/w/<handle>/...). */
 export const workspaces = pgTable('workspaces', {
     id: uuid('id').primaryKey(),
-    slug: text('slug').notNull(),
+    handle: text('handle').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     icon: text('icon').notNull().default('layers'),
@@ -14,5 +14,3 @@ export const workspaces = pgTable('workspaces', {
 });
 
 export type Workspace = typeof workspaces.$inferSelect;
-
-export const WORKSPACE_SLUG = /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/;

@@ -377,7 +377,7 @@ export function DeployMenu({
                 />
             )}
             {resolving && (
-                <ConflictDialog slug={workspace} path={resolving} onClose={() => setResolving(null)} onResolved={() => void resolved()} />
+                <ConflictDialog handle={workspace} path={resolving} onClose={() => setResolving(null)} onResolved={() => void resolved()} />
             )}
         </>
     );

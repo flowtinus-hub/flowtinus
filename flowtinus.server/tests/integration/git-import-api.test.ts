@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { connectionToYaml, GITATTRIBUTES, projectToYaml, repoFlowToYaml, workspaceToYaml, type FlowFile, type FlowFileNode } from '@flowtinus/core';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -30,7 +30,7 @@ const flow = (id: string, nodes: FlowFileNode[] = []): FlowFile => ({
     ],
 });
 
-function sampleTree(slug: string) {
+function sampleTree(handle: string) {
     const ids = {
         warehouse: crypto.randomUUID(),
         sales: crypto.randomUUID(),
@@ -52,14 +52,14 @@ function sampleTree(slug: string) {
     const notify = flow(ids.notify, [{ id: 'log', type: 'log', position: at(100), config: { message: 'done' } }]);
     const files: Record<string, string> = {
         '.gitattributes': GITATTRIBUTES,
-        [`${slug}/connections/Warehouse.yaml`]: connectionToYaml({ id: ids.warehouse, type: 'sqlserver' }),
-        [`${slug}/projects/Sales/flows/Daily/Load orders.flow.yaml`]: repoFlowToYaml(loadOrders),
-        [`${slug}/projects/Sales/flows/Later/.gitkeep`]: '',
-        [`${slug}/projects/Sales/flows/Notify.flow.yaml`]: repoFlowToYaml(notify, { deployed: false }),
-        [`${slug}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: 'Money in', icon: 'cart', color: 'green' }),
-        [`${slug}/projects/Sales/scripts/drafts/.gitkeep`]: '',
-        [`${slug}/projects/Sales/scripts/lib/totals.ts`]: 'export const total = 1;\n',
-        [`${slug}/workspace.yaml`]: workspaceToYaml(),
+        [`${handle}/connections/Warehouse.yaml`]: connectionToYaml({ id: ids.warehouse, type: 'sqlserver' }),
+        [`${handle}/projects/Sales/flows/Daily/Load orders.flow.yaml`]: repoFlowToYaml(loadOrders),
+        [`${handle}/projects/Sales/flows/Later/.gitkeep`]: '',
+        [`${handle}/projects/Sales/flows/Notify.flow.yaml`]: repoFlowToYaml(notify, { deployed: false }),
+        [`${handle}/projects/Sales/project.yaml`]: projectToYaml({ id: ids.sales, description: 'Money in', icon: 'cart', color: 'green' }),
+        [`${handle}/projects/Sales/scripts/drafts/.gitkeep`]: '',
+        [`${handle}/projects/Sales/scripts/lib/totals.ts`]: 'export const total = 1;\n',
+        [`${handle}/workspace.yaml`]: workspaceToYaml(),
     };
     return { ids, files, loadOrders, notify };
 }
@@ -72,7 +72,7 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
 
     async function newWorkspace() {
         const id = crypto.randomUUID();
-        const slug = slugOf(id);
+        const handle = workspaceHandleOf(id);
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
             const response = await app.request(wsPath(id, path), {
@@ -88,7 +88,7 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
         await call('PUT', '/git', { repository: pathToFileURL(repo).href, tokenSecret: 'git-token', environment: 'DEV' });
         expect((await call('POST', '/git/topology', { confirm: true })).status).toBe(201);
         const onBranch = (files: Record<string, string>) => commitFiles(repo, 'dev', files);
-        return { id, slug, call, repo, onBranch };
+        return { id, handle, call, repo, onBranch };
     }
 
     beforeAll(async () => {
@@ -103,8 +103,8 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
     });
 
     test('projects, folders, flows, scripts and connection declarations arrive; a flow with deployed: false has no deploy', async () => {
-        const { slug, call, onBranch } = await newWorkspace();
-        const { ids, files, loadOrders, notify } = sampleTree(slug);
+        const { handle, call, onBranch } = await newWorkspace();
+        const { ids, files, loadOrders, notify } = sampleTree(handle);
         onBranch(files);
 
         const imported = await call('POST', '/git/on', {});
@@ -150,8 +150,8 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
     });
 
     test('exporting the imported workspace again gives the same tree, and nothing was committed on the branch', async () => {
-        const { id, slug, call, repo, onBranch } = await newWorkspace();
-        const { files } = sampleTree(slug);
+        const { id, handle, call, repo, onBranch } = await newWorkspace();
+        const { files } = sampleTree(handle);
         const commit = onBranch(files);
 
         expect((await call('POST', '/git/on', {})).status).toBe(200);
@@ -161,11 +161,11 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
     });
 
     test('a tree with any error is refused whole, its reasons listed by path: nothing is imported', async () => {
-        const { slug, call, onBranch } = await newWorkspace();
-        const { ids, files } = sampleTree(slug);
-        const notify = `${slug}/projects/Sales/flows/Notify.flow.yaml`;
-        const warehouse = `${slug}/connections/Warehouse.yaml`;
-        const loadOrders = `${slug}/projects/Sales/flows/Daily/Load orders.flow.yaml`;
+        const { handle, call, onBranch } = await newWorkspace();
+        const { ids, files } = sampleTree(handle);
+        const notify = `${handle}/projects/Sales/flows/Notify.flow.yaml`;
+        const warehouse = `${handle}/connections/Warehouse.yaml`;
+        const loadOrders = `${handle}/projects/Sales/flows/Daily/Load orders.flow.yaml`;
         onBranch({
             ...files,
             [loadOrders]: `owner: ana\n${files[loadOrders]}`,
@@ -186,27 +186,27 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
     });
 
     test("the validation's warnings are shown and do not refuse; the .gitattributes the branch lacks is committed", async () => {
-        const { slug, call, repo, onBranch } = await newWorkspace();
-        const { files } = sampleTree(slug);
+        const { handle, call, repo, onBranch } = await newWorkspace();
+        const { files } = sampleTree(handle);
         const { '.gitattributes': _gitattributes, ...withoutAttributes } = files;
         onBranch(withoutAttributes);
 
         const imported = await call('POST', '/git/on', {});
         expect(imported.status).toBe(200);
-        const loadOrders = `${slug}/projects/Sales/flows/Daily/Load orders.flow.yaml`;
+        const loadOrders = `${handle}/projects/Sales/flows/Daily/Load orders.flow.yaml`;
         expect(imported.body.warnings).toEqual([
-            { path: `${slug}/connections/Warehouse.yaml`, message: 'The connection "Warehouse" is not configured on this server.' },
+            { path: `${handle}/connections/Warehouse.yaml`, message: 'The connection "Warehouse" is not configured on this server.' },
             { path: '.gitattributes', message: 'The repository has no .gitattributes: a clone on Windows may get CRLF line endings.' },
             { path: loadOrders, message: 'The secret "token" has no value on this server.' },
             { path: loadOrders, message: 'The variable "region" has no value on this server.' },
         ]);
-        expect(git(repo, 'log', '-1', '--format=%an|%s', 'dev')).toBe(`Ana|Canonical form of ${slug}`);
+        expect(git(repo, 'log', '-1', '--format=%an|%s', 'dev')).toBe(`Ana|Canonical form of ${handle}`);
         expect(git(repo, 'diff', '--name-only', 'dev~1', 'dev')).toBe('.gitattributes');
     });
 
     test('names arrive in NFC, however the repository wrote them, and the branch gets them in NFC', async () => {
-        const { id, slug, call, repo, onBranch } = await newWorkspace();
-        const { ids, files } = sampleTree(slug);
+        const { id, handle, call, repo, onBranch } = await newWorkspace();
+        const { ids, files } = sampleTree(handle);
         const decomposed = 'Café';
         onBranch(
             Object.fromEntries(
@@ -219,7 +219,7 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
 
         expect((await call('POST', '/git/on', {})).status).toBe(200);
         expect((await call('GET', '/projects')).body.items.map((p: { name: string }) => p.name)).toEqual(['Café']);
-        expect(git(repo, 'log', '-1', '--format=%s', 'dev')).toBe(`Canonical form of ${slug}`);
+        expect(git(repo, 'log', '-1', '--format=%s', 'dev')).toBe(`Canonical form of ${handle}`);
         expect(git(repo, '-c', 'core.quotePath=false', 'ls-tree', '-r', '--name-only', 'dev').split('\n')).toEqual(
             Object.keys(await exportWorkspace(db, id)),
         );
@@ -229,12 +229,12 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
 
     test('an id another workspace of this server already has refuses the tree', async () => {
         const first = await newWorkspace();
-        const { files } = sampleTree(first.slug);
+        const { files } = sampleTree(first.handle);
         first.onBranch(files);
         expect((await first.call('POST', '/git/on', {})).status).toBe(200);
 
         const second = await newWorkspace();
-        second.onBranch(Object.fromEntries(Object.entries(files).map(([path, text]) => [path.replace(first.slug, second.slug), text])));
+        second.onBranch(Object.fromEntries(Object.entries(files).map(([path, text]) => [path.replace(first.handle, second.handle), text])));
         const refused = await second.call('POST', '/git/on', {});
         expect(refused.status).toBe(400);
         expect(Object.keys(refused.body.error.fields).sort()).toEqual(
@@ -243,8 +243,10 @@ describe('turning git on, an empty workspace imports the workspace its branch ho
                 'projects/Sales/flows/Daily/Load orders.flow.yaml',
                 'projects/Sales/flows/Notify.flow.yaml',
                 'projects/Sales/project.yaml',
-            ].map(path => `${second.slug}/${path}`),
+            ].map(path => `${second.handle}/${path}`),
         );
-        expect(refused.body.error.fields[`${second.slug}/projects/Sales/project.yaml`]).toMatch(/is already used by another workspace\.$/);
+        expect(refused.body.error.fields[`${second.handle}/projects/Sales/project.yaml`]).toMatch(
+            /is already used by another workspace\.$/,
+        );
     });
 });

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
 
@@ -83,7 +83,7 @@ describe('names valid as file names', () => {
         const longName = 'Load the orders of the day, the week, the month and the year';
         const renamed = await call('PATCH', `/flows/${flowId}`, { name: longName });
         expect(renamed.status).toBe(400);
-        const path = `${slugOf(workspaceId)}/projects/Deep/flows/Sales department/Monthly reports and more/Region north east/${longName}.flow.yaml`;
+        const path = `${workspaceHandleOf(workspaceId)}/projects/Deep/flows/Sales department/Monthly reports and more/Region north east/${longName}.flow.yaml`;
         expect(fields(renamed)?.name).toBe(`The path "${path}" in the repository would have ${path.length} characters (at most 150)`);
         expect(fields(await call('PATCH', `/projects/${project}`, { name: 'Deep and much, much longer than before' }))?.name).toContain(
             'in the repository would have',

@@ -151,7 +151,7 @@ export function RunOverview({ root, selected, treeSize = 0, onSelect, onStop, on
                         </Button>
                     )}
                     <Link
-                        to={flowPath(selected.workspaceSlug, selected.projectId, selected.flowId)}
+                        to={flowPath(selected.workspaceHandle, selected.projectId, selected.flowId)}
                         className={buttonVariants({ variant: 'outline', size: 'sm' })}
                     >
                         <Workflow /> Open flow

@@ -14,10 +14,10 @@ import { ENVIRONMENT_BRANCH, followGit, overlay, scriptFileId, writeFile, type R
 import type { GitRemote } from './git-remote';
 import { flowsInRepo, type RepoFiles } from './workspace-export';
 
-export const readBranchWorkspace = (remote: GitRemote, commit: string, slug: string): Promise<RepoFiles> =>
-    remote.files(commit, [slug, '.gitattributes']);
+export const readBranchWorkspace = (remote: GitRemote, commit: string, handle: string): Promise<RepoFiles> =>
+    remote.files(commit, [handle, '.gitattributes']);
 
-export const holdsWorkspace = (files: RepoFiles, slug: string) => Object.keys(files).some(path => path.startsWith(`${slug}/`));
+export const holdsWorkspace = (files: RepoFiles, handle: string) => Object.keys(files).some(path => path.startsWith(`${handle}/`));
 
 export async function isWorkspaceEmpty(db: Database, workspaceId: string): Promise<boolean> {
     const [row] = await db.query<{ empty: boolean }>(
@@ -41,9 +41,9 @@ export async function importEnvironment(db: Database, workspaceId: string): Prom
 
 type Entry<K extends RepoEntry['kind']> = { path: string; text: string; entry: Extract<RepoEntry, { kind: K }> };
 
-function entriesOf(files: RepoFiles, slug: string) {
+function entriesOf(files: RepoFiles, handle: string) {
     const all = Object.entries(files)
-        .filter(([path]) => path.startsWith(`${slug}/`))
+        .filter(([path]) => path.startsWith(`${handle}/`))
         .map(([path, text]) => ({ path, text, entry: repoEntry(path) }));
     const of = <K extends RepoEntry['kind']>(kind: K) => all.filter((e): e is Entry<K> => e.entry.kind === kind);
     return {
@@ -58,8 +58,8 @@ function entriesOf(files: RepoFiles, slug: string) {
 
 const idOf = <T extends { id?: string }>(result: { ok: true; value: T } | { ok: false }) => (result.ok ? result.value.id : undefined);
 
-function idsOf(files: RepoFiles, slug: string): { path: string; id: string }[] {
-    const { connections, projects, flows } = entriesOf(files, slug);
+function idsOf(files: RepoFiles, handle: string): { path: string; id: string }[] {
+    const { connections, projects, flows } = entriesOf(files, handle);
     return [
         ...connections.map(e => ({ path: e.path, id: idOf(connectionFromYaml(e.text)) })),
         ...projects.map(e => ({ path: e.path, id: idOf(projectFromYaml(e.text)) })),
@@ -70,11 +70,11 @@ function idsOf(files: RepoFiles, slug: string): { path: string; id: string }[] {
     ].filter((e): e is { path: string; id: string } => e.id !== undefined && isRepoId(e.id));
 }
 
-export async function validateImport(db: Database, workspaceId: string, slug: string, files: RepoFiles): Promise<TreeValidation> {
-    const ids = idsOf(files, slug);
+export async function validateImport(db: Database, workspaceId: string, handle: string, files: RepoFiles): Promise<TreeValidation> {
+    const ids = idsOf(files, handle);
     const inTree = new Set(ids.map(e => e.id));
     const unreadable = new Set(
-        entriesOf(files, slug)
+        entriesOf(files, handle)
             .projects.filter(e => !ids.some(i => i.path === e.path))
             .map(e => nameKey(e.entry.project)),
     );
@@ -83,7 +83,7 @@ export async function validateImport(db: Database, workspaceId: string, slug: st
         .filter(p => !inTree.has(p.id) && !unreadable.has(nameKey(p.name)))
         .map(p => p.name);
     const validation = validateWorkspaceTree({
-        workspace: slug,
+        workspace: handle,
         files,
         environment: await importEnvironment(db, workspaceId),
         archivedProjects,
@@ -131,8 +131,8 @@ type DraftOnly = { id: string; project_id: string; folder_id: string | null; nam
 
 type DraftClash = { path: string; flowName: string; draft: DraftOnly };
 
-async function clashingDrafts(db: Database, workspaceId: string, slug: string, files: RepoFiles): Promise<DraftClash[]> {
-    const { projects, flows } = entriesOf(files, slug);
+async function clashingDrafts(db: Database, workspaceId: string, handle: string, files: RepoFiles): Promise<DraftClash[]> {
+    const { projects, flows } = entriesOf(files, handle);
     const projectIds = new Map(projects.map(({ text, entry }) => [entry.project, idOf(projectFromYaml(text))]));
     const inTree = flows.flatMap(({ path, text, entry }) => {
         const read = repoFlowFromYaml(text, nfc(entry.name));
@@ -167,8 +167,8 @@ async function clashingDrafts(db: Database, workspaceId: string, slug: string, f
 const clashMessage = ({ flowName, draft }: DraftClash) =>
     `The flow ${flowName} in git has the name of a draft here, ${draft.name}: rename the draft first.`;
 
-export const draftClashes = async (db: Database, workspaceId: string, slug: string, files: RepoFiles): Promise<TreeIssue[]> =>
-    (await clashingDrafts(db, workspaceId, slug, files)).map(clash => ({ path: clash.path, message: clashMessage(clash) }));
+export const draftClashes = async (db: Database, workspaceId: string, handle: string, files: RepoFiles): Promise<TreeIssue[]> =>
+    (await clashingDrafts(db, workspaceId, handle, files)).map(clash => ({ path: clash.path, message: clashMessage(clash) }));
 
 export class ImportConflict extends Error {}
 
@@ -187,12 +187,12 @@ export type ImportOptions = { commit?: string; by?: string | null };
 
 export async function importWorkspace(
     ctx: UseCaseContext,
-    slug: string,
+    handle: string,
     files: RepoFiles,
     options: ImportOptions = {},
 ): Promise<{ renamedDrafts: RenamedDraft[] }> {
     if (!options.commit) {
-        const clashes = await clashingDrafts(ctx.db, ctx.workspaceId, slug, files);
+        const clashes = await clashingDrafts(ctx.db, ctx.workspaceId, handle, files);
         if (clashes[0]) {
             throw new ImportConflict(clashMessage(clashes[0]));
         }
@@ -200,11 +200,11 @@ export async function importWorkspace(
 
     const renamedDrafts = options.commit ? await followGit(ctx.db, ctx.workspaceId, files, options.commit) : [];
     const working = options.commit ? await overlay(ctx.db, ctx.workspaceId, files) : files;
-    await importStructure(ctx, slug, working, { keep: Boolean(options.commit), tip: files, commit: options.commit ?? null });
+    await importStructure(ctx, handle, working, { keep: Boolean(options.commit), tip: files, commit: options.commit ?? null });
     if (!options.commit) {
         await keepOnlyDrafts(ctx);
     }
-    await importDeployed(ctx, slug, files, options);
+    await importDeployed(ctx, handle, files, options);
     return { renamedDrafts };
 }
 
@@ -234,18 +234,18 @@ async function keepOnlyDrafts(ctx: UseCaseContext): Promise<void> {
 
 export async function importStructure(
     ctx: UseCaseContext,
-    slug: string,
+    handle: string,
     working: RepoFiles,
     options: { keep: boolean; tip?: RepoFiles; commit?: string | null },
 ): Promise<void> {
-    const entries = entriesOf(working, slug);
+    const entries = entriesOf(working, handle);
     await importConnections(ctx, entries.connections, { keep: options.keep });
     const projectIds = await importProjects(ctx, entries.projects);
     const folders = new ProjectFolders(ctx, projectIds);
     for (const { entry } of entries.folders) {
         await folders.folderOf(entry.project, entry.folders);
     }
-    const inTip = options.tip ? new Set(flowIdsOf(entriesOf(options.tip, slug).flows)) : null;
+    const inTip = options.tip ? new Set(flowIdsOf(entriesOf(options.tip, handle).flows)) : null;
     await importFlowPlaces(ctx, entries.flows, projectIds, folders, { keep: options.keep, inTip, commit: options.commit ?? null });
     await folders.archiveUnused();
 
@@ -459,11 +459,11 @@ async function importFlowPlaces(
     }
 }
 
-async function importDeployed(ctx: UseCaseContext, slug: string, files: RepoFiles, options: ImportOptions): Promise<void> {
+async function importDeployed(ctx: UseCaseContext, handle: string, files: RepoFiles, options: ImportOptions): Promise<void> {
     const { db, workspaceId, userId } = ctx;
     const commit = options.commit ?? null;
     const by = { workspaceId, userId: commit ? (options.by ?? null) : userId };
-    const entries = entriesOf(files, slug);
+    const entries = entriesOf(files, handle);
     const inTree = entries.flows.map(({ text, entry }) => read(repoFlowFromYaml(text, nfc(entry.name))));
     const ids = inTree.map(f => f.flow.id!);
     if (commit) {
@@ -549,10 +549,10 @@ async function importScripts(
                 row.path,
             ]);
         }
-        const slug = (await db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]))[0]!.slug;
+        const handle = (await db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [workspaceId]))[0]!.handle;
         const names = new Map([...projectIds].map(([name, id]) => [id, name]));
         for (const [fileId, script] of inTree) {
-            const path = repoPath.script(slug, names.get(script.projectId)!, script.path);
+            const path = repoPath.script(handle, names.get(script.projectId)!, script.path);
             await writeFile(db, workspaceId, { path, content: script.text, fileId, userId });
         }
         return;

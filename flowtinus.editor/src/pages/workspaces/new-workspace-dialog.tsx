@@ -16,7 +16,7 @@ type Props = { open: boolean; onOpenChange: (open: boolean) => void };
 const FieldError = ({ message }: { message?: string }) => (message ? <p className="text-sm text-destructive">{message}</p> : null);
 
 /**
- * A new workspace (only an admin of the environment sees this): its name and its ID, the slug of its addresses
+ * A new workspace (only an admin of the environment sees this): its name and its ID, the handle of its addresses
  * (/w/<id>/...), suggested from the name while it is not typed, and never changed after. Its creator becomes its admin.
  */
 export function NewWorkspaceDialog({ open, onOpenChange }: Props) {
@@ -32,16 +32,16 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
     const { reload } = useMe();
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
-    // the slug follows the name until the user types one
-    const [typedSlug, setTypedSlug] = useState<string | null>(null);
-    const slug = typedSlug ?? handleOf(name);
+    // the handle follows the name until the user types one
+    const [typedHandle, setTypedHandle] = useState<string | null>(null);
+    const handle = typedHandle ?? handleOf(name);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [failure, setFailure] = useState('');
     const [saving, setSaving] = useState(false);
 
     const submit = async (event: FormEvent) => {
         event.preventDefault();
-        const found = validateNewWorkspace({ name, slug });
+        const found = validateNewWorkspace({ name, handle });
         setErrors(found);
         setFailure('');
         if (Object.keys(found).length > 0) {
@@ -49,7 +49,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
         }
 
         setSaving(true);
-        const result = await createWorkspace({ slug, name: name.trim(), description: description.trim(), icon: 'layers', color: 'blue' });
+        const result = await createWorkspace({ handle, name: name.trim(), description: description.trim(), icon: 'layers', color: 'blue' });
         setSaving(false);
         if (!result.ok) {
             if (result.error.fields) {
@@ -62,7 +62,7 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
 
         await reload();
         onDone();
-        navigate(projectsPath(result.value.slug));
+        navigate(projectsPath(result.value.handle));
     };
 
     return (
@@ -88,20 +88,20 @@ function NewWorkspaceForm({ onDone }: { onDone: () => void }) {
             </div>
 
             <div className="grid gap-2">
-                <Label htmlFor="workspace-slug">ID</Label>
+                <Label htmlFor="workspace-handle">ID</Label>
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                     <span>/w/</span>
                     <Input
-                        id="workspace-slug"
+                        id="workspace-handle"
                         maxLength={40}
-                        value={slug}
+                        value={handle}
                         className="font-mono"
-                        aria-invalid={errors.slug ? true : undefined}
-                        onChange={event => setTypedSlug(event.target.value.toLowerCase())}
+                        aria-invalid={errors.handle ? true : undefined}
+                        onChange={event => setTypedHandle(event.target.value.toLowerCase())}
                     />
                 </div>
                 <p className="text-xs text-muted-foreground">In its addresses; it cannot change later.</p>
-                <FieldError message={errors.slug} />
+                <FieldError message={errors.handle} />
             </div>
 
             <div className="grid gap-2">

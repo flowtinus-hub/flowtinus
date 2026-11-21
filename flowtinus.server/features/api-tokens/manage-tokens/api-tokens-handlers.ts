@@ -82,7 +82,7 @@ async function scopeItems(db: Database, userId: string, scopes: RunScope[]): Pro
     const member = 'JOIN workspace_members m ON m.workspace_id = w.id AND m.user_id::text = $2';
     const folders = folderIds.length
         ? await db.query<{ id: string; project: string; workspace: string; archived: boolean }>(
-              `SELECT f.id, p.name AS project, w.slug AS workspace, (f.deleted_at IS NOT NULL OR f.removed_at IS NOT NULL) AS archived
+              `SELECT f.id, p.name AS project, w.handle AS workspace, (f.deleted_at IS NOT NULL OR f.removed_at IS NOT NULL) AS archived
            FROM folders f JOIN projects p ON p.id = f.project_id JOIN workspaces w ON w.id = f.workspace_id ${member}
           WHERE f.id = ANY($1::uuid[])`,
               [folderIds, userId],
@@ -90,7 +90,7 @@ async function scopeItems(db: Database, userId: string, scopes: RunScope[]): Pro
         : [];
     const flows = flowIds.length
         ? await db.query<{ id: string; name: string; folderId: string | null; project: string; workspace: string; archived: boolean }>(
-              `SELECT f.id, f.name, f.folder_id AS "folderId", p.name AS project, w.slug AS workspace,
+              `SELECT f.id, f.name, f.folder_id AS "folderId", p.name AS project, w.handle AS workspace,
                 (f.deleted_at IS NOT NULL OR f.removed_at IS NOT NULL) AS archived
            FROM flows f JOIN projects p ON p.id = f.project_id JOIN workspaces w ON w.id = f.workspace_id ${member}
           WHERE f.id = ANY($1::uuid[])`,

@@ -48,7 +48,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
                 <div className="grid min-w-0 flex-1 gap-1">
                     <CardTitle className="truncate">
                         <Link
-                            to={archived ? workspaceSettingsPath(workspace.slug) : projectsPath(workspace.slug)}
+                            to={archived ? workspaceSettingsPath(workspace.handle) : projectsPath(workspace.handle)}
                             className="outline-none after:absolute after:inset-0 after:content-['']"
                         >
                             {workspace.name}
@@ -71,7 +71,7 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
                 ))}
             </CardContent>
             <CardFooter className="mt-auto justify-between text-xs text-muted-foreground/70">
-                <span className="font-mono">/w/{workspace.slug}</span>
+                <span className="font-mono">/w/{workspace.handle}</span>
                 <span>
                     {workspace.archivedAt ? `Archived ${formatDate(workspace.archivedAt)}` : `Created ${formatDate(workspace.createdAt)}`}
                 </span>

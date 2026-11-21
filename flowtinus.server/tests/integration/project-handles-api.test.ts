@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
 
@@ -92,10 +92,10 @@ describe('project handles', () => {
         await call('POST', `/projects/${there}/archive`, undefined, target);
         const id = await create('fretes!');
 
-        const moved = await call('POST', `/projects/${id}/move`, { toWorkspace: slugOf(target) });
+        const moved = await call('POST', `/projects/${id}/move`, { toWorkspace: workspaceHandleOf(target) });
         expect(moved.status).toBe(409);
         expect(moved.body.error).toMatchObject({
-            message: `The handle "fretes" is taken by the archived project "Fretes" in "${slugOf(target)}".`,
+            message: `The handle "fretes" is taken by the archived project "Fretes" in "${workspaceHandleOf(target)}".`,
             fields: { toWorkspace: 'Handle taken by "Fretes"' },
         });
     });

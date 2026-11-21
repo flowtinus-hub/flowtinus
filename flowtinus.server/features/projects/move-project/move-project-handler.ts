@@ -77,7 +77,7 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                 workspaceMembers,
                 and(eq(workspaceMembers.workspaceId, workspaces.id), sql`${workspaceMembers.userId}::text = ${ctx.userId}`),
             )
-            .where(and(eq(workspaces.slug, toWorkspace), isNull(workspaces.deletedAt)));
+            .where(and(eq(workspaces.handle, toWorkspace), isNull(workspaces.deletedAt)));
         if (!target || !target.role) {
             return fail('not-found', `Workspace "${toWorkspace}" not found among yours.`, { toWorkspace: 'Not found' });
         }

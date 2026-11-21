@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, createBranch, git } from '../helpers/git-repos';
 import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { Keyring } from '#shared/crypto/keyring';
@@ -56,21 +56,21 @@ describe('every change of the tree on a work branch goes into its working copy',
         expect((await commitAll(call, 'Warehouse')).status).toBe(200);
         await app.gitPoller.poll(id);
 
-        const slug = slugOf(id);
-        const at = (path: string) => `${slug}/${path}`;
-        const handle = (await call('GET', '/me')).body.handle as string;
-        const branch = `users/${handle}/tree`;
+        const handle = workspaceHandleOf(id);
+        const at = (path: string) => `${handle}/${path}`;
+        const userHandle = (await call('GET', '/me')).body.handle as string;
+        const branch = `users/${userHandle}/tree`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
 
         const show = (ref: string, path: string) => git(repo, 'show', `${ref}:${at(path)}`);
         const tree = (ref: string) =>
             git(repo, 'ls-tree', '-r', '--name-only', ref)
                 .split('\n')
-                .filter(path => path.startsWith(`${slug}/`))
-                .map(path => path.slice(slug.length + 1));
+                .filter(path => path.startsWith(`${handle}/`))
+                .map(path => path.slice(handle.length + 1));
         const changes = async (user = ANA) =>
             ((await as(user)('GET', '/git/changes')).body.changes as Change[]).map(c =>
-                c.from ? `${c.from.slice(slug.length + 1)} -> ${c.path.slice(slug.length + 1)}` : c.path.slice(slug.length + 1),
+                c.from ? `${c.from.slice(handle.length + 1)} -> ${c.path.slice(handle.length + 1)}` : c.path.slice(handle.length + 1),
             );
         const contents = async (project = projectId, user = ANA) => {
             const body = (await as(user)('GET', `/projects/${project}/contents`)).body;
@@ -398,7 +398,7 @@ describe('every change of the tree on a work branch goes into its working copy',
         const { call, projectId } = await workspace();
         const other = crypto.randomUUID();
         await insertWorkspace(db, other, 'other');
-        const refused = await call('POST', `/projects/${projectId}/move`, { toWorkspace: slugOf(other) });
+        const refused = await call('POST', `/projects/${projectId}/move`, { toWorkspace: workspaceHandleOf(other) });
         expect(refused.status).toBe(409);
         expect(refused.body.error.message).toContain('Pick dev to move it.');
     });
@@ -414,7 +414,10 @@ describe('every change of the tree on a work branch goes into its working copy',
                 fetch: (url, init) => Promise.resolve(app.request(String(url), init as RequestInit)),
             }),
         );
-        const result = (await client.callTool({ name: 'create_project', arguments: { workspace: slugOf(id), name: 'Agents' } })) as {
+        const result = (await client.callTool({
+            name: 'create_project',
+            arguments: { workspace: workspaceHandleOf(id), name: 'Agents' },
+        })) as {
             isError?: boolean;
             content: { text: string }[];
         };

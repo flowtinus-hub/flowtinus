@@ -1,3 +1,4 @@
+import { HANDLE } from '@flowtinus/core';
 import { z } from 'zod';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
@@ -7,7 +8,7 @@ import { validate } from '#shared/use-cases/validate';
 import { and, asc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { users } from '#features/users/user';
 import { membershipsOf, type Membership } from './memberships';
-import { WORKSPACE_SLUG, workspaces, type Workspace } from './workspace';
+import { workspaces, type Workspace } from './workspace';
 import { WORKSPACE_ROLES, workspaceMembers, type WorkspaceRole } from './workspace-member';
 import { projects } from '#features/projects/project';
 
@@ -16,7 +17,7 @@ const DESCRIPTION_MAX = 500;
 
 export type WorkspaceView = {
     id: string;
-    slug: string;
+    handle: string;
     name: string;
     description: string;
     icon: string;
@@ -30,7 +31,7 @@ export type WorkspaceSummary = { projects: number; connections: number; secrets:
 
 const toView = (row: Workspace, role: WorkspaceRole): WorkspaceView => ({
     id: row.id,
-    slug: row.slug,
+    handle: row.handle,
     name: row.name,
     description: row.description,
     icon: row.icon,
@@ -91,7 +92,7 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
 
         const rows = await ctx.db.query<{
             id: string;
-            slug: string;
+            handle: string;
             name: string;
             description: string;
             icon: string;
@@ -105,7 +106,7 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
             variables: number | string;
             members: number | string;
         }>(
-            `SELECT w.id, w.slug, w.name, w.description, w.icon, w.color, w.created_at, w.deleted_at, m.role,
+            `SELECT w.id, w.handle, w.name, w.description, w.icon, w.color, w.created_at, w.deleted_at, m.role,
               (SELECT count(*) FROM projects p WHERE p.workspace_id = w.id AND p.deleted_at IS NULL) AS projects,
               (SELECT count(*) FROM connections c WHERE c.workspace_id = w.id AND c.deleted_at IS NULL) AS connections,
               (SELECT count(*) FROM secrets s WHERE s.workspace_id = w.id) AS secrets,
@@ -113,13 +114,13 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
               (SELECT count(*) FROM workspace_members x WHERE x.workspace_id = w.id) AS members
          FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
         WHERE m.user_id::text = $1 AND (w.deleted_at IS NULL) = $2
-        ORDER BY lower(w.name), w.slug`,
+        ORDER BY lower(w.name), w.handle`,
             [ctx.userId, parsed.value.status === 'active'],
         );
         return success({
             items: rows.map(r => ({
                 id: r.id,
-                slug: r.slug,
+                handle: r.handle,
                 name: r.name,
                 description: r.description,
                 icon: r.icon,
@@ -140,15 +141,15 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
 }
 
 export const CreateWorkspaceCommand = z.object({
-    slug: z.string().trim().regex(WORKSPACE_SLUG, 'Lowercase letters, digits and hyphens (1 to 40), not starting or ending with a hyphen'),
+    handle: z.string().trim().regex(HANDLE, 'Lowercase letters, digits and hyphens (1 to 40), not starting or ending with a hyphen'),
     name: Fields.name,
     description: Fields.description.default(''),
     icon: Fields.icon.default('layers'),
     color: Fields.color.default('blue'),
 });
 
-export class CreateWorkspaceHandler implements UseCaseHandler<{ id: string; slug: string }> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ id: string; slug: string }>> {
+export class CreateWorkspaceHandler implements UseCaseHandler<{ id: string; handle: string }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ id: string; handle: string }>> {
         const [user] = await ctx.db.orm.select({ isAdmin: users.isAdmin }).from(users).where(userIs(ctx.userId));
         if (!user?.isAdmin) {
             return fail('forbidden', 'Only an admin of the environment can create workspaces.');
@@ -159,17 +160,17 @@ export class CreateWorkspaceHandler implements UseCaseHandler<{ id: string; slug
             return parsed;
         }
 
-        const { slug, ...fields } = parsed.value;
-        if ((await ctx.db.orm.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.slug, slug)).limit(1)).length > 0) {
-            return fail('conflict', `A workspace with the ID "${slug}" already exists.`, { slug: 'Already in use' });
+        const { handle, ...fields } = parsed.value;
+        if ((await ctx.db.orm.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.handle, handle)).limit(1)).length > 0) {
+            return fail('conflict', `A workspace with the ID "${handle}" already exists.`, { handle: 'Already in use' });
         }
 
         const id = crypto.randomUUID();
         await ctx.db.transaction(async tx => {
-            await tx.orm.insert(workspaces).values({ id, slug, ...fields });
+            await tx.orm.insert(workspaces).values({ id, handle, ...fields });
             await tx.orm.insert(workspaceMembers).values({ workspaceId: id, userId: ctx.userId, role: 'admin' });
         });
-        return success({ id, slug });
+        return success({ id, handle });
     }
 }
 
@@ -190,8 +191,8 @@ export const UpdateWorkspaceCommand = z.object({
     description: Fields.description.optional(),
     icon: Fields.icon.optional(),
     color: Fields.color.optional(),
-    /** the slug never changes: sent only to say so */
-    slug: z.string().optional(),
+    /** the handle never changes: sent only to say so */
+    handle: z.string().optional(),
 });
 
 export class UpdateWorkspaceHandler implements UseCaseHandler<WorkspaceView> {
@@ -206,14 +207,14 @@ export class UpdateWorkspaceHandler implements UseCaseHandler<WorkspaceView> {
             return parsed;
         }
 
-        const { slug, ...fields } = parsed.value;
+        const { handle, ...fields } = parsed.value;
         const current = await findWorkspace(ctx);
         if (!current || current.deletedAt) {
             return fail('not-found', 'Workspace not found.');
         }
 
-        if (slug !== undefined && slug !== current.slug) {
-            return fail('validation', "A workspace's ID cannot change.", { slug: 'Cannot change' });
+        if (handle !== undefined && handle !== current.handle) {
+            return fail('validation', "A workspace's ID cannot change.", { handle: 'Cannot change' });
         }
 
         const changes = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));

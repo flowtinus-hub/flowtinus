@@ -27,11 +27,11 @@ export async function refuseReadOnly(ctx: UseCaseContext, branch: WorkBranch, di
 export const lockBranch = (db: Database, workspaceId: string, branch: string) =>
     db.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`working-copy:${workspaceId}:${branch}`]);
 
-export function branchIds(files: RepoFiles, slug: string): Record<string, string> {
+export function branchIds(files: RepoFiles, handle: string): Record<string, string> {
     const projects = new Map<string, string>();
     for (const [path, text] of Object.entries(files)) {
         const entry = repoEntry(path);
-        if (entry.kind === 'project' && entry.workspace === slug) {
+        if (entry.kind === 'project' && entry.workspace === handle) {
             const read = projectFromYaml(text);
             if (read.ok) {
                 projects.set(entry.project, read.value.id);
@@ -101,8 +101,8 @@ export async function changeBranch(
         await recordChanges(
             db,
             ctx.workspaceId,
-            { files: before, ids: branchIds(before, branch.slug) },
-            { files: after, ids: branchIds(after, branch.slug) },
+            { files: before, ids: branchIds(before, branch.handle) },
+            { files: after, ids: branchIds(after, branch.handle) },
             ctx.userId,
             branch.branch,
         );

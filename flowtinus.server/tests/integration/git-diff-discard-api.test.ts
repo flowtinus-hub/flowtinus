@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { repoFlowFromYaml, repoFlowToYaml } from '@flowtinus/core';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -52,10 +52,10 @@ describe("a changed file's diff, and a discard of what was never committed", () 
         }
         await app.gitPoller.poll(id);
 
-        const slug = slugOf(id);
-        const at = (path: string) => `${slug}/${path}`;
+        const handle = workspaceHandleOf(id);
+        const at = (path: string) => `${handle}/${path}`;
         const pathOf = (name: string) => at(`projects/Sales/flows/${name}.flow.yaml`);
-        const handle = async () => (await call('GET', '/me')).body.handle as string;
+        const userHandle = async () => (await call('GET', '/me')).body.handle as string;
         const diff = (path: string) => call('GET', `/git/diff?path=${encodeURIComponent(path)}`);
         const relabel = async (flowId: string, type: string, label: string) => {
             const current = (await call('GET', `/flows/${flowId}/draft`)).body;
@@ -64,7 +64,7 @@ describe("a changed file's diff, and a discard of what was never committed", () 
         };
         const tombstones = (branch: string) =>
             db.query('SELECT path FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND deleted AND base IS NULL', [id, branch]);
-        return { id, call, projectId, flows, repo, at, pathOf, handle, diff, relabel, tombstones };
+        return { id, call, projectId, flows, repo, at, pathOf, userHandle, diff, relabel, tombstones };
     }
 
     beforeAll(async () => {
@@ -121,8 +121,8 @@ describe("a changed file's diff, and a discard of what was never committed", () 
     });
 
     test('on a work branch, and during a pending merge: each file against its base', async () => {
-        const { call, projectId, flows, repo, pathOf, handle, diff, relabel } = await workspace();
-        const branch = `users/${await handle()}/diff`;
+        const { call, projectId, flows, repo, pathOf, userHandle, diff, relabel } = await workspace();
+        const branch = `users/${await userHandle()}/diff`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         await relabel(flows.Orders!, 'start', 'Ana start');
         expect((await commitAll(call, 'Ana start')).status).toBe(200);
@@ -206,8 +206,8 @@ describe("a changed file's diff, and a discard of what was never committed", () 
     });
 
     test('on a work branch: a discarded new flow leaves no row, nor the tombstone of its rename', async () => {
-        const { id, call, projectId, pathOf, handle, tombstones } = await workspace();
-        const branch = `users/${await handle()}/discard`;
+        const { id, call, projectId, pathOf, userHandle, tombstones } = await workspace();
+        const branch = `users/${await userHandle()}/discard`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         const fresh = (await call('POST', `/projects/${projectId}/flows`, { name: 'Fresh' })).body.id as string;
         expect((await call('PATCH', `/flows/${fresh}`, { name: 'Fresher' })).status).toBe(200);

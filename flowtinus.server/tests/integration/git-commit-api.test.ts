@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -55,7 +55,7 @@ describe("with git on, a deploy is a Commit to the environment's branch", () => 
             const nodes = flow.nodes.map((n: { type: string }) => (n.type === 'start' ? { ...n, label } : n));
             expect((await call('PUT', `/flows/${flowId}/draft`, { revision, flow: { ...flow, nodes } })).status).toBe(200);
         };
-        const flowPath = (name: string) => `${slugOf(id)}/projects/Sales/flows/${name}.flow.yaml`;
+        const flowPath = (name: string) => `${workspaceHandleOf(id)}/projects/Sales/flows/${name}.flow.yaml`;
         const show = (path: string) => Bun.spawnSync(['git', 'show', `dev:${path}`], { cwd: repo, stdout: 'pipe' }).stdout.toString();
         const onBranch = (): Record<string, string> =>
             Object.fromEntries(

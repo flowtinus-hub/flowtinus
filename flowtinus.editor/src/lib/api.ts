@@ -4,22 +4,22 @@ import { reportReachable, reportUnavailable } from './server-connection';
 /*
  * Calls to flowtinus.server. In dev Vite proxies /api to it (vite.config.ts). Who is calling goes in X-User-Id until
  * there is authentication (then a token replaces it here, and nothing else changes). A workspace's data is under
- * /w/<its slug>; the environment's (the runs, the workers, the user and their workspaces) is not.
+ * /w/<its handle>; the environment's (the runs, the workers, the user and their workspaces) is not.
  */
 
-/** the workspace of the page (its slug), set by its route (WorkspaceScope): the data calls of its pages go to it */
+/** the workspace of the page (its handle), set by its route (WorkspaceScope): the data calls of its pages go to it */
 let currentWorkspace = '';
 
-export const setCurrentWorkspace = (slug: string) => {
-    currentWorkspace = slug;
+export const setCurrentWorkspace = (handle: string) => {
+    currentWorkspace = handle;
 };
 
 export const getCurrentWorkspace = () => currentWorkspace;
 
-/** the environment's paths, and a workspace's own (/w/<slug>...), go as they are */
+/** the environment's paths, and a workspace's own (/w/<handle>...), go as they are */
 const AS_IS = /^\/(runs|workers|me|workspaces|tokens|health|w)(\/|\?|$)/;
 
-/** the api's address of a path: a workspace's under /w/<slug> (the page's workspace unless given) */
+/** the api's address of a path: a workspace's under /w/<handle> (the page's workspace unless given) */
 export const apiPath = (path: string, workspace = currentWorkspace) => (AS_IS.test(path) ? path : `/w/${workspace}${path}`);
 
 export type ApiError = {

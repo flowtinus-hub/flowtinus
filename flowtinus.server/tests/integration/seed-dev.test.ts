@@ -11,10 +11,10 @@ describe('dev seed', () => {
             await seedDev(db);
             await seedDev(db);
 
-            const rows = await db.query<{ slug: string; name: string }>('SELECT slug, name FROM workspaces WHERE id = $1', [
+            const rows = await db.query<{ handle: string; name: string }>('SELECT handle, name FROM workspaces WHERE id = $1', [
                 DEV_WORKSPACE_ID,
             ]);
-            expect(rows).toEqual([{ slug: 'dev', name: 'Dev' }]);
+            expect(rows).toEqual([{ handle: 'dev', name: 'Dev' }]);
             const users = await db.query<{ id: string; name: string; email: string; is_admin: boolean }>(
                 'SELECT id, name, email, is_admin FROM users',
             );

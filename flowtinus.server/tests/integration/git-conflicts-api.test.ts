@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { connectionToYaml, repoFlowFromYaml, repoFlowToYaml, type FlowFile } from '@flowtinus/core';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -52,10 +52,10 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
         await app.gitPoller.poll(id);
 
-        const slug = slugOf(id);
-        const at = (path: string) => `${slug}/${path}`;
+        const handle = workspaceHandleOf(id);
+        const at = (path: string) => `${handle}/${path}`;
         const ordersPath = at('projects/Sales/flows/Orders.flow.yaml');
-        const handle = (await call('GET', '/me')).body.handle as string;
+        const userHandle = (await call('GET', '/me')).body.handle as string;
         const changes = async () => (await call('GET', '/git/changes')).body.changes as Change[];
         const draft = async () => (await call('GET', `/flows/${orders}/draft`)).body;
         const conflict = (path: string) => call('GET', `/git/conflict?path=${encodeURIComponent(path)}`);
@@ -89,7 +89,7 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
             return read.ok ? read.value.flow : null;
         };
         const poll = () => app.gitPoller.poll(id);
-        return { id, call, repo, at, orders, ordersPath, handle, changes, draft, conflict, relabel, push, pushLabels, inGit, poll };
+        return { id, call, repo, at, orders, ordersPath, userHandle, changes, draft, conflict, relabel, push, pushLabels, inGit, poll };
     }
 
     beforeAll(async () => {
@@ -104,8 +104,8 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
     });
 
     test('a content conflict on a work branch: per hunk, an invalid result refused with its errors, the resolution committed', async () => {
-        const { call, ordersPath, handle, changes, draft, conflict, relabel, pushLabels, inGit, poll } = await workspace();
-        const branch = `users/${handle}/clash`;
+        const { call, ordersPath, userHandle, changes, draft, conflict, relabel, pushLabels, inGit, poll } = await workspace();
+        const branch = `users/${userHandle}/clash`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         expect((await relabel({ start: 'Ana start', end: 'Ana end' })).status).toBe(200);
         const laptop = pushLabels(branch, { start: 'Laptop start', end: 'Laptop end' });
@@ -156,8 +156,9 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
     });
 
     test('one edited, the other deleted: keep it with the edit, or delete it', async () => {
-        const { call, repo, at, orders, ordersPath, handle, changes, conflict, relabel, push, pushLabels, inGit, poll } = await workspace();
-        const branch = `users/${handle}/gone`;
+        const { call, repo, at, orders, ordersPath, userHandle, changes, conflict, relabel, push, pushLabels, inGit, poll } =
+            await workspace();
+        const branch = `users/${userHandle}/gone`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
 
         expect((await relabel({ start: 'Kept start' })).status).toBe(200);
@@ -184,8 +185,8 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
     });
 
     test('both renamed the same flow: one of the two names', async () => {
-        const { call, repo, at, orders, ordersPath, handle, changes, conflict, push, inGit, poll } = await workspace();
-        const branch = `users/${handle}/names`;
+        const { call, repo, at, orders, ordersPath, userHandle, changes, conflict, push, inGit, poll } = await workspace();
+        const branch = `users/${userHandle}/names`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         const mine = at('projects/Sales/flows/Orders A.flow.yaml');
         const theirs = at('projects/Sales/flows/Orders B.flow.yaml');

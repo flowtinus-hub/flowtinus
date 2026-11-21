@@ -1,5 +1,5 @@
 import { repoEntry, repoPath, type TreeIssue } from '@flowtinus/core';
-import { workspaceSlug } from '#features/folders/project-tree';
+import { workspaceHandle } from '#features/folders/project-tree';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
@@ -59,8 +59,8 @@ function serverChanges(before: RepoFiles, changes: GitChanges): FileChange[] {
     });
 }
 
-const inFolder = (files: RepoFiles, slug: string): RepoFiles =>
-    Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(`${slug}/`)));
+const inFolder = (files: RepoFiles, handle: string): RepoFiles =>
+    Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(`${handle}/`)));
 
 export async function turnOnPlan(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<UseCaseResult<TurnOnPlan>> {
     const target = await environmentBranch(remote, config.environment);
@@ -69,20 +69,20 @@ export async function turnOnPlan(ctx: UseCaseContext, remote: GitRemote, config:
     }
 
     const { branch, tip } = target.value;
-    const slug = await workspaceSlug(ctx);
-    const onBranch = tip ? await readBranchWorkspace(remote, tip, slug) : {};
+    const handle = await workspaceHandle(ctx);
+    const onBranch = tip ? await readBranchWorkspace(remote, tip, handle) : {};
     const exported = await exportWorkspace(ctx.db, ctx.workspaceId, 'committed');
-    const holds = holdsWorkspace(onBranch, slug);
+    const holds = holdsWorkspace(onBranch, handle);
     const empty = await isWorkspaceEmpty(ctx.db, ctx.workspaceId);
-    const serverSide = inFolder(exported, slug);
-    const checked = holds ? await validateImport(ctx.db, ctx.workspaceId, slug, onBranch) : { errors: [], warnings: [] };
-    const clashes = holds ? await draftClashes(ctx.db, ctx.workspaceId, slug, onBranch) : [];
+    const serverSide = inFolder(exported, handle);
+    const checked = holds ? await validateImport(ctx.db, ctx.workspaceId, handle, onBranch) : { errors: [], warnings: [] };
+    const clashes = holds ? await draftClashes(ctx.db, ctx.workspaceId, handle, onBranch) : [];
     return success({
         branch,
         branchExists: tip !== null,
         case: !holds ? 'export' : empty ? 'import' : 'choice',
         toGit: holds && empty ? [] : fileChanges(onBranch, branchChanges(onBranch, exported)),
-        toServer: holds ? serverChanges(serverSide, repoChanges(serverSide, inFormat(inFolder(onBranch, slug)))) : [],
+        toServer: holds ? serverChanges(serverSide, repoChanges(serverSide, inFormat(inFolder(onBranch, handle)))) : [],
         errors: [...checked.errors, ...clashes],
         warnings: checked.warnings,
     });
@@ -114,11 +114,11 @@ export async function turnGitOn(
         await remote.push(tip, branch, null);
     }
 
-    const slug = await workspaceSlug(ctx);
-    const onBranch = await readBranchWorkspace(remote, tip, slug);
+    const handle = await workspaceHandle(ctx);
+    const onBranch = await readBranchWorkspace(remote, tip, handle);
     try {
         const turned = await ctx.db.transaction(tx =>
-            turnOnInTransaction({ ...ctx, db: tx }, remote, input, { branch, tip: tip!, slug, onBranch }),
+            turnOnInTransaction({ ...ctx, db: tx }, remote, input, { branch, tip: tip!, handle, onBranch }),
         );
         if (turned.ok) {
             await showWorkBranches(ctx, remote, config);
@@ -142,7 +142,7 @@ async function turnOnInTransaction(
     ctx: UseCaseContext,
     remote: GitRemote,
     input: { choice?: TurnOnChoice },
-    { branch, tip, slug, onBranch }: { branch: string; tip: string; slug: string; onBranch: RepoFiles },
+    { branch, tip, handle, onBranch }: { branch: string; tip: string; handle: string; onBranch: RepoFiles },
 ): Promise<UseCaseResult<{ outcome: TurnOnOutcome; branch: string; warnings: TreeIssue[] }>> {
     await lockReconcile(ctx.db, ctx.workspaceId);
     const state = await readGitState(ctx.db, ctx.workspaceId);
@@ -153,23 +153,23 @@ async function turnOnInTransaction(
         return fail('conflict', 'Git is already on.');
     }
 
-    const holds = holdsWorkspace(onBranch, slug);
+    const holds = holdsWorkspace(onBranch, handle);
     const empty = await isWorkspaceEmpty(ctx.db, ctx.workspaceId);
     let outcome: TurnOnOutcome;
     let message: string;
     let warnings: TreeIssue[] = [];
     if (!holds || (!empty && input.choice === 'server')) {
         outcome = holds ? 'server-replaced-git' : 'exported';
-        message = holds ? `${state.config.environment} replaces ${slug} in git` : `First export of ${slug}`;
+        message = holds ? `${state.config.environment} replaces ${handle} in git` : `First export of ${handle}`;
     } else {
         if (!empty && input.choice !== 'git') {
             return fail(
                 'conflict',
-                `Both ${branch} and this server have the workspace ${slug}: choose whether git replaces the server or the server replaces git.`,
+                `Both ${branch} and this server have the workspace ${handle}: choose whether git replaces the server or the server replaces git.`,
             );
         }
 
-        const validation = await validateImport(ctx.db, ctx.workspaceId, slug, onBranch);
+        const validation = await validateImport(ctx.db, ctx.workspaceId, handle, onBranch);
         if (validation.errors.length > 0) {
             return fail(
                 'validation',
@@ -178,9 +178,9 @@ async function turnOnInTransaction(
             );
         }
 
-        await importWorkspace(ctx, slug, onBranch);
+        await importWorkspace(ctx, handle, onBranch);
         outcome = empty ? 'imported' : 'git-replaced-server';
-        message = `Canonical form of ${slug}`;
+        message = `Canonical form of ${handle}`;
         warnings = validation.warnings;
     }
 
@@ -189,7 +189,7 @@ async function turnOnInTransaction(
     if (Object.keys(changes).length > 0) {
         await commitFirst(ctx, state.config, remote, message, changes);
     } else {
-        await applyCommit(ctx, remote, { branch, commit: tip }, slug, onBranch, warnings);
+        await applyCommit(ctx, remote, { branch, commit: tip }, handle, onBranch, warnings);
     }
 
     return success({ outcome, branch, warnings });

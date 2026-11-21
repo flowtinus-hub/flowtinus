@@ -16,7 +16,7 @@ export type RunSummary = {
     status: RunStatus;
     trigger: RunTrigger;
     /** its workspace (the history lists the runs of all the user's workspaces) */
-    workspaceSlug: string;
+    workspaceHandle: string;
     workspaceName: string;
     projectId: string;
     projectName: string;
@@ -105,7 +105,7 @@ export const RUN_PERIOD_LABEL: Record<RunPeriod, string> = { '24h': 'Last 24 hou
 export type RunFilter = {
     /** open: queued or running; problems: failed or with errors (the run itself or one it queued) */
     status: 'all' | 'open' | 'problems' | RunStatus;
-    /** one of the user's workspaces (its slug); '': all of them */
+    /** one of the user's workspaces (its handle); '': all of them */
     workspace: string;
     projectId: string;
     trigger: 'all' | RunTrigger;

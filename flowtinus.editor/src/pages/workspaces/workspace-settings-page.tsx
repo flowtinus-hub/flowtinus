@@ -38,8 +38,8 @@ const TABS = [
  */
 export function WorkspaceSettingsPage() {
     // the role from the workspace itself: an archived one is not in /me, and its admins restore it here
-    const { slug } = useWorkspace();
-    const workspace = useResource(`workspace:${slug}`, () => getWorkspace(slug));
+    const { handle } = useWorkspace();
+    const workspace = useResource(`workspace:${handle}`, () => getWorkspace(handle));
     const [params] = useSearchParams();
 
     return (
@@ -74,8 +74,8 @@ export function WorkspaceSettingsPage() {
                                 ))}
                             </nav>
                             {active === 'general' && <WorkspaceFields workspace={value} readOnly={readOnly} onSaved={workspace.reload} />}
-                            {active === 'members' && <Members slug={slug} readOnly={readOnly} />}
-                            {active === 'git' && <GitSection slug={slug} readOnly={readOnly} />}
+                            {active === 'members' && <Members handle={handle} readOnly={readOnly} />}
+                            {active === 'git' && <GitSection handle={handle} readOnly={readOnly} />}
                             {active === 'danger' && <ArchiveSection workspace={value} onChanged={workspace.reload} />}
                         </div>
                     );
@@ -95,7 +95,7 @@ function WorkspaceFields({ workspace, readOnly, onSaved }: { workspace: Workspac
     const save = async (event: FormEvent) => {
         event.preventDefault();
         setSaving(true);
-        const result = await updateWorkspace(workspace.slug, { name: name.trim(), description: description.trim() });
+        const result = await updateWorkspace(workspace.handle, { name: name.trim(), description: description.trim() });
         setSaving(false);
         setMessage(result.ok ? 'Saved.' : (result.error.fields?.name ?? result.error.message));
         if (result.ok) {
@@ -111,9 +111,9 @@ function WorkspaceFields({ workspace, readOnly, onSaved }: { workspace: Workspac
                 <Input id="ws-name" value={name} maxLength={100} disabled={readOnly} onChange={e => setName(e.target.value)} />
             </div>
             <div className="grid gap-2">
-                <Label htmlFor="ws-slug">ID</Label>
-                <Input id="ws-slug" value={workspace.slug} disabled className="font-mono" />
-                <p className="text-xs text-muted-foreground">In its addresses (/w/{workspace.slug}/...); it never changes.</p>
+                <Label htmlFor="ws-handle">ID</Label>
+                <Input id="ws-handle" value={workspace.handle} disabled className="font-mono" />
+                <p className="text-xs text-muted-foreground">In its addresses (/w/{workspace.handle}/...); it never changes.</p>
             </div>
             <div className="grid gap-2">
                 <Label htmlFor="ws-description">Description</Label>
@@ -137,8 +137,8 @@ function WorkspaceFields({ workspace, readOnly, onSaved }: { workspace: Workspac
     );
 }
 
-function Members({ slug, readOnly }: { slug: string; readOnly: boolean }) {
-    const members = useResource(`members:${slug}`, () => listMembers(slug));
+function Members({ handle, readOnly }: { handle: string; readOnly: boolean }) {
+    const members = useResource(`members:${handle}`, () => listMembers(handle));
     const [email, setEmail] = useState('');
     const [role, setRole] = useState<WorkspaceRole>('editor');
     const [error, setError] = useState('');
@@ -146,7 +146,7 @@ function Members({ slug, readOnly }: { slug: string; readOnly: boolean }) {
 
     const add = async (event: FormEvent) => {
         event.preventDefault();
-        const result = await members.run(addMember(slug, email.trim(), role));
+        const result = await members.run(addMember(handle, email.trim(), role));
         setError(result.ok ? '' : (result.error.fields?.email ?? result.error.message));
         if (result.ok) {
             setEmail('');
@@ -154,7 +154,7 @@ function Members({ slug, readOnly }: { slug: string; readOnly: boolean }) {
     };
 
     const change = async (member: Member, next: WorkspaceRole) => {
-        const result = await members.run(updateMember(slug, member.userId, next));
+        const result = await members.run(updateMember(handle, member.userId, next));
         setError(result.ok ? '' : result.error.message);
     };
 
@@ -205,7 +205,7 @@ function Members({ slug, readOnly }: { slug: string; readOnly: boolean }) {
                                                     confirmLabel: 'Remove',
                                                     busyLabel: 'Removing...',
                                                     destructive: true,
-                                                    onConfirm: () => members.run(removeMember(slug, member.userId)),
+                                                    onConfirm: () => members.run(removeMember(handle, member.userId)),
                                                 })
                                             }
                                         >
@@ -266,7 +266,7 @@ function ArchiveSection({ workspace, onChanged }: { workspace: Workspace; onChan
                     <Button
                         variant="outline"
                         onClick={async () => {
-                            const result = await restoreWorkspace(workspace.slug);
+                            const result = await restoreWorkspace(workspace.handle);
                             if (result.ok) {
                                 await Promise.all([reload(), onChanged()]);
                             }
@@ -285,7 +285,7 @@ function ArchiveSection({ workspace, onChanged }: { workspace: Workspace; onChan
                                 busyLabel: 'Archiving...',
                                 destructive: true,
                                 onConfirm: async () => {
-                                    const result = await archiveWorkspace(workspace.slug);
+                                    const result = await archiveWorkspace(workspace.handle);
                                     if (result.ok) {
                                         await reload();
                                         navigate(WORKSPACES_PATH);

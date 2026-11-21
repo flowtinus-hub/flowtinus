@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { Keyring } from '#shared/crypto/keyring';
@@ -69,8 +69,8 @@ describe('scripts reach the branch through a Commit', () => {
             return flowId;
         };
         const show = (file: string) => Bun.spawnSync(['git', 'show', `dev:${file}`], { cwd: repo, stdout: 'pipe' }).stdout.toString();
-        const scriptFile = (path: string) => `${slugOf(id)}/projects/Sales/scripts/${path}.ts`;
-        const flowFile = (name: string) => `${slugOf(id)}/projects/Sales/flows/${name}.flow.yaml`;
+        const scriptFile = (path: string) => `${workspaceHandleOf(id)}/projects/Sales/scripts/${path}.ts`;
+        const flowFile = (name: string) => `${workspaceHandleOf(id)}/projects/Sales/flows/${name}.flow.yaml`;
         const tree = () => git(repo, 'ls-tree', '-r', '--name-only', 'dev').split('\n');
         const onBranch = (): Record<string, string> => Object.fromEntries(tree().map(file => [file, show(file)]));
         const tip = () => git(repo, 'rev-parse', 'dev');
@@ -277,7 +277,13 @@ describe('scripts reach the branch through a Commit', () => {
         );
         const saved = (await client.callTool({
             name: 'save_script',
-            arguments: { workspace: slugOf(id), projectId, path: 'lib/prices', content: 'export const value = 5;', expectedRevision: 0 },
+            arguments: {
+                workspace: workspaceHandleOf(id),
+                projectId,
+                path: 'lib/prices',
+                content: 'export const value = 5;',
+                expectedRevision: 0,
+            },
         })) as { isError?: boolean };
         expect(saved.isError).toBeFalsy();
         expect((await editing('lib/prices')).content).toBe('export const value = 5;');
