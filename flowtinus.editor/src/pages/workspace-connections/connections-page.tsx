@@ -28,9 +28,9 @@ type TestResult = { status: 'testing' } | { status: 'ok' | 'failed'; message: st
  * SFTP that the flows of all its projects use; their passwords and tokens are the workspace's secrets.
  */
 export function ConnectionsPage() {
-    const { slug, canEdit } = useWorkspace();
-    const connections = useResource(`connections:${slug}`, () => listConnections(), { refreshOn: API_WRITE_DONE });
-    const secrets = useResource(`secrets:${slug}`, () => listSecrets());
+    const { handle, canEdit } = useWorkspace();
+    const connections = useResource(`connections:${handle}`, () => listConnections(), { refreshOn: API_WRITE_DONE });
+    const secrets = useResource(`secrets:${handle}`, () => listSecrets());
     const profiles = connections.state.status === 'ready' ? connections.state.value : [];
     const secretList = secrets.state.status === 'ready' ? secrets.state.value : [];
     const readOnly = !canEdit;

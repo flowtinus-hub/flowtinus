@@ -2,6 +2,7 @@ import { parse, parseDocument, visit } from 'yaml';
 import { toExecutableFlow, type FlowFile } from '../flows/flow-file';
 import { flowResources } from '../flows/flow-resources';
 import { fileNameIssue, nameKey, REPO_PATH_MAX, type NameKind } from '../names/file-name';
+import { handleOf, handleTakenMessage } from '../names/handle';
 import { scriptPathIssue } from '../scripts/script-path';
 import { flowCalls, flowScriptUses, scriptLinks } from '../validation/flow-dependencies';
 import { connectionFromYaml, isRepoId, projectFromYaml, repoFlowFromYaml, workspaceFromYaml, type RepoFileResult } from './repo-files';
@@ -12,6 +13,8 @@ export type WorkspaceTree = {
     workspace: string;
     files: Record<string, string>;
     environment: { connections: string[]; secrets: string[]; variables: string[] };
+    /** the names of the workspace's archived projects, which keep their handles */
+    archivedProjects?: string[];
 };
 
 export type TreeIssue = { path: string; message: string };
@@ -60,7 +63,7 @@ function hasComment(text: string): boolean {
     return found;
 }
 
-export function validateWorkspaceTree({ workspace, files, environment }: WorkspaceTree): TreeValidation {
+export function validateWorkspaceTree({ workspace, files, environment, archivedProjects = [] }: WorkspaceTree): TreeValidation {
     const errors: TreeIssue[] = [];
     const warnings: TreeIssue[] = [];
     const read = <T>(path: string, result: RepoFileResult<T>, schema: string): T | undefined => {
@@ -202,6 +205,19 @@ export function validateWorkspaceTree({ workspace, files, environment }: Workspa
         const path = `${workspace}/projects/${project}/project.yaml`;
         if (!(path in files)) {
             errors.push({ path, message: 'The project has no project.yaml (it holds its id).' });
+        }
+    }
+    const holders = new Map(archivedProjects.map(name => [handleOf(name), { name, archived: true }]));
+    for (const project of projects) {
+        const handle = handleOf(project);
+        const holder = holders.get(handle);
+        if (fileNameIssue(project, 'project')) {
+            continue;
+        }
+        if (!holder) {
+            holders.set(handle, { name: project, archived: false });
+        } else if (holder.archived || nameKey(holder.name) !== nameKey(project)) {
+            errors.push({ path: `${workspace}/projects/${project}`, message: handleTakenMessage(project, holder) });
         }
     }
     for (const { path, project, flow } of flows) {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { Keyring } from '#shared/crypto/keyring';
@@ -72,9 +72,9 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
         await app.gitPoller.poll(id);
 
-        const slug = slugOf(id);
-        const at = (path: string) => `${slug}/${path}`;
-        const handle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
+        const handle = workspaceHandleOf(id);
+        const at = (path: string) => `${handle}/${path}`;
+        const userHandle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
         const tip = (branch = 'dev') => git(repo, 'rev-parse', branch);
         const changes = async (user: string) =>
             ((await as(user)('GET', '/git/changes')).body.changes as { path: string }[]).map(c => c.path);
@@ -108,7 +108,7 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
             };
             return { client, tool };
         };
-        return { id, as, call, projectId, orders, repo, slug, at, handle, tip, changes, relabelled, startLabel, setMode, mcp };
+        return { id, as, call, projectId, orders, repo, handle, at, userHandle, tip, changes, relabelled, startLabel, setMode, mcp };
     }
 
     beforeAll(async () => {
@@ -211,13 +211,13 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
     });
 
     test('pull-request: Create branch from the first edit takes it along to users/<handle>/…; a Commit there is pushed', async () => {
-        const { as, call, orders, repo, at, handle, tip, changes, relabelled, startLabel, setMode } = await workspace();
+        const { as, call, orders, repo, at, userHandle, tip, changes, relabelled, startLabel, setMode } = await workspace();
         const ordersPath = at('projects/Sales/flows/Orders.flow.yaml');
         expect((await call('PUT', `/flows/${orders}/draft`, await relabelled(ANA, orders, 'Ana before'))).status).toBe(200);
         await setMode('pull-request');
         const before = tip();
 
-        const bia = await handle(BIA);
+        const bia = await userHandle(BIA);
         const branch = `users/${bia}/Orders`;
         const { flow } = await relabelled(BIA, orders, 'Bia on her branch');
         const created = await as(BIA)('POST', '/git/branches', { name: branch, draft: { flowId: orders, flow } });
@@ -237,7 +237,7 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         expect(git(repo, 'show', `${branch}:${ordersPath}`)).toContain('Bia again');
         expect(tip()).toBe(before);
 
-        const ana = await handle(ANA);
+        const ana = await userHandle(ANA);
         const hers = await call('POST', '/git/branches', { name: `users/${ana}/before` });
         expect(hers.body).toEqual({ branch: `users/${ana}/before`, taken: [ordersPath] });
         expect(await changes(ANA)).toEqual([ordersPath]);
@@ -253,8 +253,8 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
     });
 
     test('protected: changes refused as step 2 left them, work branches read only, no branch is created', async () => {
-        const { as, call, projectId, orders, repo, handle, tip, relabelled, setMode, id } = await workspace();
-        const ana = await handle(ANA);
+        const { as, call, projectId, orders, repo, userHandle, tip, relabelled, setMode, id } = await workspace();
+        const ana = await userHandle(ANA);
         git(repo, 'update-ref', `refs/heads/users/${ana}/try`, tip());
         git(repo, 'update-ref', 'refs/heads/fix/shared', tip());
         await setMode('protected');
@@ -291,12 +291,12 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
     });
 
     test('the MCP reads and writes the current branch: a flow only there, its draft, a script, a test run; dev untouched', async () => {
-        const { call, projectId, orders, at, handle, changes, mcp } = await workspace();
+        const { call, projectId, orders, at, userHandle, changes, mcp } = await workspace();
         const { client, tool } = await mcp(ANA);
         const names = (await client.listTools()).tools.map(t => t.name);
         expect(names.filter(name => /branch|commit/.test(name))).toEqual([]);
 
-        const branch = `users/${await handle(ANA)}/agent`;
+        const branch = `users/${await userHandle(ANA)}/agent`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
 
         const created = await tool('create_flow', { projectId, name: 'Numbers', yaml: NUMBERS });
@@ -337,8 +337,8 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
     });
 
     test("the MCP refuses to change another user's branch and a pull-request environment's branch, saying to pick or create one", async () => {
-        const { call, as, projectId, orders, handle, mcp, setMode } = await workspace();
-        const ana = await handle(ANA);
+        const { call, as, projectId, orders, userHandle, mcp, setMode } = await workspace();
+        const ana = await userHandle(ANA);
         expect((await call('POST', '/git/branches', { name: `users/${ana}/mine` })).status).toBe(201);
         expect((await as(BIA)('PUT', '/git/current-branch', { branch: `users/${ana}/mine` })).status).toBe(200);
         const bia = await mcp(BIA);
@@ -370,7 +370,7 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         );
         expect((await bia.tool('test_run', { flowId: orders, timeoutS: 0 })).body.error).toBeUndefined();
 
-        expect((await as(BIA)('POST', '/git/branches', { name: `users/${await handle(BIA)}/fix` })).status).toBe(201);
+        expect((await as(BIA)('POST', '/git/branches', { name: `users/${await userHandle(BIA)}/fix` })).status).toBe(201);
         const onBranch = await bia.tool('get_flow', { flowId: orders });
         const saved = await bia.tool('save_draft', { flowId: orders, yaml: labelled('Fixed'), expectedRevision: onBranch.body.revision });
         expect(saved.isError).toBeFalsy();

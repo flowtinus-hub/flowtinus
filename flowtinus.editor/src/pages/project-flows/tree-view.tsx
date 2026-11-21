@@ -13,7 +13,7 @@ import { WebhooksChip } from '@/components/webhooks-chip';
 import { WorkerTagChip } from '@/components/worker-tag-chip';
 import { useTagColors } from '@/data/workers/use-tag-colors';
 import { FlowMenu, FolderMenu, type ItemActions } from './item-menus';
-import { useWorkspaceSlug } from '@/data/workspaces/use-workspace';
+import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
 type Props = {
     contents: ProjectContents;
@@ -58,7 +58,7 @@ function Level({
     folderId,
     depth,
 }: Props & { folderId: string | null; depth: number }) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     // the tags' colors (WORKER_COLOR of their supervisors)
     const colors = useTagColors();
     const { folders, flows } = childrenOf(contents, folderId);

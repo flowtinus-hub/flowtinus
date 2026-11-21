@@ -44,7 +44,7 @@ const folderLabel = (name: string) => (
  * last one (the flow, or the folder you are in) always keeps at least 8 letters.
  */
 export function ProjectBreadcrumb({ project, folders = [], flowName, after }: Props) {
-    const { slug: ws, membership } = useWorkspace();
+    const { handle: ws, membership } = useWorkspace();
     const workspace = (
         <Link to={projectsPath(ws)} className={cn(LINK, 'max-w-48 shrink-0 truncate')} title="Projects of this workspace">
             {membership?.name ?? ws}
@@ -111,7 +111,7 @@ export function ProjectBreadcrumb({ project, folders = [], flowName, after }: Pr
 
 /** "…": the folders between the first and the last, as a menu of links */
 function FoldedFolders({ projectId, folders }: { projectId: string; folders: Folder[] }) {
-    const { slug: ws } = useWorkspace();
+    const { handle: ws } = useWorkspace();
     return (
         <>
             <Separator />

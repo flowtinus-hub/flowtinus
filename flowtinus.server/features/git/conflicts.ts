@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repoEntry, type RepoEntry } from '@flowtinus/core';
-import { workspaceSlug } from '#features/folders/project-tree';
+import { workspaceHandle } from '#features/folders/project-tree';
 import { saveBlob, scriptBlobs } from '#features/scripts/script-store';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -388,9 +388,9 @@ export async function resolveConflict(ctx: UseCaseContext, request: Resolution):
                 after[path] = text;
             }
         }
-        const slug = branch?.slug ?? (await workspaceSlug(at));
+        const handle = branch?.handle ?? (await workspaceHandle(at));
         const touched = Object.entries(tree).flatMap(([path, text]) => (text === null ? [] : [path]));
-        const errors = (await validateImport(db, ctx.workspaceId, slug, after)).errors.filter(e => touched.includes(e.path));
+        const errors = (await validateImport(db, ctx.workspaceId, handle, after)).errors.filter(e => touched.includes(e.path));
         if (errors.length > 0) {
             return fail('validation', 'The resolved file is not valid: fix it before it can be committed.', issueFields(errors));
         }
@@ -436,7 +436,7 @@ export async function resolveConflict(ctx: UseCaseContext, request: Resolution):
             rows.map(r => r.path),
         ]);
         if (!branch) {
-            await importStructure(at, slug, after, { keep: true });
+            await importStructure(at, handle, after, { keep: true });
         }
         const resolved = outcome.writes.find(w => !w.deleted)?.path ?? moved.find(([row]) => row.path === situation.row.path)?.[1];
         return success({ path: resolved ?? request.path });

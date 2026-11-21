@@ -16,7 +16,7 @@ import { ensureHookToken, forgetHookToken, hookPath, readHookToken, renewHookTok
 import { readLastPoll, recordPoll, type LastPoll } from './git-poll-state';
 import { readState } from './reconcile';
 import { fetchAndReconcile } from './git-heads';
-import { workspaceSlug } from '#features/folders/project-tree';
+import { workspaceHandle } from '#features/folders/project-tree';
 
 /** hook (admins): the webhook's path on the server; lastPoll: the last fetch of the environment's branch, and why it could not reconcile */
 export type GitConfigView = { config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll };
@@ -34,7 +34,7 @@ export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
         return success({
             config: state?.config ?? null,
             on: state?.on ?? false,
-            ...(token ? { hook: hookPath(await workspaceSlug(ctx), token) } : {}),
+            ...(token ? { hook: hookPath(await workspaceHandle(ctx), token) } : {}),
             ...(lastPoll ? { lastPoll } : {}),
         });
     }
@@ -313,7 +313,7 @@ export class RenewHookTokenHandler implements UseCaseHandler<{ hook: string }> {
             return fail('conflict', 'Git is off in this workspace.');
         }
 
-        return success({ hook: hookPath(await workspaceSlug(ctx), await renewHookToken(ctx)) });
+        return success({ hook: hookPath(await workspaceHandle(ctx), await renewHookToken(ctx)) });
     }
 }
 

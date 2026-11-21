@@ -17,7 +17,7 @@ export type RunView = {
     flowId: string;
     flowName: string | null;
     projectId: string | null;
-    workspaceSlug: string;
+    workspaceHandle: string;
     trigger: Run['trigger'];
     queuedAt: string;
     startedAt: string | null;
@@ -49,14 +49,17 @@ export class GetRunHandler implements UseCaseHandler<RunView> {
             return fail('not-found', 'Run not found.');
         }
 
-        const [workspace] = await ctx.db.orm.select({ slug: workspaces.slug }).from(workspaces).where(eq(workspaces.id, ctx.workspaceId));
+        const [workspace] = await ctx.db.orm
+            .select({ handle: workspaces.handle })
+            .from(workspaces)
+            .where(eq(workspaces.id, ctx.workspaceId));
         const live = run.status === 'running' ? (run.progress as RunProgress | null) : null;
         return success({
             id: run.id,
             flowId: run.flowId,
             flowName: run.flowName,
             projectId: run.projectId,
-            workspaceSlug: workspace?.slug ?? '',
+            workspaceHandle: workspace?.handle ?? '',
             trigger: run.trigger,
             queuedAt: iso(run.queuedAt)!,
             startedAt: iso(run.startedAt),

@@ -35,7 +35,7 @@ type Props = {
  * An archived project is read-only: no buttons to add things.
  */
 export function ProjectPage({ projectId, project, tab, folders, actions, children }: Props) {
-    const { slug: ws, canEdit } = useWorkspace();
+    const { handle: ws, canEdit } = useWorkspace();
     if (project.status === 'error') {
         return (
             <div className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col items-center justify-center gap-3 text-center">

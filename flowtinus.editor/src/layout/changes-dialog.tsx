@@ -36,9 +36,9 @@ const splitPath = (path: string) => {
     return at < 0 ? { name: path, folder: '' } : { name: path.slice(at + 1), folder: path.slice(0, at) };
 };
 
-const shortPath = (slug: string, path: string) => (path.startsWith(`${slug}/`) ? path.slice(slug.length + 1) : path);
+const shortPath = (handle: string, path: string) => (path.startsWith(`${handle}/`) ? path.slice(handle.length + 1) : path);
 
-export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
+export function ChangesDialog({ handle, onClose }: { handle: string; onClose: () => void }) {
     const [changes, setChanges] = useState<WorkingChange[] | null>(null);
     const [merge, setMerge] = useState<PendingMerge | null>(null);
     const [removed, setRemoved] = useState<{ lostTip: boolean } | null>(null);
@@ -56,15 +56,15 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     const { canEdit } = useWorkspace();
     const unsaved = useUnsavedWork();
     const { state: me } = useMe();
-    const handle = me.status === 'ready' ? me.me.handle : null;
+    const userHandle = me.status === 'ready' ? me.me.handle : null;
     useEffect(() => {
-        void getCurrentBranch(slug).then(result =>
+        void getCurrentBranch(handle).then(result =>
             setPullRequestsOnly(result.ok && result.value.offersBranch && result.value.branch ? result.value.branch : null),
         );
-    }, [slug]);
+    }, [handle]);
 
     const load = useCallback(async () => {
-        const result = await getChanges(slug);
+        const result = await getChanges(handle);
         if (result.ok) {
             setLoads(n => n + 1);
             const pending = result.value.merge ?? null;
@@ -78,7 +78,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
         } else {
             setError(result.error);
         }
-    }, [slug]);
+    }, [handle]);
     useEffect(() => {
         void load();
     }, [load]);
@@ -97,7 +97,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     const commit = async () => {
         setBusy(true);
         setError(null);
-        const result = await commitChanges(slug, all, message.trim());
+        const result = await commitChanges(handle, all, message.trim());
         setBusy(false);
         if (result.ok) {
             setCommitted(result.value.commit);
@@ -107,11 +107,11 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
         }
     };
     const discard = (which: { paths: string[] } | { mine: true }) => {
-        const along = 'paths' in which ? discardedWith(changes ?? [], which.paths[0]!).map(path => shortPath(slug, path)) : [];
+        const along = 'paths' in which ? discardedWith(changes ?? [], which.paths[0]!).map(path => shortPath(handle, path)) : [];
         setConfirm({
             title:
                 'paths' in which
-                    ? `Discard the changes of ${shortPath(slug, which.paths[0]!)}?`
+                    ? `Discard the changes of ${shortPath(handle, which.paths[0]!)}?`
                     : merge
                       ? 'Abort the merge?'
                       : 'Discard all your changes?',
@@ -125,7 +125,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
             busyLabel: merge && !('paths' in which) ? 'Aborting…' : 'Discarding…',
             destructive: true,
             onConfirm: async () => {
-                const result = await discardChanges(slug, which);
+                const result = await discardChanges(handle, which);
                 if (result.ok) {
                     changed();
                     await load();
@@ -197,7 +197,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                     const reason = locked.get(change.path);
                                     const mark = CHANGE_MARK[change.change];
                                     const Icon = KIND_ICON[change.kind] ?? File;
-                                    const { name, folder } = splitPath(shortPath(slug, change.path));
+                                    const { name, folder } = splitPath(shortPath(handle, change.path));
                                     const open = diffOf === change.path;
                                     return (
                                         <li key={change.path} className="grid min-w-0">
@@ -205,7 +205,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                                 role="button"
                                                 tabIndex={0}
                                                 aria-expanded={open}
-                                                title={`${shortPath(slug, change.path)} · ${mark.word}${open ? '' : ' · click to show the diff'}`}
+                                                title={`${shortPath(handle, change.path)} · ${mark.word}${open ? '' : ' · click to show the diff'}`}
                                                 className="group flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 outline-none hover:bg-accent focus-visible:bg-accent"
                                                 onClick={() => setDiffOf(open ? null : change.path)}
                                                 onKeyDown={event => {
@@ -216,7 +216,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                                 }}
                                             >
                                                 <Checkbox
-                                                    aria-label={shortPath(slug, change.path)}
+                                                    aria-label={shortPath(handle, change.path)}
                                                     checked={!!merge || chosen.has(change.path) || !!reason}
                                                     disabled={busy || !!merge || !!reason || !!change.conflict}
                                                     onClick={event => event.stopPropagation()}
@@ -238,7 +238,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                                         {name}
                                                     </span>
                                                     <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                                                        {change.from && `${shortPath(slug, change.from)} → `}
+                                                        {change.from && `${shortPath(handle, change.from)} → `}
                                                         {folder}
                                                     </span>
                                                 </span>
@@ -268,7 +268,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                                     size="icon"
                                                     className="size-6 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100"
                                                     title="Discard this change"
-                                                    aria-label={`Discard the changes of ${shortPath(slug, change.path)}`}
+                                                    aria-label={`Discard the changes of ${shortPath(handle, change.path)}`}
                                                     disabled={busy}
                                                     onClick={event => {
                                                         event.stopPropagation();
@@ -293,7 +293,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                                                     {reason}
                                                 </span>
                                             )}
-                                            {open && <FileDiffView key={loads} slug={slug} path={change.path} className="my-1 ml-8" />}
+                                            {open && <FileDiffView key={loads} handle={handle} path={change.path} className="my-1 ml-8" />}
                                         </li>
                                     );
                                 })}
@@ -338,7 +338,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                             >
                                 {merge ? 'Abort the merge' : 'Discard all mine'}
                             </Button>
-                            {pullRequestsOnly && canEdit && handle && (
+                            {pullRequestsOnly && canEdit && userHandle && (
                                 <Button variant="outline" disabled={busy} onClick={() => setCreating(true)}>
                                     Create branch...
                                 </Button>
@@ -367,10 +367,12 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                     )}
                 </DialogFooter>
             </DialogContent>
-            {creating && pullRequestsOnly && handle && (
-                <CreateBranchDialog slug={slug} from={pullRequestsOnly} handle={handle} onClose={() => setCreating(false)} />
+            {creating && pullRequestsOnly && userHandle && (
+                <CreateBranchDialog handle={handle} from={pullRequestsOnly} userHandle={userHandle} onClose={() => setCreating(false)} />
             )}
-            {resolving && <ConflictDialog slug={slug} path={resolving} onClose={() => setResolving(null)} onResolved={() => void load()} />}
+            {resolving && (
+                <ConflictDialog handle={handle} path={resolving} onClose={() => setResolving(null)} onResolved={() => void load()} />
+            )}
             <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
         </Dialog>
     );

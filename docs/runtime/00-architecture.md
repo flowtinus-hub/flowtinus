@@ -44,7 +44,7 @@ An environment (one instance: one database, `ENVIRONMENT=DEV`/`QA`/`PROD`) has i
 (worker tags are the environment's) and its **workspaces**. A workspace holds projects and, for all of them, the
 connection profiles, secrets and variables; a project holds folders and flows (versions, deployments, runs), scripts,
 webhooks and schedules. A user is a member of workspaces, with a role in each (viewer, editor, admin); a personal access
-token is its user's. The editor and the API address a workspace's data under `/w/<its slug>/...`; the runs and the
+token is its user's. The editor and the API address a workspace's data under `/w/<its handle>/...`; the runs and the
 workers are the environment's (`/runs` lists the runs of the user's workspaces).
 
 ## The pieces

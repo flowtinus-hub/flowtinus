@@ -38,7 +38,7 @@ export type Tree = { files: RepoFiles; ids: Record<string, string> };
 
 export async function exportTree(db: Database, workspaceId: string, mode: 'working' | 'committed' = 'working'): Promise<Tree> {
     const [[workspace], connections, projects, flowVersions, deployedScripts, scriptFolders, rows] = await Promise.all([
-        db.query<{ slug: string }>('SELECT slug FROM workspaces WHERE id = $1', [workspaceId]),
+        db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [workspaceId]),
         db.query<{ id: string; name: string; type: ConnectionTypeName }>(
             'SELECT id, name, type FROM connections WHERE workspace_id = $1 AND deleted_at IS NULL',
             [workspaceId],
@@ -58,12 +58,12 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
         ]),
         workingRows(db, workspaceId),
     ]);
-    const slug = workspace!.slug;
+    const handle = workspace!.handle;
     const versions = new Map(flowVersions.map(v => [v.flow_id, v]));
     const best = bestRows(rows);
     const files: RepoFiles = {
         [repoPath.gitattributes]: GITATTRIBUTES,
-        [repoPath.workspace(slug)]: workspaceToYaml(),
+        [repoPath.workspace(handle)]: workspaceToYaml(),
     };
     const ids: Record<string, string> = {};
     const put = (path: string, text: string, id?: string) => {
@@ -73,11 +73,11 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
         }
     };
     for (const connection of connections) {
-        put(repoPath.connection(slug, connection.name), connectionToYaml(connection), connection.id);
+        put(repoPath.connection(handle, connection.name), connectionToYaml(connection), connection.id);
     }
 
     for (const project of projects) {
-        put(repoPath.project(slug, project.name), projectToYaml(project), project.id);
+        put(repoPath.project(handle, project.name), projectToYaml(project), project.id);
         const tree = await loadTree(db, workspaceId, project.id);
         const names = (folderId: string | null) => folderPath(tree.folders, folderId).map(f => f.name);
         const flowPaths: string[] = [];
@@ -91,7 +91,7 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
                     ? version && committedFlowText(flow.id, version)
                     : (draft ?? (version ? committedFlowText(flow.id, version) : repoFlowToYaml(newFlowFile(flow.name, flow.id))));
             if (text !== undefined) {
-                const path = repoPath.flow(slug, project.name, names(flow.folderId), flow.name);
+                const path = repoPath.flow(handle, project.name, names(flow.folderId), flow.name);
                 put(path, text, flow.id);
                 flowPaths.push(path);
             }
@@ -99,7 +99,7 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
 
         const folders = tree.folders
             .filter(f => isFolderVisible(tree.folders, f.id))
-            .map(f => repoPath.folder(slug, project.name, names(f.id)));
+            .map(f => repoPath.folder(handle, project.name, names(f.id)));
         for (const keep of folders) {
             const inside = keep.slice(0, -'.gitkeep'.length);
             if (![...flowPaths, ...folders].some(path => path !== keep && path.startsWith(inside))) {
@@ -120,12 +120,12 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
             }
         }
         for (const [path, content] of scripts) {
-            put(repoPath.script(slug, project.name, path), content, scriptFileId(project.id, path));
+            put(repoPath.script(handle, project.name, path), content, scriptFileId(project.id, path));
         }
         const folderPaths = scriptFolders.filter(f => f.project_id === project.id).map(f => f.path);
         for (const folder of folderPaths) {
             if (![...scripts.keys(), ...folderPaths].some(path => path.startsWith(`${folder}/`))) {
-                files[repoPath.scriptFolder(slug, project.name, folder)] = '';
+                files[repoPath.scriptFolder(handle, project.name, folder)] = '';
             }
         }
     }

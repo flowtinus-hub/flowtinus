@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { connectionToYaml, GITATTRIBUTES, projectToYaml, repoFlowToYaml, workspaceToYaml, type FlowFile, type FlowFileNode } from '@flowtinus/core';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -41,7 +41,7 @@ describe("the reconcile applies the tip of the environment's branch", () => {
 
     async function newWorkspace() {
         const id = crypto.randomUUID();
-        const slug = slugOf(id);
+        const handle = workspaceHandleOf(id);
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
             const response = await app.request(wsPath(id, path), {
@@ -58,7 +58,7 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         expect((await call('POST', '/git/topology', { confirm: true })).status).toBe(201);
 
         const ids = { sales: crypto.randomUUID(), orders: crypto.randomUUID(), notify: crypto.randomUUID() };
-        const p = (path: string) => `${slug}/${path}`;
+        const p = (path: string) => `${handle}/${path}`;
         const paths = {
             project: p('projects/Sales/project.yaml'),
             orders: p('projects/Sales/flows/Daily/Orders.flow.yaml'),
@@ -83,7 +83,7 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         const contents = async () => (await call('GET', `/projects/${ids.sales}/contents`)).body;
         const flowNamed = async (name: string) => (await contents()).flows.find((f: { name: string }) => f.name === name);
         const deployments = async (flowId: string) => (await call('GET', `/flows/${flowId}/deployments`)).body;
-        return { id, slug, call, repo, ids, paths, p, onBranch, commit, reconcile, contents, flowNamed, deployments };
+        return { id, handle, call, repo, ids, paths, p, onBranch, commit, reconcile, contents, flowNamed, deployments };
     }
 
     beforeAll(async () => {
@@ -202,6 +202,31 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         expect((await call('GET', '/projects')).body.items[0].description).toBe('Money out');
         expect(await flowNamed('Orders')).toMatchObject({ deployedVersion: 2 });
         expect((await deployments(ids.orders)).versions[0].commit).toBe(fixed);
+    });
+
+    test('a commit adding a project whose handle another project has, archived ones included, is refused', async () => {
+        const { call, p, commit, reconcile } = await newWorkspace();
+        const project = () => projectToYaml({ id: crypto.randomUUID(), description: '' });
+        commit(files => ({ ...files, [p('projects/sales!/project.yaml')]: project() }));
+        expect((await reconcile()).body).toMatchObject({
+            outcome: 'refused',
+            errors: [{ path: p('projects/sales!'), message: 'The handle "sales" is taken by the project "Sales".' }],
+        });
+
+        commit(files => {
+            const { [p('projects/sales!/project.yaml')]: _clash, ...rest } = files;
+            return rest;
+        });
+        expect((await reconcile()).body.outcome).toBe('applied');
+        const old = (await call('POST', '/projects', { name: 'Old Reports' })).body.id as string;
+        expect((await call('POST', `/projects/${old}/archive`)).status).toBe(200);
+        commit(files => ({ ...files, [p('projects/old reports/project.yaml')]: project() }));
+        expect((await reconcile()).body).toMatchObject({
+            outcome: 'refused',
+            errors: [
+                { path: p('projects/old reports'), message: 'The handle "old-reports" is taken by the archived project "Old Reports".' },
+            ],
+        });
     });
 
     test('a connection removed by git is archived with its configuration; a commit that brings its id back brings it back configured', async () => {

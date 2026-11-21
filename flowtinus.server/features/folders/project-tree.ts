@@ -150,9 +150,9 @@ export const nameTaken = (kind: 'folder' | 'flow', name: string) =>
 
 export const invalidName = (error: string) => fail('validation', 'The request has invalid fields.', { name: error });
 
-export async function workspaceSlug(ctx: UseCaseContext, workspaceId = ctx.workspaceId): Promise<string> {
-    const [row] = await ctx.db.orm.select({ slug: workspaces.slug }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
-    return row?.slug ?? '';
+export async function workspaceHandle(ctx: UseCaseContext, workspaceId = ctx.workspaceId): Promise<string> {
+    const [row] = await ctx.db.orm.select({ handle: workspaces.handle }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+    return row?.handle ?? '';
 }
 
 export type ProjectChange = { tree?: TreeContents; project?: string; scripts?: ProjectScripts; workspaceId?: string };
@@ -166,7 +166,7 @@ export async function longRepoPath(ctx: UseCaseContext, projectId: string, chang
             scripts: scripts.map(s => s.path),
             folders,
         })));
-    const workspace = await workspaceSlug(ctx, change.workspaceId);
+    const workspace = await workspaceHandle(ctx, change.workspaceId);
     return repoPathIssue(projectRepoPaths(workspace, project, tree, scripts));
 }
 

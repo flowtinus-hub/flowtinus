@@ -3,7 +3,7 @@ import { mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -46,7 +46,7 @@ describe('the git status the git section and the sidebar read', () => {
                     .map(file => [file, show(file)]),
             );
         const status = async () => (await call('GET', '/git/status')).body;
-        return { id, slug: slugOf(id), call, repo, onBranch, status };
+        return { id, handle: workspaceHandleOf(id), call, repo, onBranch, status };
     }
 
     beforeAll(async () => {
@@ -61,20 +61,20 @@ describe('the git status the git section and the sidebar read', () => {
     });
 
     test('a refused commit shows its sha, message, author and errors per file, next to the commit the deploy is on', async () => {
-        const { slug, call, repo, onBranch, status } = await newWorkspace();
+        const { handle, call, repo, onBranch, status } = await newWorkspace();
         const deployed = git(repo, 'rev-parse', 'dev');
         expect(await status()).toEqual({
             on: true,
             branch: 'dev',
             mode: 'direct',
-            deploy: { sha: deployed, message: `First export of ${slug}`, author: 'Ana', at: expect.any(String) },
+            deploy: { sha: deployed, message: `First export of ${handle}`, author: 'Ana', at: expect.any(String) },
             refused: null,
             unreachable: null,
             warnings: [],
             lastPoll: null,
         });
 
-        const projectFile = `${slug}/projects/Sales/project.yaml`;
+        const projectFile = `${handle}/projects/Sales/project.yaml`;
         const broken = commitFiles(repo, 'dev', { ...onBranch(), [projectFile]: 'id: [not a project' }, 'Break the project');
         const reconciled = await call('POST', '/git/reconcile');
         expect(reconciled.body.outcome).toBe('refused');
@@ -104,12 +104,14 @@ describe('the git status the git section and the sidebar read', () => {
     });
 
     test("a commit's warnings show after it applied", async () => {
-        const { slug, call, repo, onBranch, status } = await newWorkspace();
-        const applied = commitFiles(repo, 'dev', { ...onBranch(), [`${slug}/notes.txt`]: 'not a workspace file' }, 'Add notes');
+        const { handle, call, repo, onBranch, status } = await newWorkspace();
+        const applied = commitFiles(repo, 'dev', { ...onBranch(), [`${handle}/notes.txt`]: 'not a workspace file' }, 'Add notes');
         expect((await call('POST', '/git/reconcile')).body.outcome).toBe('applied');
         const now = await status();
         expect(now.deploy).toMatchObject({ sha: applied, message: 'Add notes' });
-        expect(now.warnings).toEqual([{ path: `${slug}/notes.txt`, message: 'It is not part of the repository format: it is left out.' }]);
+        expect(now.warnings).toEqual([
+            { path: `${handle}/notes.txt`, message: 'It is not part of the repository format: it is left out.' },
+        ]);
     });
 
     test('with git off the status says only that', async () => {

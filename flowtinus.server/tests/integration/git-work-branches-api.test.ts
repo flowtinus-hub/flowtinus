@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { newFlowFile, repoFlowToYaml } from '@flowtinus/core';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -44,9 +44,9 @@ describe('work branches: create one taking the changes along, edit and Commit on
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
         await app.gitPoller.poll(id);
 
-        const slug = slugOf(id);
-        const at = (path: string) => `${slug}/${path}`;
-        const handle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
+        const handle = workspaceHandleOf(id);
+        const at = (path: string) => `${handle}/${path}`;
+        const userHandle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
         const show = (ref: string, path: string) => git(repo, 'show', `${ref}:${at(path)}`);
         const changes = async (user: string) =>
             ((await as(user)('GET', '/git/changes')).body.changes as Change[]).map(c => (c.from ? `${c.from} -> ${c.path}` : c.path));
@@ -55,7 +55,7 @@ describe('work branches: create one taking the changes along, edit and Commit on
             draft.flow.nodes = draft.flow.nodes.map((n: { type: string }) => (n.type === 'start' ? { ...n, label } : n));
             return as(user)('PUT', `/flows/${flowId}/draft`, { revision: draft.revision, flow: draft.flow });
         };
-        return { id, as, call, projectId, orders, repo, slug, at, handle, show, changes, relabel };
+        return { id, as, call, projectId, orders, repo, handle, at, userHandle, show, changes, relabel };
     }
 
     beforeAll(async () => {
@@ -70,8 +70,8 @@ describe('work branches: create one taking the changes along, edit and Commit on
     });
 
     test("a branch made from dev is cut from its tip and pushed at once; it takes only one's own changes, which leave dev", async () => {
-        const { as, call, projectId, orders, repo, at, handle, changes, relabel } = await workspace();
-        const ana = await handle(ANA);
+        const { as, call, projectId, orders, repo, at, userHandle, changes, relabel } = await workspace();
+        const ana = await userHandle(ANA);
         expect((await relabel(ANA, orders, 'Ana was here')).status).toBe(200);
         expect((await as(BIA)('POST', `/projects/${projectId}/flows`, { name: 'Refunds' })).status).toBe(201);
         expect(await changes(ANA)).toEqual([at('projects/Sales/flows/Orders.flow.yaml'), at('projects/Sales/flows/Refunds.flow.yaml')]);
@@ -110,9 +110,9 @@ describe('work branches: create one taking the changes along, edit and Commit on
     });
 
     test('a new flow taken from dev to a branch leaves no row on dev', async () => {
-        const { id, call, projectId, at, handle, changes } = await workspace();
+        const { id, call, projectId, at, userHandle, changes } = await workspace();
         expect((await call('POST', `/projects/${projectId}/flows`, { name: 'Fresh' })).status).toBe(201);
-        const created = await call('POST', '/git/branches', { name: `users/${await handle(ANA)}/fresh` });
+        const created = await call('POST', '/git/branches', { name: `users/${await userHandle(ANA)}/fresh` });
         expect(created.body.taken).toEqual([at('projects/Sales/flows/Fresh.flow.yaml')]);
         expect(await changes(ANA)).toEqual([at('projects/Sales/flows/Fresh.flow.yaml')]);
         expect(
@@ -121,8 +121,8 @@ describe('work branches: create one taking the changes along, edit and Commit on
     });
 
     test('edits on a work branch go into its working copy, and a Commit pushes them to that branch, read back with git', async () => {
-        const { call, projectId, orders, repo, at, handle, show, changes, relabel } = await workspace();
-        const branch = `users/${await handle(ANA)}/work`;
+        const { call, projectId, orders, repo, at, userHandle, show, changes, relabel } = await workspace();
+        const branch = `users/${await userHandle(ANA)}/work`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
 
         expect((await relabel(ANA, orders, 'Branch start')).status).toBe(200);
@@ -176,9 +176,9 @@ describe('work branches: create one taking the changes along, edit and Commit on
     });
 
     test('on a users/ branch only its owner edits or commits; another user opens it and creates a branch from it', async () => {
-        const { as, call, orders, repo, at, handle, changes, relabel } = await workspace();
-        const ana = await handle(ANA);
-        const bia = await handle(BIA);
+        const { as, call, orders, repo, at, userHandle, changes, relabel } = await workspace();
+        const ana = await userHandle(ANA);
+        const bia = await userHandle(BIA);
         const branch = `users/${ana}/mine`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         expect((await relabel(ANA, orders, 'Ana only')).status).toBe(200);
@@ -208,8 +208,8 @@ describe('work branches: create one taking the changes along, edit and Commit on
     });
 
     test("from one's own branch every change goes along; from a shared branch only one's own", async () => {
-        const { as, call, projectId, orders, at, handle, changes, relabel } = await workspace();
-        const ana = await handle(ANA);
+        const { as, call, projectId, orders, at, userHandle, changes, relabel } = await workspace();
+        const ana = await userHandle(ANA);
         expect((await call('POST', '/git/branches', { name: 'fix/shared' })).status).toBe(201);
         expect((await as(BIA)('PUT', '/git/current-branch', { branch: 'fix/shared' })).body.editable).toBe(true);
         expect((await relabel(ANA, orders, 'Ana on shared')).status).toBe(200);
@@ -228,8 +228,8 @@ describe('work branches: create one taking the changes along, edit and Commit on
     });
 
     test('the tree is validated before a push on a work branch: an invalid one is refused with its errors', async () => {
-        const { id, call, orders, repo, at, handle, relabel } = await workspace();
-        const branch = `users/${await handle(ANA)}/broken`;
+        const { id, call, orders, repo, at, userHandle, relabel } = await workspace();
+        const branch = `users/${await userHandle(ANA)}/broken`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         const caller = newFlowFile('Caller', crypto.randomUUID());
         caller.nodes.push({ id: 'call', type: 'flow', position: { x: 160, y: 0 }, config: { flowId: crypto.randomUUID() } });

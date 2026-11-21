@@ -57,6 +57,7 @@ describe('list projects', () => {
             'color',
             'createdAt',
             'description',
+            'handle',
             'icon',
             'id',
             'name',

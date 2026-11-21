@@ -1,4 +1,4 @@
-import { workspaceSlug } from '#features/folders/project-tree';
+import { workspaceHandle } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
@@ -68,7 +68,7 @@ export async function commitTree(
                 throw new UseCaseFailure('conflict', onlyPullRequests(config.environment));
             }
             await catchUp(at, remote, target);
-            const worked = await work(tx, await readBranchWorkspace(remote, target.tip, await workspaceSlug(at)));
+            const worked = await work(tx, await readBranchWorkspace(remote, target.tip, await workspaceHandle(at)));
             if (!('changes' in worked)) {
                 return { ok: false, error: worked };
             }
@@ -128,11 +128,11 @@ async function catchUp(ctx: UseCaseContext, remote: GitRemote, { branch, tip, mo
         return;
     }
 
-    const slug = await workspaceSlug(ctx);
-    const files = await readBranchWorkspace(remote, tip, slug);
-    const { errors, warnings } = await validateImport(ctx.db, ctx.workspaceId, slug, files);
+    const handle = await workspaceHandle(ctx);
+    const files = await readBranchWorkspace(remote, tip, handle);
+    const { errors, warnings } = await validateImport(ctx.db, ctx.workspaceId, handle, files);
     if (errors.length === 0) {
-        await applyCommit(ctx, remote, { branch, commit: tip, mode }, slug, files, warnings);
+        await applyCommit(ctx, remote, { branch, commit: tip, mode }, handle, files, warnings);
     }
 }
 
@@ -144,7 +144,7 @@ export async function commitFirst(
     changes: GitChanges,
     fetched?: BranchTip,
 ): Promise<string> {
-    const slug = await workspaceSlug(ctx);
+    const handle = await workspaceHandle(ctx);
     const author = await gitAuthorOf(ctx);
     let moved: string | null = null;
     for (;;) {
@@ -157,8 +157,8 @@ export async function commitFirst(
         }
 
         const commit = await remote.commit({ parent: tip, changes, message, author });
-        const files = await readBranchWorkspace(remote, commit, slug);
-        const { errors, warnings } = await validateImport(ctx.db, ctx.workspaceId, slug, files);
+        const files = await readBranchWorkspace(remote, commit, handle);
+        const { errors, warnings } = await validateImport(ctx.db, ctx.workspaceId, handle, files);
         if (errors.length > 0) {
             throw new UseCaseFailure('validation', `The commit on ${branch} would not be valid: nothing was changed.`, issueFields(errors));
         }
@@ -178,7 +178,7 @@ export async function commitFirst(
             continue;
         }
 
-        await applyCommit(ctx, remote, { branch, commit, mode }, slug, files, warnings);
+        await applyCommit(ctx, remote, { branch, commit, mode }, handle, files, warnings);
         return commit;
     }
 }

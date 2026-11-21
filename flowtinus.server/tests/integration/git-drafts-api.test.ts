@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -42,7 +42,7 @@ describe('a draft when git changes its flow', () => {
         const orders = (await call('POST', `/projects/${projectId}/flows`, { name: 'Orders' })).body.id as string;
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
 
-        const path = `${slugOf(id)}/projects/Sales/flows/Orders.flow.yaml`;
+        const path = `${workspaceHandleOf(id)}/projects/Sales/flows/Orders.flow.yaml`;
         const show = (file: string) => Bun.spawnSync(['git', 'show', `dev:${file}`], { cwd: repo, stdout: 'pipe' }).stdout.toString();
         const onBranch = (): Record<string, string> =>
             Object.fromEntries(

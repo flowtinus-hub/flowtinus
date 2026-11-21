@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { repoFlowFromYaml, repoFlowToYaml, type FlowFile } from '@flowtinus/core';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -52,9 +52,9 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         }
         await app.gitPoller.poll(id);
 
-        const slug = slugOf(id);
-        const pathOf = (name: string) => `${slug}/projects/Sales/flows/${name}.flow.yaml`;
-        const handle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
+        const handle = workspaceHandleOf(id);
+        const pathOf = (name: string) => `${handle}/projects/Sales/flows/${name}.flow.yaml`;
+        const userHandle = async (user: string) => (await as(user)('GET', '/me')).body.handle as string;
         const changes = async (user = ANA) => (await as(user)('GET', '/git/changes')).body as { changes: Change[]; merge?: any };
         const draft = async (name: string, user = ANA) => (await as(user)('GET', `/flows/${flows[name]}/draft`)).body;
         const relabel = async (name: string, type: string, label: string, user = ANA) => {
@@ -81,12 +81,12 @@ describe('Update merges the environment’s branch into a work branch; a conflic
             const read = repoFlowFromYaml(raw(repo, ref, pathOf(name)), name);
             return read.ok ? read.value.flow : null;
         };
-        return { id, as, call, repo, projectId, pathOf, handle, changes, draft, relabel, pushLabels, inGit };
+        return { id, as, call, repo, projectId, pathOf, userHandle, changes, draft, relabel, pushLabels, inGit };
     }
 
     async function diverged() {
         const ws = await workspace();
-        const branch = `users/${await ws.handle(ANA)}/update`;
+        const branch = `users/${await ws.userHandle(ANA)}/update`;
         expect((await ws.call('POST', '/git/branches', { name: branch })).status).toBe(201);
         expect((await ws.relabel('Orders', 'start', 'Ana start')).status).toBe(200);
         expect((await commitAll(ws.call, 'Ana start')).status).toBe(200);
@@ -110,8 +110,8 @@ describe('Update merges the environment’s branch into a work branch; a conflic
     });
 
     test('clean: a merge commit with dev as second parent, pushed; offered on work branches only', async () => {
-        const { as, call, repo, handle, relabel, pushLabels, inGit, changes, draft } = await workspace();
-        const branch = `users/${await handle(ANA)}/clean`;
+        const { as, call, repo, userHandle, relabel, pushLabels, inGit, changes, draft } = await workspace();
+        const branch = `users/${await userHandle(ANA)}/clean`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         expect((await relabel('Orders', 'start', 'Ana start')).status).toBe(200);
         expect((await commitAll(call, 'Ana start')).status).toBe(200);
@@ -153,8 +153,8 @@ describe('Update merges the environment’s branch into a work branch; a conflic
     });
 
     test('refused while a file it brings has an uncommitted change; another uncommitted file stays as it is', async () => {
-        const { call, repo, pathOf, handle, relabel, pushLabels, inGit, changes, draft } = await workspace();
-        const branch = `users/${await handle(ANA)}/busy`;
+        const { call, repo, pathOf, userHandle, relabel, pushLabels, inGit, changes, draft } = await workspace();
+        const branch = `users/${await userHandle(ANA)}/busy`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         const before = git(repo, 'rev-parse', branch);
         expect((await relabel('Orders', 'start', 'Ana start')).status).toBe(200);

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import type { FlowCalls } from '@/data/flows/flows-api';
 import { loadProjectCalls, useProjectCalls, withOwnCalls } from '@/editor/project-calls';
 import { cn } from '@/lib/utils';
-import { useWorkspaceSlug } from '@/data/workspaces/use-workspace';
+import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
 type Named = FlowCalls['flows'][number];
 
@@ -225,7 +225,7 @@ function ScriptsSection({ projectId, data, uses, onFocus }: { projectId: string;
 
 /** a script: its name opens it in the Scripts tab in a new tab; one the project does not have is not a link */
 function ScriptLink({ projectId, path, known, detail }: { projectId: string; path: string; known: boolean; detail: ReactNode }) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const name = (
         <span className="flex min-w-0 items-center gap-2">
             <FileCode2 className="size-3.5 shrink-0 text-muted-foreground" />
@@ -316,7 +316,7 @@ function FlowLink(props: {
     depth?: number;
     children?: ReactNode;
 }) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const { projectId, flow, id, detail, depth, children } = props;
     const where = flow ? (flow.available ? flow.folder || 'Flows (root)' : 'Archived: each call fails') : 'Removed: each call fails';
     const name = (

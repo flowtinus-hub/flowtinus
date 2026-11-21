@@ -75,7 +75,7 @@ export const listRuns = defineTool({
     description:
         "The runs of a workspace or of one flow, newest first: for real (Run for real, schedules, webhooks; kept with their history, with the runs they queued, fire and forget, under them: parentId, rootId) and your own test runs (test_run, the editor's Run: only the latest full one and the latest Run from here per flow, for a day). Filter by status (open = queued or running, problems = failed or with errors) and mode. A page is `limit` top runs; `next` is the cursor of the following page. Read one with get_run.",
     input: {
-        workspace: z.string().optional().describe("the workspace's slug (list_workspaces), when no flowId names it"),
+        workspace: z.string().optional().describe("the workspace's handle (list_workspaces), when no flowId names it"),
         flowId: z.string().optional().describe('only the runs of this flow'),
         status: z.enum(STATUS_FILTER).default('all').describe('which runs'),
         mode: z
@@ -87,7 +87,7 @@ export const listRuns = defineTool({
     },
     run: async ({ workspace, flowId, status, mode, limit, cursor }, t) => {
         if (!workspace && !flowId) {
-            return failed({ code: 'validation', message: 'Name a workspace (its slug) or a flowId.' });
+            return failed({ code: 'validation', message: 'Name a workspace (its handle) or a flowId.' });
         }
         const flow = flowId ? { flow: flowId } : {};
         const before = cursor ? { before: cursor } : {};

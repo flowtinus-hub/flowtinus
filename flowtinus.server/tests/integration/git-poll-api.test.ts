@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, BIA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, BIA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { gitOptions } from '#features/git/git-config';
 import { GitPoller } from '#features/git/git-poller';
@@ -53,7 +53,7 @@ describe('a commit made with git arrives by polling and the webhook', () => {
                     .split('\n')
                     .map(file => [file, show(ref, file)]),
             );
-        const projectFile = `${slugOf(id)}/projects/Sales/project.yaml`;
+        const projectFile = `${workspaceHandleOf(id)}/projects/Sales/project.yaml`;
         // a commit made with git: the project's description
         const describe = (description: string, branch = 'dev') => {
             const files = filesOf('dev');

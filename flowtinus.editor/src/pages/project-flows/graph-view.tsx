@@ -9,7 +9,7 @@ import { loadProjectCalls, useProjectCalls } from '@/editor/project-calls';
 import { cn } from '@/lib/utils';
 import { readGraphScripts, saveGraphScripts } from '@/lib/view-preference';
 import { callsGraph, NODE_HEIGHT, NODE_WIDTH, reached, SCRIPT_HEIGHT, shortLabel, type GraphFlow, type GraphScript } from './calls-graph';
-import { useWorkspaceSlug } from '@/data/workspaces/use-workspace';
+import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
 /**
  * The project's dependencies (Flows › Graph): a box per flow that calls or is called, inside its folder's box, an arrow
@@ -269,7 +269,7 @@ function Graph({ projectId }: { projectId: string }) {
 
 /** a flow's box: its name and folder; the icon opens it in a new tab (a middle click too) */
 function FlowNode({ data }: NodeProps<Node<FlowData>>) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const { flow, projectId, role, match } = data;
     return (
         <div
@@ -335,7 +335,7 @@ function FlowNode({ data }: NodeProps<Node<FlowData>>) {
 
 /** a script's box: its path; the icon opens it in the Scripts tab, in a new tab */
 function ScriptNode({ data }: NodeProps<Node<ScriptData>>) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const { script, projectId, role, match } = data;
     const slash = script.path.lastIndexOf('/');
     return (

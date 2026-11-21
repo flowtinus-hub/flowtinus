@@ -1,6 +1,6 @@
 import { branchKind, editorOf, gitBranchNameError, refuseOffEditableBranch } from './current-branch';
 import { flowCalls, flowResources, flowScriptUses, repoEntry, repoFlowFromYaml, repoFlowToYaml, scriptImports, toExecutableFlow, type RepoEntry } from '@flowtinus/core';
-import { workspaceSlug } from '#features/folders/project-tree';
+import { workspaceHandle } from '#features/folders/project-tree';
 import { saveBlob, scriptBlobs } from '#features/scripts/script-store';
 import { withUpdatedByName } from '#features/users/user-names';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -203,7 +203,7 @@ export async function workingItems(
         branch ? null : exportTree(ctx.db, ctx.workspaceId),
     ]);
     const files = branch ? overlayRows(branch.tipFiles, rows) : tree!.files;
-    const ids = branch ? branchIds(files, branch.slug) : tree!.ids;
+    const ids = branch ? branchIds(files, branch.handle) : tree!.ids;
     const items = itemsOf(rows, ctx.userId);
     addRequirements(items, files);
     const named = await withUpdatedByName(
@@ -296,7 +296,7 @@ async function commitOnBranch(ctx: UseCaseContext, branch: WorkBranch, request: 
                 return fail('conflict', `The branch ${branch.branch} is not in the repository any more: nothing was committed.`);
             }
             // the branch may have moved since the last poll: its files are merged onto the tip first (a conflict stays marked)
-            const tipFiles = tip === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, tip, branch.slug);
+            const tipFiles = tip === branch.tip ? branch.tipFiles : await readBranchWorkspace(remote, tip, branch.handle);
             await followGit(db, ctx.workspaceId, tipFiles, tip, branch.branch);
             if (tip !== branch.tip) {
                 await noteHead(db, ctx.workspaceId, ctx.userId, branch.branch, tip);
@@ -317,8 +317,8 @@ async function commitOnBranch(ctx: UseCaseContext, branch: WorkBranch, request: 
             }
 
             const commit = await remote.commit({ parent: tip, changes, message: request.message, author });
-            const files = await readBranchWorkspace(remote, commit, branch.slug);
-            const { errors } = await validateImport(db, ctx.workspaceId, branch.slug, files);
+            const files = await readBranchWorkspace(remote, commit, branch.handle);
+            const { errors } = await validateImport(db, ctx.workspaceId, branch.handle, files);
             if (errors.length > 0) {
                 return fail('validation', `The commit on ${branch.branch} would not be valid: nothing was committed.`, issueFields(errors));
             }
@@ -406,7 +406,7 @@ async function putBack(ctx: UseCaseContext, branch: WorkBranch | null, chosen: I
             }
         }
         const foldersBefore = await liveFolderIds(ctx);
-        await importStructure(ctx, await workspaceSlug(ctx), working, { keep: true });
+        await importStructure(ctx, await workspaceHandle(ctx), working, { keep: true });
         await dropNeverCommitted(
             ctx,
             [...committed].filter(([, text]) => text === null).map(([row]) => row),
@@ -527,7 +527,7 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
         }
         await remote.push(tip, name, null);
         const tipFiles =
-            tip === source?.tip ? source.tipFiles : await readBranchWorkspace(remote, tip, source?.slug ?? (await workspaceSlug(ctx)));
+            tip === source?.tip ? source.tipFiles : await readBranchWorkspace(remote, tip, source?.handle ?? (await workspaceHandle(ctx)));
 
         return ctx.db.transaction(async db => {
             const at = { ...ctx, db };

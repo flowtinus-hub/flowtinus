@@ -45,10 +45,10 @@ function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: 
     );
 }
 
-export function BranchPicker({ slug }: { slug: string }) {
-    const [current, setCurrent] = useState<{ slug: string; value: CurrentBranch } | null>(null);
+export function BranchPicker({ handle }: { handle: string }) {
+    const [current, setCurrent] = useState<{ handle: string; value: CurrentBranch } | null>(null);
     const [branches, setBranches] = useState<{
-        slug: string;
+        handle: string;
         list: BranchInfo[];
         environment?: string | null;
         mode?: Mode;
@@ -62,20 +62,20 @@ export function BranchPicker({ slug }: { slug: string }) {
     const { state } = useMe();
     const { canEdit } = useWorkspace();
     const unsaved = useUnsavedWork();
-    const handle = state.status === 'ready' ? state.me.handle : null;
+    const userHandle = state.status === 'ready' ? state.me.handle : null;
 
     useEffect(() => {
         let gone = false;
-        const read = () => void getCurrentBranch(slug).then(result => !gone && result.ok && setCurrent({ slug, value: result.value }));
+        const read = () => void getCurrentBranch(handle).then(result => !gone && result.ok && setCurrent({ handle, value: result.value }));
         read();
         window.addEventListener(GIT_STATUS_CHANGED, read);
         return () => {
             gone = true;
             window.removeEventListener(GIT_STATUS_CHANGED, read);
         };
-    }, [slug]);
+    }, [handle]);
 
-    const value = current?.slug === slug ? current.value : null;
+    const value = current?.handle === handle ? current.value : null;
     if (!value?.branch) {
         return null;
     }
@@ -85,11 +85,11 @@ export function BranchPicker({ slug }: { slug: string }) {
             return;
         }
         setError('');
-        void listBranches(slug).then(result =>
+        void listBranches(handle).then(result =>
             setBranches(
                 result.ok
-                    ? { slug, list: result.value.branches, environment: result.value.environment, mode: result.value.mode }
-                    : { slug, list: [], error: result.error.message },
+                    ? { handle, list: result.value.branches, environment: result.value.environment, mode: result.value.mode }
+                    : { handle, list: [], error: result.error.message },
             ),
         );
     };
@@ -97,17 +97,17 @@ export function BranchPicker({ slug }: { slug: string }) {
         if (name === value.branch) {
             return;
         }
-        const result = await setCurrentBranch(slug, name);
+        const result = await setCurrentBranch(handle, name);
         if (!result.ok) {
             setError(result.error.message);
             return;
         }
         noteBranchSwitch();
         // every page read so far was the other branch's: the page again, from scratch, on this one
-        window.location.assign(await landingAfterSwitch(slug));
+        window.location.assign(await landingAfterSwitch(handle));
     };
 
-    const list = branches?.slug === slug ? branches.list : [];
+    const list = branches?.handle === handle ? branches.list : [];
     const merged = list.filter(b => b.merged && b.name !== value.branch);
     const shown = list.filter(b => showMerged || !b.merged || b.name === value.branch);
     const label = value.removed
@@ -115,7 +115,7 @@ export function BranchPicker({ slug }: { slug: string }) {
         : value.editable
           ? `On ${value.branch}`
           : `On ${value.branch} (read only)`;
-    const environment = branches?.slug === slug ? branches.environment : null;
+    const environment = branches?.handle === handle ? branches.environment : null;
     const work = list.find(b => b.name === value.branch && b.kind !== 'environment');
     const updatable = canEdit && environment && work?.editable ? work : null;
     const pushable = work?.removed && (work.kind === 'shared' || work.mine) ? work : null;
@@ -146,7 +146,7 @@ export function BranchPicker({ slug }: { slug: string }) {
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-80" side="bottom" align="start">
-                    {branches?.slug !== slug && (
+                    {branches?.handle !== handle && (
                         <DropdownMenuLabel className="text-xs text-muted-foreground">Loading branches...</DropdownMenuLabel>
                     )}
                     {branches?.error && <DropdownMenuLabel className="text-xs text-destructive">{branches.error}</DropdownMenuLabel>}
@@ -163,7 +163,7 @@ export function BranchPicker({ slug }: { slug: string }) {
                             )
                         );
                     })}
-                    {canEdit && handle && (
+                    {canEdit && userHandle && (
                         <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={() => setCreating(true)}>
@@ -211,20 +211,20 @@ export function BranchPicker({ slug }: { slug: string }) {
             )}
             {proposing && proposable && environment && (
                 <PullRequestDialog
-                    slug={slug}
+                    handle={handle}
                     branch={proposable.name}
                     target={environment}
                     uncommitted={proposable.changes}
                     onClose={() => setProposing(false)}
                 />
             )}
-            {updating && <UpdateDialog slug={slug} onClose={() => setUpdating(false)} />}
-            {creating && handle && (
+            {updating && <UpdateDialog handle={handle} onClose={() => setUpdating(false)} />}
+            {creating && userHandle && (
                 <CreateBranchDialog
-                    slug={slug}
+                    handle={handle}
                     from={value.branch}
                     lostTip={value.lostTip}
-                    handle={handle}
+                    userHandle={userHandle}
                     onClose={() => setCreating(false)}
                 />
             )}

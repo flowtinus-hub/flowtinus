@@ -9,13 +9,13 @@ const PROVIDERS = { gitlab: 'GitLab', github: 'GitHub' };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function PullRequestDialog({
-    slug,
+    handle,
     branch,
     target,
     uncommitted,
     onClose,
 }: {
-    slug: string;
+    handle: string;
     branch: string;
     target: string;
     uncommitted: number;
@@ -25,7 +25,7 @@ export function PullRequestDialog({
 
     useEffect(() => {
         let gone = false;
-        void openPullRequest(slug).then(answer => {
+        void openPullRequest(handle).then(answer => {
             if (answer.ok && answer.value.pushed) {
                 window.dispatchEvent(new Event(GIT_STATUS_CHANGED));
             }
@@ -36,7 +36,7 @@ export function PullRequestDialog({
         return () => {
             gone = true;
         };
-    }, [slug]);
+    }, [handle]);
 
     const pr = result?.value;
     return (

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -108,7 +108,7 @@ describe('the deployed script set: a deployed run takes what is committed, a tes
                 return scriptsOf(((await response.json()) as { runId: string }).runId);
             };
         };
-        const scriptPath = (path: string) => `${slugOf(id)}/projects/Sales/scripts/${path}.ts`;
+        const scriptPath = (path: string) => `${workspaceHandleOf(id)}/projects/Sales/scripts/${path}.ts`;
         const onBranch = (): Record<string, string> =>
             Object.fromEntries(
                 git(repo, 'ls-tree', '-r', '--name-only', 'dev')

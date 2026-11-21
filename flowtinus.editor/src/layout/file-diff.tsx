@@ -4,7 +4,7 @@ import { getFileDiff, type FileDiff } from '@/data/git/git-api';
 import type { ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-export function FileDiffView({ slug, path, className }: { slug: string; path: string; className?: string }) {
+export function FileDiffView({ handle, path, className }: { handle: string; path: string; className?: string }) {
     const [diff, setDiff] = useState<FileDiff | null>(null);
     const [error, setError] = useState<ApiError | null>(null);
 
@@ -12,7 +12,7 @@ export function FileDiffView({ slug, path, className }: { slug: string; path: st
         let current = true;
         setDiff(null);
         setError(null);
-        void getFileDiff(slug, path).then(result => {
+        void getFileDiff(handle, path).then(result => {
             if (!current) {
                 return;
             }
@@ -25,7 +25,7 @@ export function FileDiffView({ slug, path, className }: { slug: string; path: st
         return () => {
             current = false;
         };
-    }, [slug, path]);
+    }, [handle, path]);
 
     if (error) {
         return <p className={cn('text-xs text-destructive', className)}>{error.message}</p>;

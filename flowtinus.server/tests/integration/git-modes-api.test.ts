@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos';
 import { API_SCOPES, insertApiToken, newApiToken } from '#features/api-tokens/api-tokens';
 import { Keyring } from '#shared/crypto/keyring';
@@ -143,7 +143,7 @@ describe("an environment's mode decides whether its server changes the tree", ()
             }),
         );
         const tool = async (name: string, args: Record<string, unknown>) =>
-            (await client.callTool({ name, arguments: { workspace: slugOf(id), ...args } })) as {
+            (await client.callTool({ name, arguments: { workspace: workspaceHandleOf(id), ...args } })) as {
                 isError?: boolean;
                 content: { text: string }[];
             };

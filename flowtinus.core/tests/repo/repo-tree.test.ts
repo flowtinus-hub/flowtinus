@@ -186,6 +186,24 @@ describe('errors, which refuse the tree', () => {
         ]);
     });
 
+    test('a project whose handle another project has, archived ones included, or whose name makes no handle', () => {
+        const project = (id: string) => projectToYaml({ id: `00000000-0000-4000-8000-00000000b00${id}`, description: '' });
+        const files = {
+            ...validTree(),
+            'acme/projects/sales!/project.yaml': project('2'),
+            'acme/projects/Old Reports/project.yaml': project('3'),
+            'acme/projects/!!!/project.yaml': project('4'),
+        };
+        expect(validateWorkspaceTree({ workspace: W, files, environment: HERE, archivedProjects: ['old-reports'] }).errors).toEqual([
+            {
+                path: 'acme/projects/!!!',
+                message: 'The project name "!!!" is not valid: No letter or digit (a-z, 0-9) to make its handle from.',
+            },
+            { path: 'acme/projects/sales!', message: 'The handle "sales" is taken by the project "Sales".' },
+            { path: 'acme/projects/Old Reports', message: 'The handle "old-reports" is taken by the archived project "old-reports".' },
+        ]);
+    });
+
     test('names that collide whatever the case or after NFC normalization, once per name', () => {
         const nfc = 'Café';
         const nfd = nfc.normalize('NFD');

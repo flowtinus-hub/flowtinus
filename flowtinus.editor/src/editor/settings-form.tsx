@@ -16,7 +16,7 @@ import { ScriptTypePicker, TypedInputSetting } from './typed-input';
 import { CalledFlowSetting, useCalledStart, type InvokerParameter } from './called-flow';
 import { useProjectCalls } from './project-calls';
 import { ScriptArgumentsSetting, ScriptFunctionPicker, useScriptFunction } from './script-function';
-import { useWorkspaceSlug } from '@/data/workspaces/use-workspace';
+import { useWorkspaceHandle } from '@/data/workspaces/use-workspace';
 
 type Values = Record<string, unknown>;
 
@@ -373,7 +373,7 @@ function ConnectionPicker({
     value: string;
     onChange: (value: string) => void;
 }) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const resources = useProjectResources();
     const profiles = resources.connections.filter(c => types.includes(c.type));
     const known = profiles.some(p => p.id === value) || (dynamic && value === DYNAMIC_CONNECTION);
@@ -396,7 +396,7 @@ function ConnectionPicker({
 
 /** one of the workspace's secrets, by name (its value is never here) */
 function SecretPicker({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const resources = useProjectResources();
     return (
         <div className="flex items-center gap-2">
@@ -425,7 +425,7 @@ function SecretPicker({ id, value, onChange }: { id: string; value: string; onCh
  * here (not by expression) opens in a new tab from the button beside it
  */
 export function FlowPicker({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
-    const ws = useWorkspaceSlug();
+    const ws = useWorkspaceHandle();
     const resources = useProjectResources();
     const { flowId } = useParams();
     const flows = resources.flows.filter(f => f.id !== flowId);
