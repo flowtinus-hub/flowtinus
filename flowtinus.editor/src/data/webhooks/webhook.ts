@@ -20,6 +20,7 @@ export type Webhook = {
     path: string;
     name: string;
     enabled: boolean;
+    arrivedDisabled: boolean;
     response: WebhookResponse;
     /** the first characters of its token, to tell which one it is (the token itself is shown once) */
     tokenHint: string;

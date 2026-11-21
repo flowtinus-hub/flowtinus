@@ -1,6 +1,6 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, CirclePause } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { arrivedCount, CHANGES_CHANGED, getGitStatus, GIT_STATUS_CHANGED, gitAhead, listArrivedDisabled, ONLY_PULL_REQUESTS, TRIGGERS_SWITCHED, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -95,7 +95,7 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
         return (
             <SidebarMenuItem>
                 <SidebarMenuButton tooltip={ONLY_PULL_REQUESTS} asChild className="text-muted-foreground">
-                    <NavLink to={`${workspaceSettingsPath(slug)}#git`} title={ONLY_PULL_REQUESTS}>
+                    <NavLink to={`${workspaceSettingsPath(slug)}?tab=git#git`} title={ONLY_PULL_REQUESTS}>
                         <GitPullRequest />
                         <span>Pull requests only</span>
                     </NavLink>
@@ -110,8 +110,42 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     return (
         <SidebarMenuItem>
             <SidebarMenuButton tooltip={label} asChild className="text-amber-700 dark:text-amber-400">
-                <NavLink to={`${workspaceSettingsPath(slug)}#git`}>
+                <NavLink to={`${workspaceSettingsPath(slug)}?tab=git#git`}>
                     <TriangleAlert />
+                    <span>{label}</span>
+                </NavLink>
+            </SidebarMenuButton>
+        </SidebarMenuItem>
+    );
+}
+
+function ArrivedDisabledItem({ slug, pathname }: { slug: string; pathname: string }) {
+    const [count, setCount] = useState<{ slug: string; value: number } | null>(null);
+    useEffect(() => {
+        let gone = false;
+        const read = () =>
+            void listArrivedDisabled(slug).then(result => !gone && result.ok && setCount({ slug, value: arrivedCount(result.value) }));
+        read();
+        const timer = setInterval(read, GIT_STATUS_MS);
+        const events = [GIT_STATUS_CHANGED, CHANGES_CHANGED, TRIGGERS_SWITCHED];
+        events.forEach(event => window.addEventListener(event, read));
+        return () => {
+            gone = true;
+            clearInterval(timer);
+            events.forEach(event => window.removeEventListener(event, read));
+        };
+    }, [slug, pathname]);
+
+    const value = count?.slug === slug ? count.value : 0;
+    if (value === 0) {
+        return null;
+    }
+    const label = `${value} trigger${value === 1 ? '' : 's'} arrived disabled`;
+    return (
+        <SidebarMenuItem>
+            <SidebarMenuButton tooltip={label} asChild className="text-sky-700 dark:text-sky-400">
+                <NavLink to={`${workspaceSettingsPath(slug)}?tab=git#git`} title="Off until turned on in this environment">
+                    <CirclePause />
                     <span>{label}</span>
                 </NavLink>
             </SidebarMenuButton>
@@ -164,6 +198,7 @@ export function AppSidebar() {
                     <SidebarGroup className="mx-2 w-auto border-y border-sidebar-border px-0 has-[>ul:empty]:hidden">
                         <SidebarMenu>
                             <GitAheadItem slug={current.slug} pathname={pathname} />
+                            <ArrivedDisabledItem slug={current.slug} pathname={pathname} />
                         </SidebarMenu>
                     </SidebarGroup>
                 )}

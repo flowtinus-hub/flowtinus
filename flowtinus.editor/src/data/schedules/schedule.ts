@@ -28,6 +28,7 @@ export type Schedule = {
     /** IANA name, e.g. America/Sao_Paulo */
     timezone: string;
     enabled: boolean;
+    arrivedDisabled: boolean;
     misfire: MisfireMode;
     /** the Start's parameters for its runs (the others take their default) */
     parameters: Record<string, string>;

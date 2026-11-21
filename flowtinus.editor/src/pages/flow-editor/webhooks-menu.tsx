@@ -10,7 +10,9 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import type { FlowVersion } from '@/data/deployments/deployment';
 import { WEBHOOK_RESPONSE_OPTIONS, webhookCurl, webhookMethods, webhookUrl, type Webhook, type WebhookFields } from '@/data/webhooks/webhook';
-import { createWebhook, deleteWebhook, listWebhooks, regenerateToken, updateWebhook } from '@/data/webhooks/webhooks-api';
+import { createWebhook, deleteWebhook, listWebhooks, regenerateToken, switchWebhook, updateWebhook } from '@/data/webhooks/webhooks-api';
+import { TRIGGERS_SWITCHED } from '@/data/git/git-api';
+import { ArrivedBadge, useTriggersChanged } from './use-triggers-changed';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
@@ -19,8 +21,6 @@ const SELECT = 'h-8 w-full rounded-md border bg-transparent px-2 text-sm';
 
 /** where the server answers (in development the editor's /api, which Vite sends to it) */
 const serverOrigin = () => `${window.location.origin}/api`;
-
-const fieldsOf = (w: Webhook): WebhookFields => ({ name: w.name, enabled: w.enabled, response: w.response });
 
 type Props = {
     flowId: string;
@@ -57,14 +57,19 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
             gone = true;
         };
     }, [flowId]);
+    useTriggersChanged(load);
 
     const active = items.filter(w => w.enabled).length;
+    const arrived = items.filter(w => w.arrivedDisabled).length;
     // a flow whose Start takes no input may be called with GET too
     const acceptsInput = deployed ? startConfig(deployed.definition.nodes.find(n => n.type === START)?.config ?? {}).acceptsInput : true;
     const methods = webhookMethods(acceptsInput);
     const toggle = async (webhook: Webhook) => {
-        await updateWebhook(webhook.id, { ...fieldsOf(webhook), enabled: !webhook.enabled });
-        await load();
+        const result = await switchWebhook(webhook.id, !webhook.enabled);
+        if (result.ok && result.value.token) {
+            setShown({ webhook: result.value.webhook, token: result.value.token });
+        }
+        window.dispatchEvent(new Event(TRIGGERS_SWITCHED));
     };
     const newToken = (webhook: Webhook) =>
         confirm({
@@ -104,7 +109,13 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
                 size="sm"
                 className="bg-card shadow-md"
                 disabled={disabled || !deployed}
-                title={deployed ? 'Addresses other systems call to run the deployed version' : 'Deploy the flow first'}
+                title={
+                    !deployed
+                        ? 'Deploy the flow first'
+                        : arrived > 0
+                          ? `Addresses other systems call to run the deployed version. ${arrived} arrived disabled: off until turned on here.`
+                          : 'Addresses other systems call to run the deployed version'
+                }
                 onClick={() => setOpen(true)}
             >
                 <WebhookIcon /> Webhooks
@@ -118,6 +129,7 @@ export function WebhooksMenu({ flowId, deployed, disabled, confirm }: Props) {
                         {active}/{items.length}
                     </span>
                 )}
+                {arrived > 0 && <span className="size-1.5 rounded-full bg-sky-500" aria-label={`${arrived} arrived disabled`} />}
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="sm:max-w-2xl">
@@ -198,7 +210,10 @@ function WebhookRow(props: {
         <li className="flex items-center gap-3 px-3 py-2 text-sm">
             <Switch checked={webhook.enabled} onCheckedChange={onToggle} aria-label={webhook.enabled ? 'Turn off' : 'Turn on'} />
             <div className={cn('grid min-w-0 flex-1 gap-0.5', !webhook.enabled && 'opacity-60')}>
-                <span className="truncate font-medium">{webhook.name}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium">{webhook.name}</span>
+                    {webhook.arrivedDisabled && <ArrivedBadge />}
+                </span>
                 <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
                     {methods.map(m => (
                         <span key={m} className="shrink-0 rounded bg-muted px-1 font-mono text-[10px]">
@@ -310,7 +325,7 @@ function WebhookForm(props: {
 }
 
 /** the token, shown this once, its address and a call to try it */
-function TokenDialog({
+export function TokenDialog({
     webhook,
     token,
     acceptsInput,
