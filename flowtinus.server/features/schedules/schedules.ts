@@ -111,6 +111,17 @@ const toView = (row: Row): ScheduleView => {
 export const EFFECTIVE_COLUMNS = `coalesce(s.cron_override, s.cron) AS cron, coalesce(s.timezone_override, s.timezone) AS timezone,
        s.parameters || s.parameter_overrides AS parameters, coalesce(s.input_override, s.input) AS input`;
 
+export async function foldOverrides(db: Database, workspaceId: string): Promise<void> {
+    await db.query(
+        `UPDATE flow_schedules SET cron = coalesce(cron_override, cron), timezone = coalesce(timezone_override, timezone),
+       parameters = parameters || parameter_overrides, input = coalesce(input_override, input),
+       cron_override = NULL, timezone_override = NULL, input_override = NULL, parameter_overrides = '{}'::jsonb
+     WHERE workspace_id = $1 AND (cron_override IS NOT NULL OR timezone_override IS NOT NULL OR input_override IS NOT NULL
+       OR parameter_overrides <> '{}'::jsonb)`,
+        [workspaceId],
+    );
+}
+
 export async function listFlowSchedules(db: Database, workspaceId: string, flowId: string): Promise<ScheduleView[]> {
     const rows = await db.query<Row>(
         `${SELECT} WHERE s.workspace_id = $1 AND s.flow_id = $2 AND s.archived_at IS NULL ORDER BY s.created_at, s.id`,

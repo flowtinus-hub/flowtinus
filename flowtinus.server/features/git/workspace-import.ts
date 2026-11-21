@@ -71,9 +71,9 @@ function idsOf(files: RepoFiles, slug: string): { path: string; id: string }[] {
     ].filter((e): e is { path: string; id: string } => e.id !== undefined && isRepoId(e.id));
 }
 
-type TriggerId = { path: string; id: string; kind: 'schedule' | 'webhook' };
+export type TriggerId = { path: string; id: string; kind: 'schedule' | 'webhook' };
 
-function triggerIdsOf(files: RepoFiles, slug: string): TriggerId[] {
+export function triggerIdsOf(files: RepoFiles, slug: string): TriggerId[] {
     return entriesOf(files, slug).flows.flatMap(({ path, text, entry }) => {
         const read = repoFlowFromYaml(text, entry.name);
         return read.ok

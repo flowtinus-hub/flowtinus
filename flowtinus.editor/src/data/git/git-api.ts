@@ -283,12 +283,15 @@ export type FileChange = { path: string; change: 'added' | 'changed' | 'removed'
 
 export type { TreeIssue } from '@flowtinus/core';
 
+export type TriggerChange = { kind: 'schedule' | 'webhook'; id: string; path: string; change: 'kept' | 'arrives-disabled' | 'archived' };
+
 export type TurnOnPlan = {
     branch: string;
     branchExists: boolean;
     case: 'export' | 'import' | 'choice';
     toGit: FileChange[];
     toServer: FileChange[];
+    triggersToServer: TriggerChange[];
     errors: TreeIssue[];
     warnings: TreeIssue[];
 };

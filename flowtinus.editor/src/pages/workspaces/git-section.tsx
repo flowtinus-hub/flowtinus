@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { useResource } from '@/data/use-resource';
 import { listSecrets } from '@/data/secrets/secrets-api';
 import type { ApiResult } from '@/lib/api';
-import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, GIT_STATUS_CHANGED, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
+import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, GIT_STATUS_CHANGED, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TriggerChange, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
@@ -652,6 +652,7 @@ function TurnOnPanel({
                             <Issues tone="error" issues={plan.errors} />
                             <Issues tone="warn" issues={plan.warnings} />
                             <Changes title="Arrives here" changes={plan.toServer} />
+                            <Triggers changes={plan.triggersToServer} />
                         </>
                     )}
                     {plan.case === 'choice' && (
@@ -669,6 +670,7 @@ function TurnOnPanel({
                                     </p>
                                     <Issues tone="error" issues={plan.errors} />
                                     <Changes title="Changes here" changes={plan.toServer} />
+                                    <Triggers changes={plan.triggersToServer} />
                                     {!readOnly && (
                                         <Button
                                             size="sm"
@@ -778,6 +780,36 @@ function Changes({ title, changes }: { title: string; changes: FileChange[] }) {
                     ))}
                 </ul>
             )}
+        </div>
+    );
+}
+
+const TRIGGER_CHANGE: Record<TriggerChange['change'], { label: string; className: string }> = {
+    kept: { label: 'kept, on or off as it is', className: 'text-muted-foreground' },
+    'arrives-disabled': { label: 'arrives disabled', className: 'text-amber-600' },
+    archived: { label: 'archived, off', className: 'text-destructive' },
+};
+
+function Triggers({ changes }: { changes: TriggerChange[] }) {
+    if (changes.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="grid gap-1">
+            <p className="text-xs text-muted-foreground">
+                Schedules and webhooks: {changes.length} {changes.length === 1 ? 'trigger' : 'triggers'}
+            </p>
+            <ul className="max-h-48 overflow-auto rounded-md border bg-muted/30 p-2 text-xs">
+                {changes.map(t => (
+                    <li key={`${t.kind}:${t.id}`} className="flex flex-wrap gap-x-2">
+                        <span className="font-medium">{t.kind === 'schedule' ? 'Schedule' : 'Webhook'}</span>
+                        <span className="font-mono">{t.id.slice(0, 8)}</span>
+                        <span className={TRIGGER_CHANGE[t.change].className}>{TRIGGER_CHANGE[t.change].label}</span>
+                        <span className="break-all font-mono text-muted-foreground">{t.path}</span>
+                    </li>
+                ))}
+            </ul>
         </div>
     );
 }
