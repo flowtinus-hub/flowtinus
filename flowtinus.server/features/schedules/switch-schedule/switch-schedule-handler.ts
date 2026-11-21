@@ -35,7 +35,13 @@ export class SwitchScheduleHandler implements UseCaseHandler<ScheduleView> {
             `UPDATE flow_schedules SET enabled = $3, next_fire_at = $4, arrived_disabled = arrived_disabled AND NOT $3, last_error = NULL,
          updated_by = $5, updated_at = now()
        WHERE workspace_id = $1 AND id = $2`,
-            [ctx.workspaceId, id, enabled, enabled ? nextTime(schedule.cron, schedule.timezone, new Date()) : null, ctx.userId],
+            [
+                ctx.workspaceId,
+                id,
+                enabled,
+                enabled ? nextTime(schedule.effective.cron, schedule.effective.timezone, new Date()) : null,
+                ctx.userId,
+            ],
         );
         await ctx.db.notify(SCHEDULES_CHANNEL, schedule.flowId);
         return success((await findSchedule(ctx.db, ctx.workspaceId, id))!);
