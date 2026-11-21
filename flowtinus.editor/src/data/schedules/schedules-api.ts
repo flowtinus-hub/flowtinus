@@ -6,7 +6,7 @@ import type { Schedule, ScheduleFields } from './schedule';
  * its fields), one removed. Dates come as ISO text and become Date here.
  */
 
-type ScheduleDto = Omit<Schedule, 'nextFireAt' | 'last' | 'createdAt'> & {
+export type ScheduleDto = Omit<Schedule, 'nextFireAt' | 'last' | 'createdAt'> & {
     nextFireAt: string | null;
     last: (Omit<NonNullable<Schedule['last']>, 'at'> & { at: string }) | null;
     createdAt: string;
@@ -46,6 +46,8 @@ export const createSchedule = (flowId: string, fields: ScheduleFields) => one(`/
 
 /** a schedule changed: all its fields (its next time is computed again from now) */
 export const updateSchedule = (id: string, fields: ScheduleFields) => one(`/schedules/${id}`, 'PUT', fields);
+
+export const switchSchedule = (id: string, enabled: boolean) => one(`/schedules/${id}/enabled`, 'PUT', { enabled });
 
 export function deleteSchedule(id: string): Promise<ApiResult<{ id: string }>> {
     return api<{ id: string }>(`/schedules/${id}`, { method: 'DELETE' });

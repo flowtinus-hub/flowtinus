@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { GITATTRIBUTES, projectToYaml, repoFlowFromYaml, repoFlowToYaml, workspaceToYaml, type FlowFile, type RepoSchedule, type RepoWebhook } from '@flowtinus/core';
 import { ANA, insertWorkspace, slugOf, wsPath } from '../helpers/workspaces';
-import { commitFiles, git } from '../helpers/git-repos';
+import { commitAll, commitFiles, git } from '../helpers/git-repos';
 import { fireDueSchedules } from '#features/schedules/fire-schedules';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -122,6 +122,42 @@ describe('the reconcile applies the schedules and webhooks in the flow files; wh
                 projectId: ids.sales,
                 schedules: [expect.objectContaining({ id: s })],
                 webhooks: [expect.objectContaining({ id: w })],
+            },
+        ]);
+    });
+
+    test("a Commit's outcome lists the triggers it brought that arrived disabled, by flow, not those already waiting", async () => {
+        const { id, call, ids, paths, commitOrders } = await newWorkspace();
+        const [waiting, s, w] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+        await commitOrders({ schedules: [schedule(waiting)] });
+        const { flow, revision } = (await call('GET', `/flows/${ids.orders}/draft`)).body;
+        const nodes = flow.nodes.map((n: { type: string }) => (n.type === 'start' ? { ...n, label: 'Begin' } : n));
+        expect((await call('PUT', `/flows/${ids.orders}/draft`, { revision, flow: { ...flow, nodes } })).status).toBe(200);
+        const [row] = await db.query<{ content: string }>('SELECT content FROM working_copy WHERE workspace_id = $1 AND path = $2', [
+            id,
+            paths.orders,
+        ]);
+        const read = repoFlowFromYaml(row!.content, 'Orders');
+        if (!read.ok) {
+            throw new Error('The working copy holds no flow.');
+        }
+        const text = repoFlowToYaml(read.value.flow, {
+            ...read.value,
+            schedules: [schedule(waiting), schedule(s)],
+            webhooks: [webhook(w)],
+        });
+        await db.query('UPDATE working_copy SET content = $3 WHERE workspace_id = $1 AND path = $2', [id, paths.orders, text]);
+
+        const committed = await commitAll(call, 'A schedule and a webhook');
+
+        expect(committed.status).toBe(200);
+        expect(committed.body.arrived).toEqual([
+            {
+                flowId: ids.orders,
+                flowName: 'Orders',
+                projectId: ids.sales,
+                schedules: [expect.objectContaining({ id: s, enabled: false, arrivedDisabled: true })],
+                webhooks: [expect.objectContaining({ id: w, enabled: false, arrivedDisabled: true })],
             },
         ]);
     });

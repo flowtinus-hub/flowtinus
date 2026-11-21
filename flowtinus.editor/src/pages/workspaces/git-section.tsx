@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useLocation } from 'react-router';
 import { CircleCheck, CircleX, Copy, GitBranch, Power, RefreshCw, TriangleAlert } from 'lucide-react';
 import { relativeTime } from '@/lib/relative-time';
+import { ArrivedDisabledPanel } from './arrived-disabled-panel';
 import { GitStatusPanel } from './git-status-panel';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -77,6 +78,7 @@ export function GitSection({ slug, readOnly }: { slug: string; readOnly: boolean
                             }}
                         />
                     )}
+                    {saved.state.value.on && <ArrivedDisabledPanel slug={slug} />}
                     {saved.state.value.on && (
                         <HookPanel
                             slug={slug}

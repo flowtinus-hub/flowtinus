@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, CircleCheck, File, FileCode2, Folder, FolderKanban, GitCommitHorizontal, Lock, LoaderCircle, Plug, TriangleAlert, Undo2, Workflow, type LucideIcon } from 'lucide-react';
+import { ArrivedDisabledList } from '@/components/arrived-disabled-list';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, getCurrentBranch, discardedWith, removedBranchText, requiredBy, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
+import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, getCurrentBranch, discardedWith, removedBranchText, requiredBy, type ArrivedDisabled, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import type { ApiError } from '@/lib/api';
@@ -46,7 +47,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
     const [message, setMessage] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
-    const [committed, setCommitted] = useState<string | null>(null);
+    const [committed, setCommitted] = useState<{ commit: string; arrived: ArrivedDisabled[] } | null>(null);
     const [resolving, setResolving] = useState<string | null>(null);
     const [diffOf, setDiffOf] = useState<string | null>(null);
     const [loads, setLoads] = useState(0);
@@ -100,7 +101,7 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
         const result = await commitChanges(slug, all, message.trim());
         setBusy(false);
         if (result.ok) {
-            setCommitted(result.value.commit);
+            setCommitted(result.value);
             changed();
         } else {
             setError(result.error);
@@ -156,12 +157,22 @@ export function ChangesDialog({ slug, onClose }: { slug: string; onClose: () => 
                     </DialogDescription>
                 </DialogHeader>
                 {committed ? (
-                    <p className="flex items-center gap-2 text-sm">
-                        <CircleCheck className="size-4 text-emerald-600" />
-                        <span>
-                            <span className="font-mono">{committed.slice(0, 7)}</span> applied
-                        </span>
-                    </p>
+                    <div className="grid gap-3">
+                        <p className="flex items-center gap-2 text-sm">
+                            <CircleCheck className="size-4 text-emerald-600" />
+                            <span>
+                                <span className="font-mono">{committed.commit.slice(0, 7)}</span> applied
+                            </span>
+                        </p>
+                        {committed.arrived.length > 0 && (
+                            <div className="grid gap-2">
+                                <p className="text-sm text-muted-foreground">
+                                    These triggers arrived disabled: none runs until it is turned on in this environment.
+                                </p>
+                                <ArrivedDisabledList slug={slug} items={committed.arrived} className="max-h-[50vh] overflow-y-auto" />
+                            </div>
+                        )}
+                    </div>
                 ) : changes === null ? (
                     <LoaderCircle className="animate-spin" />
                 ) : changes.length === 0 && !merge ? (
