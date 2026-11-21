@@ -332,9 +332,9 @@ export async function deleteScriptPath(projectId: string, path: string): Promise
 }
 
 /** who imports a path (a script, or anything in a folder): what a move or a delete would break */
-export async function scriptUsage(projectId: string, path: string): Promise<{ flows: { id: string; name: string }[]; scripts: string[] }> {
-    const result = await api<{ flows: { id: string; name: string }[]; scripts: string[] }>(
-        `/projects/${projectId}/scripts/usage?path=${encodeURIComponent(path)}`,
-    );
+export type ScriptUsage = { flows: { id: string; name: string; project?: string }[]; scripts: string[] };
+
+export async function scriptUsage(projectId: string, path: string): Promise<ScriptUsage> {
+    const result = await api<ScriptUsage>(`/projects/${projectId}/scripts/usage?path=${encodeURIComponent(path)}`);
     return result.ok ? result.value : { flows: [], scripts: [] };
 }

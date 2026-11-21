@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, type FlowFile } from '@flowtinus/core';
+import { componentSettings, CONNECTION_KEY, DYNAMIC_CONNECTION, flowResources, flowWithScriptsMoved, handleOf, movedScriptImports, scriptImport, type FlowFile } from '@flowtinus/core';
 import { FlowRepository, longRepoPath } from '#features/folders/project-tree';
 import { loadDraft, writeDraft } from '#features/flows/flow-draft';
 import { scriptFileId } from '#features/git/working-copy';
@@ -164,6 +164,13 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
             );
         }
 
+        const [{ handle: oldHandle }] = await ctx.db.query<{ handle: string }>('SELECT handle FROM workspaces WHERE id = $1', [
+            ctx.workspaceId,
+        ]);
+        const ownScripts = {
+            from: scriptImport(oldHandle, handleOf(project.name), '').slice(0, -1),
+            to: scriptImport(toWorkspace, handleOf(project.name), '').slice(0, -1),
+        };
         const flowIds = flows.map(f => f.id);
         const deployed = flows.filter(f => f.deployed).length;
         await changeTree(
@@ -195,9 +202,8 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                         }
                         return { ...node, config };
                     });
-                    if (changed) {
-                        drafts.set(flow.id, { ...flow.draft.flow, nodes });
-                    }
+                    const remapped = changed ? { ...flow.draft.flow, nodes } : flow.draft.flow;
+                    drafts.set(flow.id, flowWithScriptsMoved(remapped, ownScripts.from, ownScripts.to) ?? remapped);
                 }
 
                 // the code the runs took, for the destination's runs to keep reading it
@@ -235,7 +241,14 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
                     }
                 }
                 for (const script of scripts) {
-                    await writeScript(tx, target.id, id, script.path, script.content, ctx.userId);
+                    await writeScript(
+                        tx,
+                        target.id,
+                        id,
+                        script.path,
+                        movedScriptImports(script.content, ownScripts.from, ownScripts.to),
+                        ctx.userId,
+                    );
                 }
             },
             [target.id],

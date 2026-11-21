@@ -112,4 +112,33 @@ describe('move a project to another workspace', () => {
         );
         expect(stale).toEqual([]);
     });
+
+    test("moved: its imports of its own scripts name the new workspace; those of the old workspace's other projects stay", async () => {
+        const [old, now] = [`@w/${workspaceHandleOf(from)}`, `@w/${workspaceHandleOf(to)}`];
+        const other = (await call(from, 'POST', '/projects', { name: 'Toolbox' })).body.id as string;
+        await call(from, 'POST', `/projects/${other}/scripts`, { kind: 'script', path: 'util', content: 'export const u = 1;' });
+        const projectId = (await call(from, 'POST', '/projects', { name: 'Rewired' })).body.id as string;
+        await call(from, 'POST', `/projects/${projectId}/scripts`, { kind: 'script', path: 'lib/b', content: 'export const b = 1;' });
+        const code = `import { b } from '${old}/rewired/scripts/lib/b';\nimport { u } from '${old}/toolbox/scripts/util';\n`;
+        await call(from, 'POST', `/projects/${projectId}/scripts`, { kind: 'script', path: 'lib/a', content: code });
+        const flowId = (await call(from, 'POST', `/projects/${projectId}/flows`, { name: 'Calls' })).body.id as string;
+        const { flow, revision } = (await call(from, 'GET', `/flows/${flowId}/draft`)).body as {
+            revision: number;
+            flow: { nodes: Node[] };
+        };
+        const nodes: Node[] = [
+            { id: 'ts', type: 'typescript', position: { x: 160, y: 0 }, config: { code } },
+            { id: 'fn', type: 'script', position: { x: 320, y: 0 }, config: { function: `${old}/rewired/scripts/lib/b#b` } },
+        ];
+        expect(
+            (await call(from, 'PUT', `/flows/${flowId}/draft`, { revision, flow: { ...flow, nodes: [...flow.nodes, ...nodes] } })).status,
+        ).toBe(200);
+
+        expect((await call(from, 'POST', `/projects/${projectId}/move`, { toWorkspace: workspaceHandleOf(to) })).status).toBe(200);
+        const rewired = `import { b } from '${now}/rewired/scripts/lib/b';\nimport { u } from '${old}/toolbox/scripts/util';\n`;
+        expect((await call(to, 'GET', `/projects/${projectId}/scripts/content?path=lib/a`)).body.content).toBe(rewired);
+        const draft = (await call(to, 'GET', `/flows/${flowId}/draft`)).body as { flow: { nodes: Node[] } };
+        expect(draft.flow.nodes.find(n => n.id === 'ts')!.config.code).toBe(rewired);
+        expect(draft.flow.nodes.find(n => n.id === 'fn')!.config.function).toBe(`${now}/rewired/scripts/lib/b#b`);
+    });
 });
