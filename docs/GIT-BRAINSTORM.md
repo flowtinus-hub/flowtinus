@@ -2,7 +2,7 @@
 
 Where the discussion on git sync stands. Not a spec: it records what was decided and why, so the spec and its tickets can be written from it.
 
-Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2 is published as a spec and tickets ([#30](https://github.com/flowtinus-hub/flowtinus/issues/30), see "Step 2"). Step 3 is published as a spec and tickets ([#51](https://github.com/flowtinus-hub/flowtinus/issues/51), see "Step 3"). Step 4 is designed, its round closed, and not yet published (see "Step 4"); the later steps stay here until the maintainer says otherwise.
+Status: third round. The four points the second round's prototype turned up are decided below (the backport now goes one hop at a time, after a tenth simulation scenario), and the prototype follows them. A pass on the local mode followed, with an eleventh scenario run on Windows: "Local mode" records what it showed and what was decided from it. Step 1 is published as a spec and tickets (see "Step 1") and is on `main`. Step 2 is published as a spec and tickets ([#30](https://github.com/flowtinus-hub/flowtinus/issues/30), see "Step 2"). Step 3 is published as a spec and tickets ([#51](https://github.com/flowtinus-hub/flowtinus/issues/51), see "Step 3"). Step 4 is published as a spec and tickets ([#65](https://github.com/flowtinus-hub/flowtinus/issues/65), see "Step 4"); the later steps stay here until the maintainer says otherwise.
 
 ## Goal
 
@@ -590,7 +590,7 @@ What steps 2 and 3 left on purpose, and step 4 solves:
 
 Still no promotion, no hotfix or backport, no adapter, no emergency pin: those are the later steps. The pre-flight's "schedules and webhooks arriving disabled" waits for promotion ; this step gives the list it will read.
 
-Status: closed by the maintainer after one round of questions, in which the twelve recommendations put to them were accepted (see "Decided in the first round"). The decision is [ADR 0005](adr/0005-trigger-definition-in-git-activation-in-the-environment.md). Not published yet: the spec and its tickets come from this section and "Cut into tickets".
+Status: closed by the maintainer after one round of questions, in which the twelve recommendations put to them were accepted (see "Decided in the first round"). The decision is [ADR 0005](adr/0005-trigger-definition-in-git-activation-in-the-environment.md). Published: the spec is [#65](https://github.com/flowtinus-hub/flowtinus/issues/65), and its tickets are its sub-issues, with their blocking edges on GitHub. The spec and the tickets are the reference from here on.
 
 ### In the flow's file
 
@@ -700,15 +700,15 @@ Each recommendation was accepted as put; the sections above state them.
 
 The prototype shows no webhooks and no schedule screens of this step: the canvas' Schedules and Webhooks windows as they are today, split into the file and "This environment", are the reference.
 
-### Cut into tickets (proposed, not published)
+### Cut into tickets
 
-In the order they depend on each other:
+In the order they depend on each other. Published as the sub-issues of [#65](https://github.com/flowtinus-hub/flowtinus/issues/65).
 
-| Ticket                                                                                                                                                                                                                                  | Blocked by |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| A. The flow file's `schedules` and `webhooks` in the core: read, write in the stable order, JSON Schema, left out of the content hash; croner in the core; the validation's errors and warnings                                         | none       |
-| B. The reconcile of triggers: created disabled, updated keeping the environment's values, archived and brought back disabled, off on an undeploy or archive; a webhook id taken by another workspace refused; the arrived-disabled list | A          |
-| C. Environment overrides: stored per field and parameter, a schedule fires with git's values under them, its next time recomputed when either side changes                                                                              | B          |
-| D. The Schedules and Webhooks windows: the file in the working copy on any branch, "This environment" on the environment's branch, the modes' rules; duplicate gives new ids                                                            | B, C       |
-| E. Arrived disabled on screen: the Commit outcome with its switches, the git section's list, the sidebar's count                                                                                                                        | B          |
-| F. Turning git on and off with triggers: the first export, the import, "git replaces the server" and its preview, overrides folded in on turning off                                                                                    | B, C       |
+| #                                                           | Ticket                                                                                                                                                                                                                               | Blocked by |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| [#66](https://github.com/flowtinus-hub/flowtinus/issues/66) | The flow file's `schedules` and `webhooks` in the core: read, write in the stable order, JSON Schema, left out of the content hash; croner in the core; the validation's errors and warnings                                         | none       |
+| [#67](https://github.com/flowtinus-hub/flowtinus/issues/67) | The reconcile of triggers: created disabled, updated keeping the environment's values, archived and brought back disabled, off on an undeploy or archive; a webhook id taken by another workspace refused; the arrived-disabled list | #66        |
+| [#68](https://github.com/flowtinus-hub/flowtinus/issues/68) | Environment overrides: stored per field and parameter, a schedule fires with git's values under them, its next time recomputed when either side changes                                                                              | #67        |
+| [#69](https://github.com/flowtinus-hub/flowtinus/issues/69) | The Schedules and Webhooks windows: the file in the working copy on any branch, "This environment" on the environment's branch, the modes' rules; duplicate gives new ids                                                            | #67, #68   |
+| [#70](https://github.com/flowtinus-hub/flowtinus/issues/70) | Arrived disabled on screen: the Commit outcome with its switches, the git section's list, the sidebar's count                                                                                                                        | #67        |
+| [#71](https://github.com/flowtinus-hub/flowtinus/issues/71) | Turning git on and off with triggers: the first export, the import, "git replaces the server" and its preview, overrides folded in on turning off                                                                                    | #67, #68   |
