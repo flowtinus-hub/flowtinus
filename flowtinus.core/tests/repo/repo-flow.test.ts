@@ -48,6 +48,16 @@ describe('a flow file in the repository', () => {
         expect(file.groups).toEqual(FLOW.groups);
     });
 
+    test('a locked group says locked: true and reads back locked; an unlocked one says nothing', () => {
+        const locked = { ...FLOW, groups: [{ ...FLOW.groups![0]!, locked: true }] };
+        expect(parse(repoFlowToYaml(locked)).groups[0].locked).toBe(true);
+        expect(parse(repoFlowToYaml(FLOW)).groups[0]).not.toHaveProperty('locked');
+        expect(repoFlowFromYaml(repoFlowToYaml(locked), 'Load orders')).toMatchObject({
+            ok: true,
+            value: { flow: { groups: [{ id: 'g1', locked: true }] } },
+        });
+    });
+
     test('an undeployed flow says deployed: false', () => {
         expect(parse(repoFlowToYaml(FLOW, { deployed: false })).deployed).toBe(false);
     });

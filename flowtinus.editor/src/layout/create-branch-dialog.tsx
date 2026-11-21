@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
-import { projectsPath } from '@/app/paths';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -8,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import type { FlowFile } from '@flowtinus/core';
 import { branchNamePart, createBranch } from '@/data/git/git-api';
 import type { ApiError, ApiResult } from '@/lib/api';
+import { landingAfterSwitch, noteBranchSwitch } from './branch-landing';
 
 export type OfferedEdit = {
     name: string;
@@ -37,8 +37,8 @@ export function CreateBranchDialog({
     const [made, setMade] = useState<{ branch: string; error: string } | null>(null);
     const own = from.startsWith(prefix);
 
-    // every page read so far was the other branch's
-    const open = () => (edit ? window.location.reload() : window.location.assign(projectsPath(slug)));
+    // every page read so far was the other branch's: the same page again on the new one
+    const open = async () => (edit ? window.location.reload() : window.location.assign(await landingAfterSwitch(slug)));
 
     const create = async () => {
         setBusy(true);
@@ -50,6 +50,7 @@ export function CreateBranchDialog({
             setError(result.error);
             return;
         }
+        noteBranchSwitch();
         const replayed = edit?.replay ? await edit.replay() : null;
         if (replayed && !replayed.ok) {
             setBusy(false);

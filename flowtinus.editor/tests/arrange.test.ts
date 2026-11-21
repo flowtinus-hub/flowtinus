@@ -61,6 +61,47 @@ describe('arrange (left to right, glued)', () => {
         });
     });
 
+    test("a card is never glued to one that does not feed it: a Wait's watch row after another card leaves a gap", () => {
+        // as All collections extracted: f feeds the Wait's hold directly; the long way to its watch (p1 → p2 → p3 → z) is in a
+        // locked group at the left, far below; f's false → c1 … c4 runs on the watch's row and ends where the Wait starts
+        const chain = ['p1', 'p2', 'p3', 'z'];
+        const others = ['c1', 'c2', 'c3', 'c4'];
+        const nodes = [
+            { id: 'g', type: 'group', position: { x: 0, y: 800 }, width: 4 * CARD_WIDTH + 64, height: 160, data: { locked: true } },
+            card('f', 'filter', 0, 0),
+            card('w', 'wait', 0, 0),
+            ...chain.map((id, i) => card(id, 'mapper', 32 + i * CARD_WIDTH, 848)),
+            ...others.map(id => card(id, 'mapper', 0, 0)),
+        ];
+        const edges = [
+            edge('f', 'w'),
+            edge('f', 'p1'),
+            ...lineEdges(chain),
+            edge('z', 'w', 'out-0', 'in-1'),
+            edge('f', 'c1', 'out-1'),
+            ...lineEdges(others),
+        ];
+        const placed = at(arrange(nodes, edges));
+        expect(placed.c4![1]).toBe(placed.w![1]! + PORT_GAP);
+        // "watch": 5 letters → 64 px after c4
+        expect(placed.w![0]).toBeGreaterThanOrEqual(placed.c4![0]! + CARD_WIDTH + 64);
+    });
+
+    test('one arrange is enough: arranging again moves nothing, even when a card had to move off a locked group', () => {
+        // the Wait's watch row runs into the top of a locked group right below it: the arrange moves it away (up), and the
+        // next arrange, from that card, would move the whole layout up a row; one arrange already gives that
+        const chain = ['p1', 'p2', 'p3', 'z'];
+        const nodes = [
+            { id: 'g', type: 'group', position: { x: 0, y: 160 }, width: 1600, height: 160, data: { locked: true } },
+            card('f', 'mapper', 0, 0),
+            card('w', 'wait', 0, 0),
+            ...chain.map((id, i) => card(id, 'mapper', 32 + i * CARD_WIDTH, 208)),
+        ];
+        const edges = [edge('f', 'w'), edge('f', 'p1'), ...lineEdges(chain), edge('z', 'w', 'out-0', 'in-1')];
+        const once = arrange(nodes, edges);
+        expect(at(arrange(once, edges))).toEqual(at(once));
+    });
+
     test('room for the longest name of the card (Distinct: duplicates), also after the unnamed-looking first output', () => {
         const placed = arrange([card('d', 'distinct', 0, 0), card('e', 'log', 0, 0)], [edge('d', 'e')]);
         // "duplicates": 10 letters → 10 × 6.5 + 24 = 89 → 96 (whole grid steps)
@@ -79,6 +120,61 @@ describe('arrange (left to right, glued)', () => {
         const placed = arrange([group, card('a', 'mapper', 0, 0), card('b', 'sort', 400, 300)], [edge('a', 'b')]);
         // cards at (0, 0) and (160, 0); the box: 32 left, 48 above, 32 right of the second card, 32 below
         expect(placed[0]).toMatchObject({ position: { x: -32, y: -48 }, width: 2 * CARD_WIDTH + 64, height: CARD_HEIGHT + 48 + 32 });
+    });
+
+    describe('a locked group', () => {
+        const box = (n: { position: { x: number; y: number }; width?: number; height?: number }) => ({
+            x: n.position.x,
+            y: n.position.y,
+            w: n.width ?? CARD_WIDTH,
+            h: n.height ?? CARD_HEIGHT,
+        });
+        const apart = (a: ReturnType<typeof box>, b: ReturnType<typeof box>) =>
+            a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+        // a flow s → a → b → t with a and b in a group laid out by hand (b below a, far right), where the arrange would
+        // put the loose cards
+        const nodes = (locked: boolean) => [
+            { id: 'g', type: 'group', position: { x: 0, y: 0 }, width: 640, height: 400, data: { title: 'kept', locked } },
+            card('a', 'mapper', 32, 48),
+            card('b', 'sort', 400, 240),
+            card('s', 'mapper', 0, 0 - 600),
+            card('t', 'log', 0, 600),
+        ];
+        const edges = [edge('s', 'a'), edge('a', 'b'), edge('b', 't')];
+
+        test('stays where it is, its size and the cards in it too', () => {
+            const placed = arrange(nodes(true), edges);
+            const byId = Object.fromEntries(placed.map(n => [n.id, n]));
+            expect(byId.g).toMatchObject({ position: { x: 0, y: 0 }, width: 640, height: 400 });
+            expect(at(placed)).toMatchObject({ a: [32, 48], b: [400, 240] });
+        });
+
+        test('what is arranged around it never lands on it', () => {
+            const placed = arrange(nodes(true), edges);
+            const byId = Object.fromEntries(placed.map(n => [n.id, n]));
+            expect(apart(box(byId.s!), box(byId.g!))).toBe(true);
+            expect(apart(box(byId.t!), box(byId.g!))).toBe(true);
+        });
+
+        test('unlocked, the same group is arranged as before: its cards glued, the box fitted around them', () => {
+            const placed = at(arrange(nodes(false), edges));
+            expect(placed.b![1]).toBe(placed.a![1]);
+            expect(placed.b![0]).toBe(placed.a![0]! + CARD_WIDTH);
+        });
+
+        test('what comes after it starts from where its cards are, not from where the arrange would have put them', () => {
+            // s → a → b → t, with a and b locked below s, at the left: t right after b, no room left for where a and b
+            // would have gone (after s)
+            const locked = [
+                { id: 'g', type: 'group', position: { x: 0, y: 400 }, width: 400, height: 160, data: { locked: true } },
+                card('s', 'mapper', 0, 0),
+                card('a', 'mapper', 32, 448),
+                card('b', 'sort', 32 + CARD_WIDTH, 448),
+                card('t', 'log', 900, 0),
+            ];
+            const placed = at(arrange(locked, edges));
+            expect(placed.t![0]).toBe(placed.b![0]! + CARD_WIDTH);
+        });
     });
 
     test('groups never overlap: a group fed by another one moves right of it; groups of separate flows go down', () => {
@@ -386,7 +482,74 @@ describe('arrange (left to right, glued)', () => {
         expect(placed.x![0]).toBe(placed.p2![0]);
     });
 
-    test('a block with nothing settled in its columns goes right above what feeds it; a long edge to a block settled before pushes the next one up', () => {
+    test("an edge from a port to a later card's other input (a Wait's watch) keeps its row: the branch from the same port goes a row down", () => {
+        // as Last by OriginalId: unique feeds the window's cards and, straight along its row, the Wait's watch they end in
+        const nodes = [
+            card('s', 'mapper', 0, 0),
+            card('d', 'distinct', 0, 0),
+            card('a', 'mapper', 0, 0),
+            card('b', 'mapper', 0, 0),
+            card('c', 'mapper', 0, 0),
+            card('w', 'wait', 0, 0),
+            card('e', 'end', 0, 0),
+        ];
+        const edges = [
+            edge('s', 'd'),
+            edge('s', 'w'),
+            edge('d', 'a'),
+            edge('d', 'w', 'out-0', 'in-1'),
+            ...lineEdges(['a', 'b', 'c']),
+            edge('c', 'w', 'out-0', 'in-1'),
+            edge('w', 'e'),
+        ];
+        const placed = at(arrange(nodes, edges));
+        expect([placed.a![1], placed.b![1], placed.c![1]]).toEqual(Array(3).fill(placed.d![1]! + PORT_GAP));
+    });
+
+    test("a Router's case whose card meets its else further on stays on its row: the else's shortcut below does not push it down", () => {
+        // as Extract window empty?: emptness → the next date → the checkpoint the else goes to directly
+        const nodes = [
+            card('r', 'router', 0, 0, { cases: [{ condition: 'true', label: 'emptness' }] }),
+            card('n', 'mapper', 0, 0),
+            card('v', 'mapper', 0, 0),
+        ];
+        const placed = at(arrange(nodes, [edge('r', 'n'), edge('r', 'v', 'out-1'), edge('n', 'v')]));
+        expect(placed.n![1]).toBe(placed.r![1]);
+        expect(placed.v![1]).toBe(placed.r![1]! + PORT_GAP);
+        expect(placed.v![0]).toBeGreaterThan(placed.n![0]!);
+    });
+
+    test("a Router's first case stays on its row when a later case's shortcut (to a Wait's hold) is kept clear below it", () => {
+        // as By table: briefs, a delete, and the insert that waits for it; every case ends in the window's Wait
+        const cases = ['briefs', 'delete', 'insert'].map(label => ({ condition: 'true', label }));
+        const nodes = [
+            card('s', 'mapper', 0, 0),
+            card('r', 'router', 0, 0, { cases }),
+            card('u', 'mapper', 0, 0),
+            card('del', 'mapper', 0, 0),
+            card('wt', 'wait', 0, 0),
+            card('ins', 'mapper', 0, 0),
+            card('t', 'wait', 0, 0),
+            card('e', 'end', 0, 0),
+        ];
+        const edges = [
+            edge('s', 'r'),
+            edge('s', 't'),
+            edge('r', 'u'),
+            edge('r', 'del', 'out-1'),
+            edge('r', 'wt', 'out-2'),
+            edge('del', 'wt', 'out-0', 'in-1'),
+            edge('wt', 'ins'),
+            ...['u', 'del', 'ins'].map(id => edge(id, 't', 'out-0', 'in-1')),
+            edge('t', 'e'),
+        ];
+        const placed = at(arrange(nodes, edges));
+        expect(placed.u![1]).toBe(placed.r![1]);
+        expect(placed.del![1]).toBe(placed.r![1]! + PORT_GAP);
+        expect(placed.wt![1]).toBe(placed.r![1]! + 2 * PORT_GAP);
+    });
+
+    test('a block with nothing settled in its columns goes right above what feeds it; a long edge to it pushes the other branch up, whichever is first on the screen', () => {
         // a flow p0 → … → p11, and another one: m0 → m1 → m2 → m3 with two branches of m0, y and x. p10 feeds x as well, so x
         // is in column 11, past the end of m's main path: nothing of that flow is settled there (and m0 → x is a long edge)
         const flow = Array.from({ length: 12 }, (_, i) => `p${i}`);
@@ -399,17 +562,15 @@ describe('arrange (left to right, glued)', () => {
         ];
         const edges = [...lineEdges(flow), ...lineEdges(rest), edge('m0', 'y'), edge('m0', 'x'), edge('p10', 'x')];
 
-        // x made after y (blocks are made from the last branch on the screen to the first): above its feeder, level with y,
-        // not above y as well (there is no settled card of the flow in its columns, and y is not in them)
-        const after = at(arrange(nodes(1050), edges));
-        expect(after.x![0]).toBeGreaterThan(after.p10![0]! + CARD_WIDTH - 1);
-        expect(after.x![1]).toBe(after.m0![1]! - PORT_GAP);
-        expect(after.y![1]).toBe(after.m0![1]! - PORT_GAP);
-
-        // x made before y: m0 → x runs one row above the main path across y's column, so y goes above that edge
-        const before = at(arrange(nodes(1150), edges));
-        expect(before.x![1]).toBe(before.m0![1]! - PORT_GAP);
-        expect(before.y![1]).toBe(before.m0![1]! - 2 * PORT_GAP);
+        // x right above its feeder, past p10; m0 → x runs one row above the main path across y's column, so y goes above that
+        // edge. The order on the screen before (x below y, or above it) changes nothing: one arrange gives what a second
+        // one would keep
+        for (const xY of [1050, 1150]) {
+            const placed = at(arrange(nodes(xY), edges));
+            expect(placed.x![0]).toBeGreaterThan(placed.p10![0]! + CARD_WIDTH - 1);
+            expect(placed.x![1]).toBe(placed.m0![1]! - PORT_GAP);
+            expect(placed.y![1]).toBe(placed.m0![1]! - 2 * PORT_GAP);
+        }
     });
 
     describe('a row apart from a card of another group', () => {

@@ -156,6 +156,7 @@ export function repoFlowToYaml(flow: FlowFile, { deployed = true }: { deployed?:
                           color: g.color,
                           position: { x: g.position.x, y: g.position.y },
                           size: { width: g.size.width, height: g.size.height },
+                          ...(g.locked ? { locked: true } : {}),
                       }))
                       .sort(byKeys(g => g.id)),
               }

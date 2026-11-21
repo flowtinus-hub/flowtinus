@@ -6,6 +6,7 @@ import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { isReadOnly, useProject } from '@/data/projects/use-project';
+import { setUnsavedWork, useUnsavedWork } from '@/data/git/unsaved-work';
 import { createScriptPath, deleteScriptPath, discardScript, flushScripts, newPathIssue, reloadAll, renameScriptPath, scriptFolders, scriptUsage, useProjectScripts, type SaveState } from '@/data/scripts/scripts-store';
 import { cn } from '@/lib/utils';
 import { getCurrentBranch, getGitStatus, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
@@ -26,6 +27,9 @@ const asResult = async (failed: Promise<string | null>): Promise<ApiResult<null>
 
 const nameOf = (path: string) => normalizeScriptPath(path).split('/').at(-1) ?? path;
 
+const byLastName = (a: string, b: string) =>
+    (a.split('/').at(-1) ?? a).localeCompare(b.split('/').at(-1) ?? b, 'en', { sensitivity: 'base' });
+
 /** a line of the tree: a folder or a script, at its depth */
 type Row = { kind: 'folder' | 'script'; path: string; name: string; depth: number };
 
@@ -36,8 +40,8 @@ function treeRows(folders: string[], scripts: string[], open: { has: (path: stri
         const depth = parent ? parent.split('/').length : 0;
         const direct = (path: string) => path.split('/').length === depth + 1 && (!parent || path.startsWith(`${parent}/`));
         return {
-            folders: folders.filter(direct),
-            scripts: scripts.filter(direct),
+            folders: folders.filter(direct).sort(byLastName),
+            scripts: scripts.filter(direct).sort(byLastName),
         };
     };
     const walk = (parent: string) => {
@@ -76,6 +80,11 @@ export function ScriptsPage() {
     const project = useProject(projectId);
     const archived = isReadOnly(project);
     const scripts = useProjectScripts(projectId);
+    const unsaved = useUnsavedWork();
+    useEffect(() => {
+        setUnsavedWork('scripts', scripts.save === 'unsaved' || scripts.save === 'saving' ? 'Wait until the scripts are saved' : null);
+        return () => setUnsavedWork('scripts', null);
+    }, [scripts.save]);
     const folders = scriptFolders(scripts);
     // folders start open: the ones closed are kept
     const [closed, setClosed] = useState<Set<string>>(() => new Set());
@@ -230,8 +239,8 @@ export function ScriptsPage() {
                     {git && (
                         <Button
                             variant="outline"
-                            disabled={archived || changedCount === 0 || pullRequestsOnly}
-                            title={pullRequestsOnly ? ONLY_PULL_REQUESTS : undefined}
+                            disabled={archived || changedCount === 0 || pullRequestsOnly || !!unsaved}
+                            title={pullRequestsOnly ? ONLY_PULL_REQUESTS : (unsaved ?? undefined)}
                             onClick={() => setCommitOpen(true)}
                         >
                             <GitCommitHorizontal />

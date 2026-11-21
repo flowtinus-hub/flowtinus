@@ -180,6 +180,26 @@ describe('scripts reach the branch through a Commit', () => {
         expect(committed.body.changedScripts).toEqual([]);
     });
 
+    test("discarding a script's edits leaves the changed flows that import it; discarding a new script takes them along", async () => {
+        const { call, scripts, create, save, flow, scriptFile, flowFile } = await newWorkspace();
+        const changed = async () => ((await call('GET', '/git/changes')).body.changes as { path: string }[]).map(c => c.path).sort();
+        await create('lib/prices', 'export const value = 1;');
+        await flow('Orders', 'lib/prices');
+        await save('lib/prices', 'export const value = 2;');
+
+        const edits = await call('POST', '/git/discard', { paths: [scriptFile('lib/prices')] });
+        expect(edits.status).toBe(200);
+        expect(edits.body.discarded).toEqual([scriptFile('lib/prices')]);
+        expect(await changed()).toEqual([flowFile('Orders')]);
+
+        expect((await call('POST', scripts, { kind: 'script', path: 'lib/tax', content: 'export const value = 3;' })).status).toBe(201);
+        await flow('Invoices', 'lib/tax');
+        const added = await call('POST', '/git/discard', { paths: [scriptFile('lib/tax')] });
+        expect(added.status).toBe(200);
+        expect(added.body.discarded).toEqual([flowFile('Invoices'), scriptFile('lib/tax')].sort());
+        expect(await changed()).toEqual([flowFile('Orders')]);
+    });
+
     test('renaming a script rewrites its callers and their drafts; one Commit takes them all', async () => {
         const { call, scripts, create, save, editing, flow, show, scriptFile, flowFile, tree, lastMessage } = await newWorkspace();
         await create('lib/prices', 'export const value = 1;');

@@ -75,7 +75,7 @@ const flowSchema: JsonSchema = {
                 type: 'object',
                 required: ['id', 'position', 'size'],
                 additionalProperties: false,
-                properties: { id: text, title: text, color: text, position: point, size },
+                properties: { id: text, title: text, color: text, position: point, size, locked: { type: 'boolean' } },
             },
         },
     },

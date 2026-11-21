@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { NodeResizer, useReactFlow, type NodeProps } from '@xyflow/react';
+import { Lock, LockOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GROUP_COLORS, type GroupData, type GroupNode } from './group';
 import { useHistory } from './history';
@@ -7,7 +8,7 @@ import { useHistory } from './history';
 /*
  * A group, as in the PoC: a colored rectangle behind the components, only to organize them visually (it is not part of
  * the run). It has a title and a color; selected, it can be resized and recolored. Dragging it takes along the cards
- * entirely inside it (flow-canvas.tsx).
+ * entirely inside it (flow-canvas.tsx). Locked (the padlock), the Arrange leaves it and its cards where they are.
  */
 
 function GroupNodeView({ id, data, selected }: NodeProps<GroupNode>) {
@@ -18,12 +19,16 @@ function GroupNodeView({ id, data, selected }: NodeProps<GroupNode>) {
         recordEdit(`${id}:${Object.keys(changes).join(',')}`);
         updateNodeData(id, changes);
     };
+    const toggleLock = () => {
+        record();
+        updateNodeData(id, { locked: !data.locked });
+    };
 
     return (
         <>
             <NodeResizer isVisible={selected} minWidth={160} minHeight={96} color={data.color} onResizeStart={record} />
             <div
-                className="absolute inset-0 flex flex-col rounded-xl border-2"
+                className="group/box absolute inset-0 flex flex-col rounded-xl border-2"
                 style={{
                     backgroundColor: `color-mix(in oklch, ${data.color} 16%, transparent)`,
                     borderColor: `color-mix(in oklch, ${data.color} ${selected ? 90 : 45}%, transparent)`,
@@ -40,6 +45,25 @@ function GroupNodeView({ id, data, selected }: NodeProps<GroupNode>) {
                             className="nodrag w-full truncate rounded bg-transparent px-1 text-sm font-semibold outline-none placeholder:opacity-60 focus-visible:bg-background"
                         />
                     </label>
+                    <button
+                        type="button"
+                        aria-pressed={!!data.locked}
+                        aria-label={data.locked ? 'Unlock the group for the Arrange' : 'Lock the group for the Arrange'}
+                        title={
+                            data.locked
+                                ? 'Locked: the Arrange leaves this group and its cards where they are. Click to unlock'
+                                : 'Lock: the Arrange leaves this group and its cards where they are'
+                        }
+                        onClick={toggleLock}
+                        style={{ color: `color-mix(in oklch, ${data.color} 70%, var(--foreground))` }}
+                        className={cn(
+                            'nodrag flex size-6 shrink-0 items-center justify-center rounded hover:bg-background/60',
+                            !data.locked && !selected && 'opacity-0 group-hover/box:opacity-60 focus-visible:opacity-100',
+                            !data.locked && selected && 'opacity-60',
+                        )}
+                    >
+                        {data.locked ? <Lock className="size-3.5" /> : <LockOpen className="size-3.5" />}
+                    </button>
                     {selected && (
                         <div className="nodrag flex shrink-0 items-center gap-1" role="radiogroup" aria-label="Group color">
                             {GROUP_COLORS.map(color => (

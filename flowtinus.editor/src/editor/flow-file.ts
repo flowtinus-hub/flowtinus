@@ -68,6 +68,7 @@ export function canvasToFlowFile(flow: { id?: string; name: string }, nodes: Nod
                       id: g.id,
                       title: (g.data as GroupData).title,
                       color: (g.data as GroupData).color,
+                      ...((g.data as GroupData).locked ? { locked: true } : {}),
                       position: g.position,
                       size: {
                           width: g.measured?.width ?? g.width ?? GROUP_SIZE.width,
@@ -94,7 +95,7 @@ export function flowFileToCanvas(file: FlowFile): {
         position: g.position,
         width: g.size.width,
         height: g.size.height,
-        data: { title: g.title, color: g.color },
+        data: { title: g.title, color: g.color, ...(g.locked ? { locked: true } : {}) },
     }));
     const loops = file.nodes
         .filter(n => n.type === LOOP_TYPE)

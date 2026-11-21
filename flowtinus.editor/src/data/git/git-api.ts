@@ -150,6 +150,39 @@ export type WorkingChange = {
     requires: { path: string; reason: string }[];
 };
 
+/** the files a commit of `chosen` has to take along (a folder's file, a script a flow imports), with why */
+export function requiredBy(changes: WorkingChange[], chosen: Set<string>): Map<string, string> {
+    const byPath = new Map(changes.map(c => [c.path, c]));
+    const locked = new Map<string, string>();
+    const queue = [...chosen];
+    while (queue.length > 0) {
+        for (const { path, reason } of byPath.get(queue.shift()!)?.requires ?? []) {
+            if (!locked.has(path) && !chosen.has(path)) {
+                locked.set(path, reason);
+                queue.push(path);
+            }
+        }
+    }
+    return locked;
+}
+
+/** the other files a discard of `path` takes along: those that need it as it is (the server's rule, withDependents) */
+export function discardedWith(changes: WorkingChange[], path: string): string[] {
+    const all = new Map(changes.filter(c => c.path === path).map(c => [c.path, c]));
+    for (let grew = true; grew;) {
+        grew = false;
+        const needed = [...all.values()].filter(c => c.change !== 'modified').map(c => c.path);
+        for (const change of changes.filter(c => !all.has(c.path))) {
+            if (change.requires.some(r => needed.includes(r.path))) {
+                all.set(change.path, change);
+                grew = true;
+            }
+        }
+    }
+    all.delete(path);
+    return [...all.keys()];
+}
+
 export const CHANGES_CHANGED = 'flowtinus:changes-changed';
 
 export type PendingMerge = { from: string; theirs: string; ours: string; conflicts: string[] };

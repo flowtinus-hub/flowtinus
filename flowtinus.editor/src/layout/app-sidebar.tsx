@@ -1,15 +1,12 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, GitCommitHorizontal } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { CHANGES_CHANGED, getChanges, getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
-import { ChangesDialog } from './changes-dialog';
-import { BranchPicker } from './branch-picker';
-import { API_WRITE_DONE } from '@/lib/api';
-import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
+import { getGitStatus, GIT_STATUS_CHANGED, gitAhead, ONLY_PULL_REQUESTS, type GitStatus } from '@/data/git/git-api';
+import { NavLink, useLocation, useNavigate } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import { connectionsPath, projectsPath, RUNS_PATH, secretsPath, WORKERS_PATH, workspaceSettingsPath, WORKSPACES_PATH } from '@/app/paths';
 import { mockUser } from '@/auth/mock-user';
-import { lastWorkspace, useMe } from '@/data/workspaces/use-workspace';
+import { useMe, useMenuWorkspace } from '@/data/workspaces/use-workspace';
 import { ROLE_LABEL, type Membership } from '@/data/workspaces/workspace';
 import { NewWorkspaceDialog } from '@/pages/workspaces/new-workspace-dialog';
 import { NavUser } from './nav-user';
@@ -17,13 +14,6 @@ import { WorkerIcon } from '@/components/worker-icon';
 
 // an item is also active on its sub-pages (/w/dev/projects/...)
 const isActive = (to: string, pathname: string) => pathname === to || pathname.startsWith(`${to}/`);
-
-/** the workspace in the menu: the page's, else the one last used (on the environment's pages: Runs, Workers) */
-function useMenuWorkspace(workspaces: Membership[]): Membership | null {
-    const { ws } = useParams();
-    const slug = ws ?? lastWorkspace();
-    return workspaces.find(w => w.slug === slug) ?? workspaces[0] ?? null;
-}
 
 /** the workspace's name at the top of the menu; a click: the user's other workspaces, all of them, a new one (admins of the environment) */
 function WorkspaceSwitcher({
@@ -129,46 +119,6 @@ function GitAheadItem({ slug, pathname }: { slug: string; pathname: string }) {
     );
 }
 
-function ChangesItem({ slug, pathname }: { slug: string; pathname: string }) {
-    const [count, setCount] = useState<{ slug: string; value: number; merging: boolean } | null>(null);
-    const [open, setOpen] = useState(false);
-    useEffect(() => {
-        let gone = false;
-        const read = () =>
-            void getChanges(slug).then(
-                result =>
-                    !gone &&
-                    setCount({ slug, value: result.ok ? result.value.changes.length : 0, merging: result.ok && !!result.value.merge }),
-            );
-        read();
-        const timer = setInterval(read, GIT_STATUS_MS);
-        window.addEventListener(CHANGES_CHANGED, read);
-        window.addEventListener(API_WRITE_DONE, read);
-        return () => {
-            gone = true;
-            clearInterval(timer);
-            window.removeEventListener(CHANGES_CHANGED, read);
-            window.removeEventListener(API_WRITE_DONE, read);
-        };
-    }, [slug, pathname]);
-
-    const value = count?.slug === slug ? count.value : 0;
-    const merging = count?.slug === slug && count.merging;
-    if (value === 0 && !merging && !open) {
-        return null;
-    }
-    const label = `Changes (${value})${merging ? ', merging' : ''}`;
-    return (
-        <SidebarMenuItem>
-            <SidebarMenuButton tooltip={label} onClick={() => setOpen(true)}>
-                <GitCommitHorizontal />
-                <span>{label}</span>
-            </SidebarMenuButton>
-            {open && <ChangesDialog slug={slug} onClose={() => setOpen(false)} />}
-        </SidebarMenuItem>
-    );
-}
-
 export function AppSidebar() {
     const { pathname } = useLocation();
     const { state } = useMe();
@@ -213,9 +163,7 @@ export function AppSidebar() {
                     // with git off every item renders nothing: the group and its lines go too
                     <SidebarGroup className="mx-2 w-auto border-y border-sidebar-border px-0 has-[>ul:empty]:hidden">
                         <SidebarMenu>
-                            <BranchPicker slug={current.slug} />
                             <GitAheadItem slug={current.slug} pathname={pathname} />
-                            <ChangesItem slug={current.slug} pathname={pathname} />
                         </SidebarMenu>
                     </SidebarGroup>
                 )}

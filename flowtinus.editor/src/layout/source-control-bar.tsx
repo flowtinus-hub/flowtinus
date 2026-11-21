@@ -1,0 +1,79 @@
+import { GitCommitHorizontal } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router';
+import { Button } from '@/components/ui/button';
+import { CHANGES_CHANGED, getChanges } from '@/data/git/git-api';
+import { useUnsavedWork } from '@/data/git/unsaved-work';
+import { useMe, useMenuWorkspace } from '@/data/workspaces/use-workspace';
+import { API_WRITE_DONE } from '@/lib/api';
+import { BranchPicker } from './branch-picker';
+import { ChangesDialog } from './changes-dialog';
+
+/** looked at again on this interval, and on each page */
+const CHANGES_MS = 60_000;
+
+function ChangesButton({ slug, pathname }: { slug: string; pathname: string }) {
+    const [count, setCount] = useState<{ slug: string; value: number; merging: boolean } | null>(null);
+    const [open, setOpen] = useState(false);
+    const unsaved = useUnsavedWork();
+    useEffect(() => {
+        let gone = false;
+        const read = () =>
+            void getChanges(slug).then(
+                result =>
+                    !gone &&
+                    setCount({ slug, value: result.ok ? result.value.changes.length : 0, merging: result.ok && !!result.value.merge }),
+            );
+        read();
+        const timer = setInterval(read, CHANGES_MS);
+        window.addEventListener(CHANGES_CHANGED, read);
+        window.addEventListener(API_WRITE_DONE, read);
+        return () => {
+            gone = true;
+            clearInterval(timer);
+            window.removeEventListener(CHANGES_CHANGED, read);
+            window.removeEventListener(API_WRITE_DONE, read);
+        };
+    }, [slug, pathname]);
+
+    const value = count?.slug === slug ? count.value : 0;
+    const merging = count?.slug === slug && count.merging;
+    if (value === 0 && !merging && !open) {
+        return null;
+    }
+    const label = `Changes (${value})${merging ? ', merging' : ''}`;
+    return (
+        <>
+            <Button
+                variant="ghost"
+                size="sm"
+                title={unsaved ? `${label}. ${unsaved} to commit` : label}
+                aria-label={label}
+                disabled={!!unsaved}
+                className="disabled:pointer-events-auto disabled:cursor-not-allowed"
+                onClick={() => setOpen(true)}
+            >
+                <GitCommitHorizontal />
+                <span>({value})</span>
+                {merging && <span className="text-xs text-muted-foreground">merging</span>}
+            </Button>
+            {open && <ChangesDialog slug={slug} onClose={() => setOpen(false)} />}
+        </>
+    );
+}
+
+/** in the top bar, with git on: the current branch (a click: the branch menu) and the uncommitted changes (a click: commit them) */
+export function SourceControlBar() {
+    const { pathname } = useLocation();
+    const { state } = useMe();
+    const current = useMenuWorkspace(state.status === 'ready' ? state.me.workspaces : []);
+    if (!current) {
+        return null;
+    }
+    return (
+        <div className="flex min-w-0 items-center gap-1">
+            <BranchPicker slug={current.slug} />
+            <ChangesButton slug={current.slug} pathname={pathname} />
+        </div>
+    );
+}

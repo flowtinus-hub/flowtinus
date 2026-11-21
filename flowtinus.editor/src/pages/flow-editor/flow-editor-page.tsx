@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { flowFileName, flowToYaml, type FlowCall } from '@flowtinus/core';
+import { flowFileName, flowToYaml, type FlowCall, type ScriptUse } from '@flowtinus/core';
 import { canvasToFlowFile, saveFile } from '@/editor/flow-file';
 import { useParams } from 'react-router';
 import type { Flow, Folder } from '@/data/flows/flow';
@@ -11,10 +11,11 @@ import { ThemeToggle } from '@/layout/theme-toggle';
 import { ProjectBreadcrumb } from '@/pages/project-flows/project-breadcrumb';
 import { ServerGate } from '@/components/server-gate';
 import { FlowActions } from './flow-actions';
-import { FlowCallsButton } from './flow-calls';
+import { FlowCallsPanel } from './flow-calls';
 import { SaveStatus } from './save-status';
 import { WorkerTagMenu } from './worker-tag-menu';
 import { DeployMenu } from './deploy-menu';
+import { BranchCommitMenu } from './branch-commit-menu';
 import { SchedulesMenu } from './schedules-menu';
 import { WebhooksMenu } from './webhooks-menu';
 import type { FlowVersion } from '@/data/deployments/deployment';
@@ -27,6 +28,8 @@ import { portLabel } from '@/editor/run/port-label';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { getCurrentBranch, getGitStatus, REMOVED_BRANCH } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
+import { BranchPicker } from '@/layout/branch-picker';
+import { setUnsavedWork } from '@/data/git/unsaved-work';
 import { CreateBranchDialog } from '@/layout/create-branch-dialog';
 import { cancelRun, getLastRun, getRun, startRun, type RunUsage } from '@/data/flows/flows-api';
 import { followRun } from '@/data/flows/run-events';
@@ -53,6 +56,11 @@ export function FlowEditorPage() {
     const [save, setSave] = useState<DraftSave | null>(null);
     // a save answered not found: the flow is read again (archived: it turns read-only, with Restore)
     const gone = save?.state.status === 'gone';
+    const saveStatus = save?.state.status;
+    useEffect(() => {
+        setUnsavedWork('flow', saveStatus === 'pending' || saveStatus === 'saving' ? 'Wait until the flow is saved' : null);
+        return () => setUnsavedWork('flow', null);
+    }, [saveStatus]);
 
     useEffect(() => {
         let current = true;
@@ -113,8 +121,10 @@ export function FlowEditorPage() {
     const connection = useServerConnection();
     // the flow's deployed version (Deploy says it): Schedules run it
     const [deployedVersion, setDeployedVersion] = useState<FlowVersion | null>(null);
-    // the canvas's Flow Invoker calls, as they change (the top bar's Calls)
+    // the canvas's Flow Invoker calls, as they change (the canvas's Calls), and whether its panel is open (D)
     const [ownCalls, setOwnCalls] = useState<FlowCall[] | null>(null);
+    const [ownScripts, setOwnScripts] = useState<ScriptUse[] | null>(null);
+    const [callsOpen, setCallsOpen] = useState(false);
     const download = () => {
         const now = canvas.current?.snapshot();
         if (!now || !current?.flow) {
@@ -375,6 +385,7 @@ export function FlowEditorPage() {
                     project={project.status === 'ready' ? project.project : null}
                     folders={current?.folders}
                     flowName={flowName}
+                    after={<BranchPicker slug={ws} />}
                 />
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                     {onBranch &&
@@ -390,7 +401,7 @@ export function FlowEditorPage() {
                             <span
                                 role="status"
                                 className="shrink-0 text-xs whitespace-nowrap text-muted-foreground"
-                                title="This branch is read only here: pick the environment's branch in the sidebar to make changes. Run runs what the branch has."
+                                title="This branch is read only here: pick the environment's branch in the branch picker to make changes. Run runs what the branch has."
                             >
                                 Read only
                             </span>
@@ -408,10 +419,6 @@ export function FlowEditorPage() {
                         }
                     />
                     <span className="mx-1 h-5 w-px bg-border" aria-hidden />
-                    {current?.flow && (
-                        // this flow's calls as the canvas has them now
-                        <FlowCallsButton projectId={projectId} flowId={flowId} own={ownCalls} />
-                    )}
                     <FlowActions
                         onDownload={current?.flow ? download : undefined}
                         running={running}
@@ -441,6 +448,22 @@ export function FlowEditorPage() {
                                     onToggleRunPanel={() => setPanelOpen(open => !open || running !== null)}
                                     onPinned={setPinned}
                                     onCalls={setOwnCalls}
+                                    onScriptUses={setOwnScripts}
+                                    onToggleCalls={() => setCallsOpen(open => !open)}
+                                    toolsBefore={
+                                        current?.flow && (
+                                            // this flow's calls as the canvas has them now
+                                            <FlowCallsPanel
+                                                projectId={projectId}
+                                                flowId={flowId}
+                                                own={ownCalls}
+                                                ownScripts={ownScripts}
+                                                onFocus={nodeId => canvas.current?.focus(nodeId)}
+                                                open={callsOpen}
+                                                onToggle={() => setCallsOpen(open => !open)}
+                                            />
+                                        )
+                                    }
                                     tools={
                                         current?.flow && (
                                             // which workers run it, before Arrange
@@ -455,7 +478,16 @@ export function FlowEditorPage() {
                                     }
                                     toolsAfter={
                                         current?.flow &&
-                                        !onWorkBranch && (
+                                        (onWorkBranch ? (
+                                            !onBranch && (
+                                                <BranchCommitMenu
+                                                    flowId={flowId}
+                                                    workspace={ws}
+                                                    disabled={archived || gone || connection.state !== 'online'}
+                                                    flush={async () => (save ? save.flush() : 'not-saved')}
+                                                />
+                                            )
+                                        ) : (
                                             // after Group: Deploy, and the schedules of the deployed version
                                             <>
                                                 <DeployMenu
@@ -483,7 +515,7 @@ export function FlowEditorPage() {
                                                     confirm={setConfirm}
                                                 />
                                             </>
-                                        )
+                                        ))
                                     }
                                     marks={marks}
                                     known={knownNow}

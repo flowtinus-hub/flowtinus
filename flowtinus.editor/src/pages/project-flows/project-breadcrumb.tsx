@@ -17,6 +17,8 @@ type Props = {
     folders?: Folder[];
     /** inside a flow: its name, last */
     flowName?: string;
+    /** right after the last step (the flow editor's branch picker) */
+    after?: ReactNode;
 };
 
 type Step = { key: string; to: string; label: ReactNode };
@@ -41,7 +43,7 @@ const folderLabel = (name: string) => (
  * the last. Deep paths fold the middle folders into "…"; when it is still too long the steps are cut with "…", the
  * last one (the flow, or the folder you are in) always keeps at least 8 letters.
  */
-export function ProjectBreadcrumb({ project, folders = [], flowName }: Props) {
+export function ProjectBreadcrumb({ project, folders = [], flowName, after }: Props) {
     const { slug: ws, membership } = useWorkspace();
     const workspace = (
         <Link to={projectsPath(ws)} className={cn(LINK, 'max-w-48 shrink-0 truncate')} title="Projects of this workspace">
@@ -102,6 +104,7 @@ export function ProjectBreadcrumb({ project, folders = [], flowName }: Props) {
                     {i === foldAfter && <FoldedFolders projectId={project.id} folders={folded} />}
                 </Fragment>
             ))}
+            {after}
         </nav>
     );
 }

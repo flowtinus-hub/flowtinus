@@ -743,7 +743,7 @@ function InfoPanel({ data, onClose }: { data: ComponentData; onClose: () => void
             <div
                 role="dialog"
                 aria-label={`Details: ${data.label?.trim() || info?.label || data.type}`}
-                className="nowheel w-72 rounded-md border bg-card text-card-foreground shadow-md"
+                className="nowheel w-100 rounded-md border bg-card text-card-foreground shadow-md"
             >
                 <div className="flex items-center gap-2 border-b px-2 py-1.5">
                     {info && <info.icon className="size-3.5 shrink-0" style={{ color: CATEGORIES[info.category].color }} />}

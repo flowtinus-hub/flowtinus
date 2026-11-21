@@ -34,7 +34,12 @@ const asProject = (result: ApiResult<ProjectDto>): ApiResult<Project> =>
 /** active projects newest first, or archived ones last archived first; of the page's workspace unless one is given (its slug) */
 export async function listProjects(status: ProjectStatus = 'active', workspace?: string): Promise<ApiResult<Project[]>> {
     const result = await api<{ items: ProjectDto[] }>(`${workspace ? `/w/${workspace}` : ''}/projects?status=${status}`);
-    return result.ok ? { ok: true, value: result.value.items.map(toProject) } : result;
+    if (!result.ok) {
+        return result;
+    }
+
+    const projects = result.value.items.map(toProject);
+    return { ok: true, value: status === 'active' ? projects.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()) : projects };
 }
 
 /** one project, active or archived; error code 'not-found' when it is not the workspace's */

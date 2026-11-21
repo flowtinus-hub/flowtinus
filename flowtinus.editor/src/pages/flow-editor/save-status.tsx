@@ -1,9 +1,11 @@
-import { Archive, ArchiveRestore, CircleAlert, CircleCheck, CircleDot, LoaderCircle, RefreshCw } from 'lucide-react';
+import { Archive, ArchiveRestore, CircleAlert, CircleCheck, LoaderCircle, Pencil, RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { DraftSave } from '@/editor/flow-save';
 
 /**
- * Where the flow's draft stands, in the top bar: Saving…, Saved, Not saved (with Retry), or changed elsewhere (with
+ * Where the flow's draft stands, in the top bar: Editing… (a save waits for the changes to settle), Saving…, Saved,
+ * Unsaved changes (in red: the save failed, with Retry), or changed elsewhere (with
  * Reload), archived or removed (nothing to retry). It saves by itself; Ctrl+S saves now. An archived flow (`archived`,
  * read-only) shows Archived and Restore instead.
  */
@@ -40,9 +42,9 @@ export function SaveStatus({
         case 'pending':
             return (
                 <Status
-                    icon={<CircleDot className="size-3.5" />}
-                    text="Unsaved changes"
-                    title="Saves by itself in a moment; Ctrl+S saves now"
+                    icon={<Pencil className="size-3.5" />}
+                    text="Editing…"
+                    title="Saves by itself a moment after the last change; Ctrl+S saves now"
                 />
             );
         case 'saving':
@@ -58,7 +60,12 @@ export function SaveStatus({
         case 'error':
             return (
                 <span className="flex items-center gap-1.5">
-                    <Status icon={<CircleAlert className="size-3.5 text-destructive" />} text="Not saved" title={state.message} />
+                    <Status
+                        icon={<CircleAlert className="size-3.5" />}
+                        text="Unsaved changes"
+                        title={`Not saved: ${state.message}`}
+                        className="text-destructive"
+                    />
                     <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={save.saveNow}>
                         Retry
                     </Button>
@@ -90,9 +97,9 @@ export function SaveStatus({
     }
 }
 
-function Status({ icon, text, title }: { icon: React.ReactNode; text: string; title?: string }) {
+function Status({ icon, text, title, className }: { icon: React.ReactNode; text: string; title?: string; className?: string }) {
     return (
-        <span role="status" title={title ?? text} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span role="status" title={title ?? text} className={cn('flex items-center gap-1.5 text-xs text-muted-foreground', className)}>
             {icon}
             {text}
         </span>
