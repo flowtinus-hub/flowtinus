@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { ArrowRight, GitBranch, Layers, TriangleAlert } from 'lucide-react';
+import { ArrowRight, GitBranch, Layers, TriangleAlert, Undo2 } from 'lucide-react';
 import { workspaceSettingsPath } from '@/app/paths';
 import { ResourceView } from '@/components/resource-view';
 import { useResource } from '@/data/use-resource';
@@ -122,6 +122,12 @@ function EnvironmentCardView({ card, into, here }: { card: EnvironmentCard; into
                     {card.warning}
                 </p>
             )}
+            {!!card.emergencyRollbacks && (
+                <p className="flex items-center gap-1 text-xs text-red-700 dark:text-red-400">
+                    <Undo2 className="size-3.5 shrink-0" />
+                    {card.emergencyRollbacks === 1 ? '1 flow' : `${card.emergencyRollbacks} flows`} in an emergency rollback
+                </p>
+            )}
             <div className="text-xs">
                 <span className="text-muted-foreground">Tip </span>
                 {card.tip ? (
@@ -182,15 +188,17 @@ function EdgeLine({ edge, branch }: { edge: EnvironmentEdge; branch: string }) {
 }
 
 const CELL_TEXT = (cell: FlowCell) =>
-    cell.state === 'absent'
-        ? 'Absent'
-        : cell.state === 'undeployed'
-          ? 'Undeployed'
-          : cell.content === 'same'
-            ? 'Same'
-            : cell.content === 'other'
-              ? 'Another version'
-              : 'Deployed';
+    cell.emergencyRollback
+        ? `v${cell.emergencyRollback.number} · emergency rollback`
+        : cell.state === 'absent'
+          ? 'Absent'
+          : cell.state === 'undeployed'
+            ? 'Undeployed'
+            : cell.content === 'same'
+              ? 'Same'
+              : cell.content === 'other'
+                ? 'Another version'
+                : 'Deployed';
 
 function RunsWhere({ value }: { value: On }) {
     const { environments, flows } = value.runsWhere;
@@ -247,9 +255,16 @@ function FlowLine({ flow, environments, here }: { flow: FlowRow; environments: s
                             'px-3 py-2',
                             env === here && 'bg-primary/5',
                             cell?.differs && 'bg-amber-500/10 font-medium text-amber-800 dark:text-amber-300',
+                            cell?.emergencyRollback && 'font-mono font-medium text-red-700 dark:text-red-400',
                             (!cell || cell.state === 'absent') && !cell?.differs && 'text-muted-foreground',
                         )}
-                        title={cell?.differs ? `Differs from ${here}` : undefined}
+                        title={
+                            cell?.emergencyRollback
+                                ? `v${cell.emergencyRollback.number} runs here instead of git's v${cell.emergencyRollback.gitNumber}: an emergency rollback`
+                                : cell?.differs
+                                  ? `Differs from ${here}`
+                                  : undefined
+                        }
                     >
                         {cell ? CELL_TEXT(cell) : 'No branch'}
                     </td>

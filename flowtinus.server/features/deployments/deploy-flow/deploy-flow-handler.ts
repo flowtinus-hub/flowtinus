@@ -14,7 +14,7 @@ import { changeTree } from '#features/git/git-first';
 import { isGitOn } from '#features/git/git-config';
 import { arrivedSince, listArrivedDisabled } from '#features/git/arrived-disabled';
 import type { CommittedDeployments } from '../commit-deploy';
-import { activeFlow, contentHash, currentDeployment, insertVersion, loadDeployments, lockFlowDeployments, newestVersionLike, setDeployed } from '../deployments';
+import { activeFlow, contentHash, currentDeployment, gitDeployment, insertVersion, loadDeployments, lockFlowDeployments, newestVersionLike, setDeployed } from '../deployments';
 
 export const DeployFlowCommand = z.object({
     id: z.uuid('Invalid'),
@@ -95,7 +95,7 @@ async function commitFlow(
         deploy: { flowId: row.id },
     });
     if (!committed.ok) {
-        const current = await currentDeployment(ctx.db, ctx.workspaceId, row.id);
+        const current = await gitDeployment(ctx.db, ctx.workspaceId, row.id);
         return committed.error.message === 'Nothing to commit.' && current
             ? fail('validation', `Nothing to commit: the draft is v${current.number}.`)
             : committed;

@@ -74,6 +74,8 @@ export type EnvironmentCard = {
     tip: string | null;
     here: boolean;
     warning?: string;
+    /** this server's environment: how many flows run an emergency rollback */
+    emergencyRollbacks?: number;
 };
 
 export type EnvironmentEdge = {
@@ -86,7 +88,13 @@ export type EnvironmentEdge = {
     backports: Promotion[];
 };
 
-export type FlowCell = { state: 'deployed' | 'undeployed' | 'absent'; content: 'same' | 'other' | null; differs: boolean };
+/** emergencyRollback: on this server's column, the version that runs instead of git's */
+export type FlowCell = {
+    state: 'deployed' | 'undeployed' | 'absent';
+    content: 'same' | 'other' | null;
+    differs: boolean;
+    emergencyRollback?: { number: number; gitNumber: number };
+};
 
 export type FlowRow = { id: string; name: string; cells: Record<string, FlowCell | null> };
 

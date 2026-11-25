@@ -131,3 +131,11 @@ export const defineTool = <S extends z.ZodRawShape>(tool: {
 }): McpTool => tool as McpTool;
 
 export const workspaceArg = z.string().describe("the workspace's handle, from list_workspaces or resolve_url");
+
+/** an emergency rollback as get_deployments and get_project_contents report it */
+export const mcpEmergencyRollback = (rollback: { number: number; gitNumber: number; byName?: string; at: Date }) => ({
+    runningVersion: rollback.number,
+    gitVersion: rollback.gitNumber,
+    by: rollback.byName ?? null,
+    at: rollback.at,
+});
