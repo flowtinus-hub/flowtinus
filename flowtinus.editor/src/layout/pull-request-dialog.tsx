@@ -1,9 +1,16 @@
-import { useEffect, useState } from 'react';
-import { ExternalLink, LoaderCircle } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ExternalLink, GitPullRequestArrow, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { GIT_STATUS_CHANGED, openPullRequest, PROVIDERS, type PullRequest } from '@/data/git/git-api';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { getGitConfig, GIT_STATUS_CHANGED, openPullRequest, PROVIDERS, type PullRequest } from '@/data/git/git-api';
 import { plural } from '@/lib/plural';
+
+function titleFrom(branch: string): string {
+    const words = (branch.split('/').at(-1) ?? branch).replace(/[-_]+/g, ' ').trim();
+    return words ? words[0]!.toUpperCase() + words.slice(1) : branch;
+}
 
 export function PullRequestDialog({
     handle,
@@ -18,26 +25,48 @@ export function PullRequestDialog({
     uncommitted: number;
     onClose: () => void;
 }) {
+    const [adapter, setAdapter] = useState<boolean | null>(null);
+    const [title, setTitle] = useState(() => titleFrom(branch));
+    const [opening, setOpening] = useState(false);
     const [result, setResult] = useState<{ value?: PullRequest; error?: string } | null>(null);
+    const gone = useRef(false);
 
-    useEffect(() => {
-        let gone = false;
-        void openPullRequest(handle).then(answer => {
+    const open = useCallback(
+        async (withTitle?: string) => {
+            setOpening(true);
+            const answer = await openPullRequest(handle, withTitle);
             if (answer.ok && answer.value.pushed) {
                 window.dispatchEvent(new Event(GIT_STATUS_CHANGED));
             }
-            if (!gone) {
+            if (!gone.current) {
+                setOpening(false);
                 setResult(answer.ok ? { value: answer.value } : { error: answer.error.message });
+            }
+        },
+        [handle],
+    );
+
+    useEffect(() => {
+        gone.current = false;
+        void getGitConfig(handle).then(answer => {
+            if (gone.current) {
+                return;
+            }
+            const on = answer.ok && !!answer.value.adapter?.on;
+            setAdapter(on);
+            if (!on) {
+                void open();
             }
         });
         return () => {
-            gone = true;
+            gone.current = true;
         };
-    }, [handle]);
+    }, [handle, open]);
 
     const pr = result?.value;
+    const asking = adapter === true && !result;
     return (
-        <Dialog open onOpenChange={open => !open && onClose()}>
+        <Dialog open onOpenChange={next => !next && onClose()}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Open a pull request</DialogTitle>
@@ -46,7 +75,27 @@ export function PullRequestDialog({
                         of this server.
                     </DialogDescription>
                 </DialogHeader>
-                {!result && (
+                {asking && (
+                    <form
+                        id="pull-request-title"
+                        className="grid gap-2"
+                        onSubmit={event => {
+                            event.preventDefault();
+                            void open(title.trim());
+                        }}
+                    >
+                        <Label htmlFor="pull-request-title-input">Title</Label>
+                        <Input
+                            id="pull-request-title-input"
+                            value={title}
+                            maxLength={255}
+                            autoFocus
+                            disabled={opening}
+                            onChange={event => setTitle(event.target.value)}
+                        />
+                    </form>
+                )}
+                {(adapter === null || (adapter === false && !result) || opening) && (
                     <p className="flex items-center gap-2 text-sm text-muted-foreground">
                         <LoaderCircle className="size-4 animate-spin" /> Checking the branch on the remote...
                     </p>
@@ -63,6 +112,8 @@ export function PullRequestDialog({
                                 The remote did not have the last commit of <span className="font-mono">{pr.branch}</span>: it is pushed now.
                             </p>
                         )}
+                        {pr.mergeRequest && <p>Merge request !{pr.mergeRequest.number} is open.</p>}
+                        {pr.notice && <p className="text-xs text-amber-700 dark:text-amber-400">{pr.notice}</p>}
                         {pr.borrowed.map(b => (
                             <p key={b.branch} className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
                                 It includes {plural(b.commits, 'commit')} from <span className="font-mono">{b.branch}</span>, not yet in{' '}
@@ -75,23 +126,29 @@ export function PullRequestDialog({
                                 <span className="font-mono">{pr.target}</span> on your git provider.
                             </p>
                         )}
-                        {uncommitted > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                                {plural(uncommitted, 'uncommitted change')} on this branch {uncommitted === 1 ? 'does' : 'do'} not go in the
-                                pull request: commit {uncommitted === 1 ? 'it' : 'them'} first.
-                            </p>
-                        )}
                     </div>
+                )}
+                {uncommitted > 0 && (pr || asking) && (
+                    <p className="text-xs text-muted-foreground">
+                        {plural(uncommitted, 'uncommitted change')} on this branch {uncommitted === 1 ? 'does' : 'do'} not go in the pull
+                        request: commit {uncommitted === 1 ? 'it' : 'them'} first.
+                    </p>
                 )}
                 <DialogFooter>
                     <Button type="button" variant="outline" onClick={onClose}>
                         Close
                     </Button>
+                    {asking && (
+                        <Button type="submit" form="pull-request-title" disabled={opening || !title.trim()}>
+                            <GitPullRequestArrow />
+                            Open the merge request
+                        </Button>
+                    )}
                     {pr?.url && (
                         <Button asChild>
                             <a href={pr.url} target="_blank" rel="noreferrer" onClick={onClose}>
                                 <ExternalLink />
-                                Open on {pr.provider ? PROVIDERS[pr.provider] : 'the provider'}
+                                {pr.mergeRequest ? 'Open it' : 'Open'} on {pr.provider ? PROVIDERS[pr.provider] : 'the provider'}
                             </a>
                         </Button>
                     )}

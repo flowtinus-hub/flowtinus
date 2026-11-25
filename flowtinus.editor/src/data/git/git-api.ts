@@ -112,6 +112,8 @@ export type Promotion = {
     openedBy: string | null;
     openedAt: string;
     inTopology: boolean;
+    /** its merge request's, when the adapter opened one */
+    number: number | null;
     url: string | null;
 };
 
@@ -158,7 +160,7 @@ export type Preflight = {
 export const getPreflight = (ws: string, target: string, sha: string) =>
     api<Preflight>(`/w/${ws}/git/promotions/preflight?${new URLSearchParams({ target, sha })}`);
 
-export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: Provider | null };
+export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: Provider | null; notice?: string };
 
 export const openPromotion = (ws: string, target: string, sha: string) =>
     api<OpenedPromotion>(`/w/${ws}/git/promotions`, { method: 'POST', body: { target, sha } });
@@ -181,12 +183,18 @@ export type OpenedBackport = {
     alsoOpen: Promotion[];
     conflicts: string[];
     provider: Provider | null;
+    notice?: string;
 };
 
 export const openBackport = (ws: string, target: string) =>
     api<OpenedBackport>(`/w/${ws}/git/backports`, { method: 'POST', body: { target } });
 
-export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null };
+export type MergeRequestLink = { number: number; url: string };
+
+/** both absent with the adapter off; notice: why no merge request was opened with it on */
+export type OpenedMergeRequest = { mergeRequest?: MergeRequestLink; notice?: string };
+
+export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null } & OpenedMergeRequest;
 
 export const openRepair = (ws: string, promotion: string) =>
     api<OpenedRepair>(`/w/${ws}/git/promotions/${promotion}/repair`, { method: 'POST' });
@@ -235,9 +243,10 @@ export type PullRequest = {
     borrowed: { branch: string; commits: number }[];
     provider: Provider | null;
     url: string | null;
-};
+} & OpenedMergeRequest;
 
-export const openPullRequest = (ws: string) => api<PullRequest>(`/w/${ws}/git/pull-request`, { method: 'POST' });
+export const openPullRequest = (ws: string, title?: string) =>
+    api<PullRequest>(`/w/${ws}/git/pull-request`, { method: 'POST', body: title === undefined ? {} : { title } });
 
 export const createBranch = (ws: string, name: string, draft?: { flowId: string; flow: FlowFile }) =>
     api<{ branch: string; taken: string[]; cutFrom?: string; draft?: { revision: number } | { error: string } }>(`/w/${ws}/git/branches`, {

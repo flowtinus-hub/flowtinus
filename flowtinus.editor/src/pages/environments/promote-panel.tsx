@@ -51,26 +51,36 @@ function PullRequestLink({
     provider,
     branch,
     targetBranch,
+    number,
+    notice,
     size,
 }: {
     url: string | null;
     provider: Provider | null;
     branch: string;
     targetBranch: string;
+    number?: number | null;
+    notice?: string;
     size?: 'sm';
 }) {
-    return url ? (
-        <Button size={size} asChild>
-            <a href={url} target="_blank" rel="noreferrer">
-                <ExternalLink />
-                Open the pull request on {provider ? PROVIDERS[provider] : 'the provider'}
-            </a>
-        </Button>
-    ) : (
-        <span className="text-muted-foreground">
-            Open a pull request from <span className="font-mono">{branch}</span> into <span className="font-mono">{targetBranch}</span> on
-            your git provider.
-        </span>
+    const where = provider ? PROVIDERS[provider] : 'the provider';
+    return (
+        <>
+            {url ? (
+                <Button size={size} asChild>
+                    <a href={url} target="_blank" rel="noreferrer">
+                        <ExternalLink />
+                        {number ? `Open merge request !${number} on ${where}` : `Open the pull request on ${where}`}
+                    </a>
+                </Button>
+            ) : (
+                <span className="text-muted-foreground">
+                    Open a pull request from <span className="font-mono">{branch}</span> into{' '}
+                    <span className="font-mono">{targetBranch}</span> on your git provider.
+                </span>
+            )}
+            {notice && <span className="text-xs text-amber-700 dark:text-amber-400">{notice}</span>}
+        </>
     );
 }
 
@@ -212,7 +222,15 @@ function RepairRow({ promote, promotion, into }: { promote: PromoteEdge; promoti
                         {repair.reused ? 'Already pushed: ' : 'Pushed '}
                         <span className="font-mono">{repair.branch}</span>.
                     </span>
-                    <PullRequestLink url={repair.url} provider={repair.provider} branch={repair.branch} targetBranch={into} size="sm" />
+                    <PullRequestLink
+                        url={repair.url}
+                        provider={repair.provider}
+                        branch={repair.branch}
+                        targetBranch={into}
+                        number={repair.mergeRequest?.number}
+                        notice={repair.notice}
+                        size="sm"
+                    />
                 </span>
             )}
             {repair && (
@@ -302,7 +320,7 @@ function Backport({ promote }: { promote: PromoteEdge }) {
 }
 
 function OpenedBackportView({ handle, opened, sourceBranch }: { handle: string; opened: OpenedBackport; sourceBranch: string }) {
-    const { promotion, reused, conflicts, provider } = opened;
+    const { promotion, reused, conflicts, provider, notice } = opened;
     const [error, setError] = useState('');
     const goToBranch = async () => {
         const result = await setCurrentBranch(handle, promotion.branch);
@@ -329,7 +347,14 @@ function OpenedBackportView({ handle, opened, sourceBranch }: { handle: string; 
                     </Button>
                 </div>
             ) : (
-                <PullRequestLink url={promotion.url} provider={provider} branch={promotion.branch} targetBranch={sourceBranch} />
+                <PullRequestLink
+                    url={promotion.url}
+                    provider={provider}
+                    branch={promotion.branch}
+                    targetBranch={sourceBranch}
+                    number={promotion.number}
+                    notice={notice}
+                />
             )}
             {error && <p className="text-destructive">{error}</p>}
         </div>
@@ -513,7 +538,7 @@ function PreflightView({ promote, sha }: { promote: PromoteEdge; sha: string }) 
 }
 
 function OpenedView({ opened, targetBranch }: { opened: OpenedPromotion; targetBranch: string }) {
-    const { promotion, reused, provider } = opened;
+    const { promotion, reused, provider, notice } = opened;
     return (
         <div className="grid gap-2 text-sm">
             <p>
@@ -521,7 +546,14 @@ function OpenedView({ opened, targetBranch }: { opened: OpenedPromotion; targetB
                 <span className="font-mono">{promotion.branch}</span>
                 {reused ? '.' : ` at ${promotionSha(promotion.sha)}.`}
             </p>
-            <PullRequestLink url={promotion.url} provider={provider} branch={promotion.branch} targetBranch={targetBranch} />
+            <PullRequestLink
+                url={promotion.url}
+                provider={provider}
+                branch={promotion.branch}
+                targetBranch={targetBranch}
+                number={promotion.number}
+                notice={notice}
+            />
         </div>
     );
 }
