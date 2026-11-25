@@ -14,7 +14,7 @@ import { GetPinsHandler, SetPinHandler, UnpinHandler } from '#features/pins/pin-
 import { SetFlowWorkerTagHandler } from '#features/flows/set-flow-worker-tag/set-flow-worker-tag-handler';
 import { DeployFlowHandler } from '#features/deployments/deploy-flow/deploy-flow-handler';
 import { DeployVersionHandler } from '#features/deployments/deploy-version/deploy-version-handler';
-import { EmergencyRollbackHandler, EndEmergencyRollbackHandler } from '#features/deployments/emergency-rollback/emergency-rollback-handlers';
+import { EmergencyRollbackChecksHandler, EmergencyRollbackHandler, EndEmergencyRollbackHandler } from '#features/deployments/emergency-rollback/emergency-rollback-handlers';
 import { GetDeploymentsHandler } from '#features/deployments/get-deployments/get-deployments-handler';
 import { RestoreDraftHandler } from '#features/deployments/restore-draft/restore-draft-handler';
 import { UndeployFlowHandler } from '#features/deployments/undeploy-flow/undeploy-flow-handler';
@@ -117,6 +117,15 @@ export function flowsRoutes() {
             toHttpResult(
                 c,
                 await new DeployVersionHandler().handle({ id: c.req.param('id'), versionId: c.req.param('versionId') }, c.get('useCase')),
+            ),
+        )
+        .get('/:id/versions/:versionId/emergency-rollback', async c =>
+            toHttpResult(
+                c,
+                await new EmergencyRollbackChecksHandler().handle(
+                    { id: c.req.param('id'), versionId: c.req.param('versionId') },
+                    c.get('useCase'),
+                ),
             ),
         )
         .post('/:id/versions/:versionId/emergency-rollback', async c =>

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { gitBranch } from '#features/git/git-config';
 import { lockReconcile } from '#features/git/reconcile';
+import type { FlowFile } from '@flowtinus/core';
 import type { Flow } from '#features/flows/flow';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -8,6 +9,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseError, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
+import { emergencyRollbackChecks, type CheckedVersion, type EmergencyRollbackChecks } from './emergency-rollback-checks';
 import { activeFlow, currentDeployment, emergencyRollbackOf, loadDeployments, lockFlowDeployments, setDeployed, type EmergencyRollback, type FlowDeploymentsView } from '../deployments';
 
 export const EmergencyRollbackCommand = z.object({ id: z.uuid('Invalid'), versionId: z.uuid('Invalid') });
@@ -78,6 +80,62 @@ async function goBackToGit(db: Database, ctx: UseCaseContext, flowId: string, ro
     await setDeployed(db, ctx, flowId, 'end-emergency-rollback', rollback.versionId, rollback.git.id);
 }
 
+type Target = { id: string; number: number; content_hash: string; definition: FlowFile };
+
+async function target(ctx: UseCaseContext, flow: Flow, versionId: string): Promise<UseCaseResult<Target>> {
+    const [version] = await ctx.db.query<Target & { ran: boolean }>(
+        `SELECT v.id, v.number, v.content_hash, v.definition,
+         EXISTS (SELECT 1 FROM deployment_history h WHERE h.flow_id = v.flow_id AND h.to_version_id = v.id) AS ran
+       FROM flow_versions v WHERE v.workspace_id = $1 AND v.flow_id = $2 AND v.id = $3`,
+        [ctx.workspaceId, flow.id, versionId],
+    );
+    if (!version) {
+        return fail('not-found', 'Version not found.');
+    }
+    if (!version.ran) {
+        return fail('validation', `v${version.number} never ran here: an emergency rollback goes back to a version that ran here.`);
+    }
+    return success(version);
+}
+
+async function checkedVersion(db: Database, version: Current): Promise<CheckedVersion> {
+    const [row] = await db.query<{ definition: FlowFile }>('SELECT definition FROM flow_versions WHERE id = $1', [version.id]);
+    return { number: version.number, definition: row!.definition };
+}
+
+// back to git's content (the end of the rollback) or to the version that runs: nothing to check
+async function checksOf(ctx: UseCaseContext, flow: Flow, version: Target, { current, rollback }: Locked): Promise<EmergencyRollbackChecks> {
+    const git = rollback?.git ?? current;
+    if (!current || !git || current.id === version.id || version.content_hash === git.hash) {
+        return { errors: [], warnings: [] };
+    }
+
+    const [running, gitVersion] = await Promise.all([checkedVersion(ctx.db, current), checkedVersion(ctx.db, git)]);
+    return emergencyRollbackChecks(ctx, flow, version, running, gitVersion);
+}
+
+/** What rolling back to a version would be refused for (errors), and what to know before (warnings). */
+export class EmergencyRollbackChecksHandler implements UseCaseHandler<EmergencyRollbackChecks> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<EmergencyRollbackChecks>> {
+        const found = await onFlow(input, EmergencyRollbackCommand, ctx);
+        if (!found.ok) {
+            return found;
+        }
+
+        const { flow, command } = found.value;
+        const version = await target(ctx, flow, command.versionId);
+        if (!version.ok) {
+            return version;
+        }
+
+        const [current, rollback] = await Promise.all([
+            currentDeployment(ctx.db, ctx.workspaceId, flow.id),
+            emergencyRollbackOf(ctx.db, ctx.workspaceId, flow.id),
+        ]);
+        return success(await checksOf(ctx, flow, version.value, { current, rollback }));
+    }
+}
+
 /**
  * An emergency rollback: the environment runs a version of the flow that already ran here, other than the one running,
  * without git; git's version stays the one it replaced, through further rollbacks. A version with git's content ends it.
@@ -90,20 +148,14 @@ export class EmergencyRollbackHandler implements UseCaseHandler<FlowDeploymentsV
         }
 
         const { flow, command } = found.value;
-        const [version] = await ctx.db.query<{ id: string; number: number; content_hash: string; ran: boolean }>(
-            `SELECT v.id, v.number, v.content_hash,
-         EXISTS (SELECT 1 FROM deployment_history h WHERE h.flow_id = v.flow_id AND h.to_version_id = v.id) AS ran
-       FROM flow_versions v WHERE v.workspace_id = $1 AND v.flow_id = $2 AND v.id = $3`,
-            [ctx.workspaceId, flow.id, command.versionId],
-        );
-        if (!version) {
-            return fail('not-found', 'Version not found.');
-        }
-        if (!version.ran) {
-            return fail('validation', `v${version.number} never ran here: an emergency rollback goes back to a version that ran here.`);
+        const targeted = await target(ctx, flow, command.versionId);
+        if (!targeted.ok) {
+            return targeted;
         }
 
-        return underLocks(ctx, flow, async (db, { current, rollback }) => {
+        const version = targeted.value;
+        return underLocks(ctx, flow, async (db, locked) => {
+            const { current, rollback } = locked;
             if (!current) {
                 return { code: 'conflict', message: `${flow.name} is not deployed: there is nothing to roll back.` };
             }
@@ -118,6 +170,11 @@ export class EmergencyRollbackHandler implements UseCaseHandler<FlowDeploymentsV
                 }
                 await goBackToGit(db, ctx, flow.id, rollback);
                 return null;
+            }
+
+            const { errors } = await checksOf({ ...ctx, db }, flow, version, locked);
+            if (errors.length > 0) {
+                return { code: 'validation', message: errors.join(' ') };
             }
 
             await db.query(

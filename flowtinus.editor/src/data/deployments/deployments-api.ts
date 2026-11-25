@@ -58,6 +58,10 @@ export const deployVersion = (flowId: string, versionId: string) => deployments(
 export const emergencyRollback = (flowId: string, versionId: string) =>
     deployments(`/flows/${flowId}/versions/${versionId}/emergency-rollback`);
 
+/** what an emergency rollback to this version is refused for (errors), and what to know before it (warnings) */
+export const emergencyRollbackChecks = (flowId: string, versionId: string) =>
+    api<{ errors: string[]; warnings: string[] }>(`/flows/${flowId}/versions/${versionId}/emergency-rollback`);
+
 /** git's version runs again */
 export const endEmergencyRollback = (flowId: string) => deployments(`/flows/${flowId}/emergency-rollback`, 'DELETE');
 

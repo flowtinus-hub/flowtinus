@@ -8,7 +8,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type EmergencyRollback, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
-import { deployFlow, deployVersion, discardDraft, emergencyRollback, endEmergencyRollback, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
+import { deployFlow, deployVersion, discardDraft, emergencyRollback, emergencyRollbackChecks, endEmergencyRollback, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
+import { Link } from 'react-router';
+import { RUNS_PATH } from '@/app/paths';
 import { CHANGES_CHANGED, getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { CommitFiles } from './commit-files';
@@ -261,15 +263,55 @@ export function DeployMenu({
         });
     };
 
-    const rollBackTo = (version: FlowVersion) =>
+    const runsOf = (status: 'running' | 'queued') =>
+        `${RUNS_PATH}?${new URLSearchParams({ workspace, status, q: draftNow()?.name ?? '' })}`;
+
+    const rollBackTo = async (version: FlowVersion) => {
+        setBusy(true);
+        const checks = await emergencyRollbackChecks(flowId, version.id);
+        setBusy(false);
+        // checks that could not be read: the rollback itself checks again and says why it is refused
+        const { errors, warnings } = checks.ok ? checks.value : { errors: [], warnings: [] };
         confirm({
             title: `Emergency rollback to v${version.number}?`,
-            description: `${environment} runs v${version.number} instead of git's v${rollback?.gitNumber ?? deployed?.number}, without a commit, until a commit changes this flow's content or the rollback is ended.`,
+            description: (
+                <>
+                    {environment} runs v{version.number} instead of git's v{rollback?.gitNumber ?? deployed?.number}, without a commit,
+                    until a commit changes this flow's content or the rollback is ended. Only the nodes and edges go back: the scripts stay
+                    the last applied commit's, and the triggers are not part of the content. Runs in progress and queued keep their version,
+                    as do the flows they call: stop them by hand if needed (
+                    <Link className="underline" to={runsOf('running')}>
+                        running
+                    </Link>
+                    ,{' '}
+                    <Link className="underline" to={runsOf('queued')}>
+                        queued
+                    </Link>
+                    ).
+                </>
+            ),
+            ...(errors.length || warnings.length
+                ? {
+                      warning: (
+                          <ul className="list-disc space-y-1 pl-4">
+                              {errors.map(error => (
+                                  <li key={error} className="text-destructive">
+                                      Refused: {error}
+                                  </li>
+                              ))}
+                              {warnings.map(warning => (
+                                  <li key={warning}>{warning}</li>
+                              ))}
+                          </ul>
+                      ),
+                  }
+                : {}),
             confirmLabel: 'Roll back',
             busyLabel: 'Rolling back…',
             destructive: true,
             onConfirm: () => act(() => emergencyRollback(flowId, version.id)),
         });
+    };
 
     const endRollback = (ended: EmergencyRollback) =>
         confirm({

@@ -67,7 +67,8 @@ export const committedFlowText = (flowId: string, inRepo: Omit<FlowInRepo, 'flow
 
 export type Tree = { files: RepoFiles; ids: Record<string, string> };
 
-export async function exportTree(db: Database, workspaceId: string, mode: 'working' | 'committed' = 'working'): Promise<Tree> {
+/** 'deployed': git's version of each flow with the scripts the last applied commit deployed, no draft of a script */
+export async function exportTree(db: Database, workspaceId: string, mode: 'working' | 'committed' | 'deployed' = 'working'): Promise<Tree> {
     const [workspace, connections, projects, flowVersions, deployedScripts, scriptFolders, rows] = await Promise.all([
         workspaceHandleIn(db, workspaceId),
         db.query<{ id: string; name: string; type: ConnectionTypeName }>(
@@ -118,7 +119,7 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
             // a draft kept by an archive: as deployed as the flow is now
             const draft = row?.deleted && row.content && version ? withDeployed(row.content, flow.name, version.deployed) : row?.content;
             const text =
-                mode === 'committed'
+                mode !== 'working'
                     ? version && committedFlowText(flow.id, version)
                     : (draft ?? (version ? committedFlowText(flow.id, version) : repoFlowToYaml(newFlowFile(flow.name, flow.id))));
             if (text !== undefined) {
@@ -140,7 +141,7 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
 
         const scripts = new Map(deployedScripts.filter(s => s.project_id === project.id).map(s => [s.path, s.content]));
         const prefix = scriptFileId(project.id, '');
-        for (const [fileId, row] of best) {
+        for (const [fileId, row] of mode === 'deployed' ? [] : best) {
             if (fileId.startsWith(prefix)) {
                 const path = fileId.slice(prefix.length);
                 if (row.deleted) {
