@@ -1,4 +1,5 @@
-import type { GraphCommit } from '@/data/git/git-api';
+import { shortSha } from '@/data/deployments/deployment';
+import { promotionSha, type GraphCommit } from '@/data/git/git-api';
 import { cn } from '@/lib/utils';
 
 const LANE = 16;
@@ -40,7 +41,6 @@ function layout(commits: GraphCommit[]): Row[] {
     });
 }
 
-/** what promoting `chosen` carries, among the commits shown */
 function carried(commits: GraphCommit[], chosen: string | null): Set<string> {
     const bySha = new Map(commits.map(c => [c.sha, c]));
     const goes = new Set<string>();
@@ -93,7 +93,7 @@ export function CommitGraph({
                                 commit.inTarget
                                     ? 'Already in the target'
                                     : commit.choosable
-                                      ? `Promote up to ${commit.sha.slice(0, 12)}`
+                                      ? `Promote up to ${promotionSha(commit.sha)}`
                                       : `${branch} was never at this commit: it came in through a merge and goes with that merge.`
                             }
                             className={cn(
@@ -140,7 +140,7 @@ export function CommitGraph({
                             <span className={cn('grid min-w-0 flex-1 gap-0.5', !going && 'opacity-50')}>
                                 <span className="flex min-w-0 items-center gap-2">
                                     <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                                        {commit.sha.slice(0, 7)}
+                                        {shortSha(commit.sha)}
                                     </span>
                                     <span className="truncate text-sm">{commit.message}</span>
                                 </span>

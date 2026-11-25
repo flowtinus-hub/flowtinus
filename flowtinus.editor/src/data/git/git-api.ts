@@ -58,11 +58,14 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
-/** an environment of the topology as its branch says; here: this server's */
+export type Provider = 'gitlab' | 'github';
+
+export const PROVIDERS: Record<Provider, string> = { gitlab: 'GitLab', github: 'GitHub' };
+
+export const promotionSha = (sha: string) => sha.slice(0, 12);
+
 export type EnvironmentCard = { env: string; label: string; branch: string; mode: Mode; tip: string | null; here: boolean };
 
-/** behind: the files promoting the source's tip would change; ahead: merging the target into its source would change the source */
-/** broken: this server's promotions along the edge whose lineage is broken, which block it until a repair is merged */
 export type EnvironmentEdge = {
     source: string;
     target: string;
@@ -72,10 +75,8 @@ export type EnvironmentEdge = {
     broken: Promotion[];
 };
 
-/** content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here */
 export type FlowCell = { state: 'deployed' | 'undeployed' | 'absent'; content: 'same' | 'other' | null; differs: boolean };
 
-/** a flow by id, named by its path in its project; a cell per environment, null where its branch does not exist */
 export type FlowRow = { id: string; name: string; cells: Record<string, FlowCell | null> };
 
 export type Environments =
@@ -95,7 +96,6 @@ export const getEnvironments = (ws: string) => api<Environments>(`/w/${ws}/git/e
 
 export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
 
-/** url: the provider's page for a new pull request, while it is open; inTopology: its edge is still in the topology */
 export type Promotion = {
     id: string;
     source: string;
@@ -122,7 +122,6 @@ export type GraphCommit = {
     inTarget: boolean;
 };
 
-/** next: the skip of the next page, null on the last one */
 export type CommitGraph = {
     source: string;
     target: string;
@@ -139,6 +138,7 @@ export type FlowChange = 'added' | 'removed' | 'renamed' | 'changed' | 'deployed
 
 export type Preflight = {
     sha: string;
+    branch: string;
     files: { path: string; status: 'added' | 'modified' | 'deleted' }[];
     impact: {
         flows: { id: string; name: string; from?: string; changes: FlowChange[] }[];
@@ -152,13 +152,12 @@ export type Preflight = {
 export const getPreflight = (ws: string, target: string, sha: string) =>
     api<Preflight>(`/w/${ws}/git/promotions/preflight?${new URLSearchParams({ target, sha })}`);
 
-export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: 'gitlab' | 'github' | null };
+export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: Provider | null };
 
 export const openPromotion = (ws: string, target: string, sha: string) =>
     api<OpenedPromotion>(`/w/${ws}/git/promotions`, { method: 'POST', body: { target, sha } });
 
-/** reused: the repair branch was already pushed */
-export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: 'gitlab' | 'github' | null };
+export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null };
 
 export const openRepair = (ws: string, promotion: string) =>
     api<OpenedRepair>(`/w/${ws}/git/promotions/${promotion}/repair`, { method: 'POST' });
@@ -203,7 +202,7 @@ export type PullRequest = {
     pushed: boolean;
     commits: number;
     borrowed: { branch: string; commits: number }[];
-    provider: 'gitlab' | 'github' | null;
+    provider: Provider | null;
     url: string | null;
 };
 

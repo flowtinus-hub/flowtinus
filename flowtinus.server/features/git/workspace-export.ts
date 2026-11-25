@@ -1,10 +1,25 @@
-import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, newFlowFile, projectToYaml, repoFlowFromYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile, type RepoSchedule, type RepoTriggers, type RepoWebhook } from '@flowtinus/core';
+import { connectionToYaml, folderPath, GITATTRIBUTES, isFolderVisible, newFlowFile, projectToYaml, repoEntry, repoFlowFromYaml, repoFlowToYaml, repoPath, workspaceToYaml, type ConnectionTypeName, type FlowFile, type RepoEntry, type RepoSchedule, type RepoTriggers, type RepoWebhook } from '@flowtinus/core';
 import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { loadTree } from '#features/folders/project-tree';
 import type { Database } from '#shared/database/database';
 import { bestRows, scriptFileId, workingRows } from './working-copy';
 
 export type RepoFiles = Record<string, string>;
+
+type EntryOf<K extends RepoEntry['kind']> = Extract<RepoEntry, { kind: K }>;
+
+export function workspaceEntries<K extends RepoEntry['kind']>(
+    files: RepoFiles,
+    handle: string,
+    kind: K,
+): { entry: EntryOf<K>; text: string }[] {
+    return Object.entries(files).flatMap(([path, text]) => {
+        const entry = repoEntry(path);
+        return entry.kind === kind && 'workspace' in entry && entry.workspace === handle ? [{ entry: entry as EntryOf<K>, text }] : [];
+    });
+}
+
+export const flowName = (entry: EntryOf<'flow'>) => [entry.project, ...entry.folders, entry.name].join('/');
 
 export type GitChanges = Record<string, string | null>;
 

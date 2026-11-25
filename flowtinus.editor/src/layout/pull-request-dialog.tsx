@@ -2,11 +2,8 @@ import { useEffect, useState } from 'react';
 import { ExternalLink, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { GIT_STATUS_CHANGED, openPullRequest, type PullRequest } from '@/data/git/git-api';
-
-const PROVIDERS = { gitlab: 'GitLab', github: 'GitHub' };
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+import { GIT_STATUS_CHANGED, openPullRequest, PROVIDERS, type PullRequest } from '@/data/git/git-api';
+import { plural } from '@/lib/plural';
 
 export function PullRequestDialog({
     handle,

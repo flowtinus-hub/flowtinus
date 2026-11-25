@@ -70,13 +70,11 @@ describe('promoting along an edge that leaves this server: a branch at a first-p
         const branchAt = (branch: string, from: string) => git(repo, 'update-ref', `refs/heads/${branch}`, git(repo, 'rev-parse', from));
         const tip = (branch: string) => git(repo, 'rev-parse', branch);
         const has = (branch: string) => git(repo, 'branch', '--list', branch) !== '';
-        /** a flow created and deployed here: a commit on dev */
         const deployFlow = async (name: string) => {
             const flowId = (await call('POST', `/projects/${projectId}/flows`, { name })).body.id as string;
             expect((await call('POST', `/flows/${flowId}/deploy`)).status).toBe(200);
             return flowId;
         };
-        /** a merge commit on `into` of `from`, as a pull request merged without a fast-forward */
         const mergeInto = (into: string, from: string) => {
             const tree = git(repo, 'merge-tree', '--write-tree', into, from);
             const who = ['-c', 'user.name=Someone', '-c', 'user.email=someone@example.com'];
@@ -84,7 +82,6 @@ describe('promoting along an edge that leaves this server: a branch at a first-p
             git(repo, 'update-ref', `refs/heads/${into}`, commit);
             return commit;
         };
-        /** the promoted tree committed onto `into` with a single parent, as a squash merge on the provider */
         const squashInto = (into: string, from: string) => {
             const tree = git(repo, 'merge-tree', '--write-tree', into, from);
             const who = ['-c', 'user.name=Someone', '-c', 'user.email=someone@example.com'];
@@ -241,6 +238,35 @@ describe('promoting along an edge that leaves this server: a branch at a first-p
             [second, 'open'],
             [first, 'closed'],
         ]);
+    });
+
+    test('the same commit again takes its open promotion even when the edge is now blocked', async () => {
+        const { branchAt, addFile, promote } = await newWorkspace();
+        branchAt('qa', 'dev');
+        const sha = addFile('dev', 'a.txt');
+        const opened = (await promote(sha)).body.promotion;
+
+        addFile('qa', 'hotfix.txt');
+        const again = await promote(sha);
+        expect(again.status).toBe(200);
+        expect(again.body).toMatchObject({ reused: true, promotion: { id: opened.id } });
+    });
+
+    test('every open promotion on the edge counts, however many there are', async () => {
+        const { id, branchAt, addFile, promote, preflight } = await newWorkspace();
+        branchAt('qa', 'dev');
+        const sha = addFile('dev', 'a.txt');
+        expect((await promote(sha)).status).toBe(200);
+        for (let n = 0; n < 50; n++) {
+            await db.query(
+                `INSERT INTO promotions (id, workspace_id, source, target, sha, branch, opened_by, opened_at, state)
+                 VALUES ($1, $2, 'DEV', 'QA', $3, $4, $5, now() + interval '1 hour', 'open')`,
+                [crypto.randomUUID(), id, `${n}`.padStart(40, '0'), `promote/DEV-${n}`, ANA],
+            );
+        }
+
+        const next = addFile('dev', 'b.txt');
+        expect((await preflight(next)).body.open.map((p: { sha: string }) => p.sha)).toContain(sha);
     });
 
     test('the poll: merged after a fast-forward, after a merge commit, and when a later promotion is merged first; merged is final', async () => {
