@@ -167,7 +167,7 @@ The checks shown before a promotion is opened, and run again when it is: those t
 _Avoid_: Dry run, preview
 
 **Ahead of its source**:
-The state of an environment whose branch, merged into its source's branch, would change the source's tree. While it lasts, the promotion from that source into it is blocked.
+The state of an environment whose branch, merged into its source's branch, would change the source's tree. While it lasts, the promotion from that source into it is blocked; a backport ends it.
 _Avoid_: Git ahead (the server behind its own branch), diverged
 
 **Broken lineage**:
@@ -177,6 +177,14 @@ _Avoid_: Diverged history, bad merge
 **Repair**:
 The pull request that ends a broken lineage: a merge of the promoted commit into the target that keeps the target's tree, from `repair/<target>-<sha>`. It changes no file and deploys nothing.
 _Avoid_: Fix, re-promotion
+
+**Hotfix**:
+A pull request into a `protected` environment from `hotfix/<name>`, cut from its branch: the one change such an environment takes besides promotions. It leaves the environment ahead of its source unless the source already has the content.
+_Avoid_: Patch, emergency fix, quick fix
+
+**Backport**:
+The pull request that brings an environment ahead of its source into that source, one hop at a time, always a merge, from `backport/<environment>-<sha>` opened on the source's server. Once merged, the source may be ahead of its own source in turn, up to the root.
+_Avoid_: Cherry-pick, reverse promotion, downstream merge
 
 ### Scripts
 
