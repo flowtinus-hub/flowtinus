@@ -1,5 +1,5 @@
 import { api, type ApiResult } from '@/lib/api';
-import { toArrived, type ArrivedDisabledDto } from '@/data/git/git-api';
+import { toArrived, type ArrivedDisabledDto, type OpenedMergeRequest, type Provider } from '@/data/git/git-api';
 import type { FlowDeployments } from './deployment';
 
 /*
@@ -60,6 +60,26 @@ export const emergencyRollback = (flowId: string, versionId: string) =>
 
 /** git's version runs again */
 export const endEmergencyRollback = (flowId: string) => deployments(`/flows/${flowId}/emergency-rollback`, 'DELETE');
+
+/** where the fix of an emergency rollback was pushed, in the modes with a review; reused: the branch had it already */
+export type RollbackFix = {
+    branch: string;
+    target: string;
+    reused: boolean;
+    provider: Provider | null;
+    url: string | null;
+} & OpenedMergeRequest;
+
+/**
+ * "Make git match what runs": commits the rolled-back version's content of the flow, on the environment's branch in
+ * direct, else on a branch of its own with its pull request (fix); applied, it ends the rollback under a new version
+ */
+export async function makeGitMatch(flowId: string): Promise<ApiResult<FlowDeployments & { fix?: RollbackFix }>> {
+    const result = await api<DeploymentsDto & { fix?: RollbackFix }>(`/flows/${flowId}/emergency-rollback/match-git`, { method: 'POST' });
+    return result.ok
+        ? { ok: true, value: { ...toDeployments(result.value), ...(result.value.fix ? { fix: result.value.fix } : {}) } }
+        : result;
+}
 
 /** nothing deployed anymore (its versions stay) */
 export const undeployFlow = (flowId: string) => deployments(`/flows/${flowId}/undeploy`);

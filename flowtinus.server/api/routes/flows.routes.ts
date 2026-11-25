@@ -15,6 +15,7 @@ import { SetFlowWorkerTagHandler } from '#features/flows/set-flow-worker-tag/set
 import { DeployFlowHandler } from '#features/deployments/deploy-flow/deploy-flow-handler';
 import { DeployVersionHandler } from '#features/deployments/deploy-version/deploy-version-handler';
 import { EmergencyRollbackHandler, EndEmergencyRollbackHandler } from '#features/deployments/emergency-rollback/emergency-rollback-handlers';
+import { MakeGitMatchHandler } from '#features/deployments/emergency-rollback/make-git-match-handler';
 import { GetDeploymentsHandler } from '#features/deployments/get-deployments/get-deployments-handler';
 import { RestoreDraftHandler } from '#features/deployments/restore-draft/restore-draft-handler';
 import { UndeployFlowHandler } from '#features/deployments/undeploy-flow/undeploy-flow-handler';
@@ -130,6 +131,9 @@ export function flowsRoutes() {
         )
         .delete('/:id/emergency-rollback', async c =>
             toHttpResult(c, await new EndEmergencyRollbackHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
+        )
+        .post('/:id/emergency-rollback/match-git', async c =>
+            toHttpResult(c, await new MakeGitMatchHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
         .post('/:id/undeploy', async c =>
             toHttpResult(c, await new UndeployFlowHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
