@@ -3,7 +3,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
-import { branchKind, canEditBranch, currentBranch, type BranchKind } from './current-branch';
+import { branchKind, canEditBranch, currentBranch, listedHere, type BranchKind } from './current-branch';
 import { gitBranch, type GitOptions } from './git-config';
 import type { Mode } from './topology';
 import { onWorkspaceRepository } from './git-handlers';
@@ -50,7 +50,7 @@ async function changesPerBranch(db: Database, workspaceId: string, environment: 
     return new Map([...byBranch].map(([name, list]) => [name, changeCount(list)]));
 }
 
-const KIND_ORDER = { environment: 0, user: 1, shared: 2 };
+const KIND_ORDER = { environment: 0, hotfix: 1, user: 2, shared: 3 };
 
 export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
     constructor(private readonly options: GitOptions) {}
@@ -94,7 +94,7 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
         const branches: BranchView[] = [];
         for (const head of heads.heads) {
             const { kind, owner } = branchKind(head.name, heads.environments);
-            if (kind === 'app') {
+            if (kind === 'app' || !listedHere(head.name, kind, environment, git)) {
                 continue;
             }
             const changes = counts.get(head.name) ?? 0;

@@ -4,6 +4,7 @@ import { CreateTopologyHandler, GetGitConfigHandler, GetTopologyHandler, GetTurn
 import { GetCurrentBranchHandler, SetCurrentBranchHandler } from '#features/git/current-branch';
 import { ListBranchesHandler } from '#features/git/branches';
 import { OpenPullRequestHandler } from '#features/git/pull-request';
+import { CreateHotfixHandler } from '#features/git/hotfix';
 import { GetFileDiffHandler } from '#features/git/file-diff';
 import { GetEnvironmentsHandler } from '#features/git/environments';
 import { GetCommitGraphHandler, GetPreflightHandler, OpenPromotionHandler, OpenRepairHandler } from '#features/git/promotions';
@@ -41,6 +42,7 @@ export function gitRoutes(options: GitOptions) {
         .get('/arrived-disabled', async c => toHttpResult(c, await new ListArrivedDisabledHandler().handle({}, c.get('useCase'))))
         .get('/branches', async c => toHttpResult(c, await new ListBranchesHandler(options).handle({}, c.get('useCase'))))
         .post('/branches', async c => toHttpResult(c, await new CreateBranchHandler().handle(await jsonBody(c), c.get('useCase')), 201))
+        .post('/hotfix', async c => toHttpResult(c, await new CreateHotfixHandler().handle(await jsonBody(c), c.get('useCase')), 201))
         .get('/current-branch', async c => toHttpResult(c, await new GetCurrentBranchHandler().handle({}, c.get('useCase'))))
         .put('/current-branch', async c => toHttpResult(c, await new SetCurrentBranchHandler().handle(await jsonBody(c), c.get('useCase'))))
         .post('/hook-token', async c => toHttpResult(c, await new RenewHookTokenHandler().handle({}, c.get('useCase'))))

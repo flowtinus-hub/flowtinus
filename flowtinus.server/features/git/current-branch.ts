@@ -37,13 +37,18 @@ export async function currentBranch(db: Database, workspaceId: string, userId: s
     return row?.branch ?? git.branch;
 }
 
-export type BranchKind = 'environment' | 'app' | 'user' | 'shared';
+export type BranchKind = 'environment' | 'app' | 'hotfix' | 'user' | 'shared';
+
+export const HOTFIX_PREFIX = 'hotfix/';
 
 export function branchKind(name: string, environments: string[]): { kind: BranchKind; owner?: string } {
     if (environments.includes(name)) {
         return { kind: 'environment' };
     }
-    if (/^(promote|repair|backport|hotfix|flowtinus)\//.test(name)) {
+    if (name.startsWith(HOTFIX_PREFIX)) {
+        return { kind: 'hotfix' };
+    }
+    if (/^(promote|repair|backport|flowtinus)\//.test(name)) {
         return { kind: 'app' };
     }
     const user = /^users\/([^/]+)\/./.exec(name);
@@ -59,12 +64,17 @@ export function canEditBranch(branch: string | null, environment: string | null,
     if (branch === environment) {
         return editor.mode !== 'pull-request';
     }
-    if (editor.mode === 'protected') {
-        return false;
-    }
     const { kind, owner } = branchKind(branch, environment ? [...editor.environments, environment] : editor.environments);
-    return kind === 'shared' || (kind === 'user' && owner === editor.handle);
+    return sharedHere(kind, editor) || (editor.mode !== 'protected' && kind === 'user' && owner === editor.handle);
 }
+
+/** a work branch of this kind that every editor of this server writes: a protected server's are its hotfixes */
+export const sharedHere = (kind: BranchKind, editor: Pick<Editor, 'mode'>) =>
+    editor.mode === 'protected' ? kind === 'hotfix' : kind === 'shared';
+
+/** the branches this server's picker offers: a protected server's own branch and its hotfixes only */
+export const listedHere = (name: string, kind: BranchKind, environment: string | null, editor: Pick<Editor, 'mode'>) =>
+    editor.mode === 'protected' ? name === environment || kind === 'hotfix' : kind !== 'app' && kind !== 'hotfix';
 
 export async function editorOf(db: Database, workspaceId: string, userId: string): Promise<Editor> {
     const [[me], heads, git] = await Promise.all([
