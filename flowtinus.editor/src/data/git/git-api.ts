@@ -28,7 +28,6 @@ export type Topology =
 
 export type AccessTest = {
     ok: boolean;
-    /** api: the provider's API, for the adapter; when it fails git still works */
     checks: { step: 'read' | 'write' | 'api'; ok: boolean; message: string }[];
     topology: Topology | null;
     note: string;
@@ -36,7 +35,6 @@ export type AccessTest = {
 
 export const CONFIG_BRANCH = 'flowtinus/config';
 
-/** with git on, on a provider the app has an adapter for: whether it is on, and why not */
 export type AdapterView = { provider: Provider; on: boolean; notice?: string };
 
 /** hook (admins): the webhook's path on the server (git/hook/<workspace>/<token>) */
@@ -68,7 +66,6 @@ export const PROVIDERS: Record<Provider, string> = { gitlab: 'GitLab', github: '
 
 export const promotionSha = (sha: string) => sha.slice(0, 12);
 
-/** warning: where the provider's branch protection disagrees with the mode, with the adapter on */
 export type EnvironmentCard = {
     env: string;
     label: string;
@@ -121,7 +118,6 @@ export type Promotion = {
     openedBy: string | null;
     openedAt: string;
     inTopology: boolean;
-    /** its merge request's, when the adapter opened one */
     number: number | null;
     url: string | null;
 };
@@ -208,7 +204,6 @@ export const openBackport = (ws: string, target: string) =>
 
 export type MergeRequestLink = { number: number; url: string };
 
-/** both absent with the adapter off; notice: why no merge request was opened with it on */
 export type OpenedMergeRequest = { mergeRequest?: MergeRequestLink; notice?: string };
 
 export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null } & OpenedMergeRequest;
@@ -238,7 +233,6 @@ export type BranchInfo = {
     changes: number;
     removed?: true;
     lostTip?: true;
-    /** its open merge request into the environment's branch, with the adapter on */
     mergeRequest?: MergeRequestLink;
 };
 
@@ -442,7 +436,6 @@ export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(
 
 export type ProtectionWarning = { env: string; branch: string; message: string };
 
-/** protection: where the provider's branch protection disagrees with the modes, with the adapter on */
 export const getTopology = (ws: string) => api<{ topology: Topology; protection?: ProtectionWarning[] }>(`/w/${ws}/git/topology`);
 
 export const createTopology = (ws: string, environment: { label?: string; branch?: string }) =>

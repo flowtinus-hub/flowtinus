@@ -87,6 +87,10 @@ describe('with the adapter on, the app opens its pull requests as GitLab merge r
         const branchAt = (branch: string, from: string) => git(repo, 'update-ref', `refs/heads/${branch}`, tip(from));
         const write = (branch: string, files: Record<string, string>) =>
             commitFiles(repo, branch, { ...filesOf(branch), ...files }, `Change ${Object.keys(files).join(', ')}`);
+        const remove = (branch: string, file: string) => {
+            const { [file]: _, ...rest } = filesOf(branch);
+            return commitFiles(repo, branch, rest, `Remove ${file}`);
+        };
         const squashInto = (into: string, from: string) => {
             const tree = git(repo, 'merge-tree', '--write-tree', into, from);
             const who = ['-c', 'user.name=Someone', '-c', 'user.email=someone@example.com'];
@@ -112,6 +116,7 @@ describe('with the adapter on, the app opens its pull requests as GitLab merge r
             tip,
             branchAt,
             write,
+            remove,
             squashInto,
             commitFlow,
             userHandle,
@@ -252,6 +257,30 @@ describe('with the adapter on, the app opens its pull requests as GitLab merge r
             [2, 'open'],
             [1, 'closed'],
         ]);
+    });
+
+    test("a backport's description names its impact on the flows", async () => {
+        const { call, at, branchAt, write, remove, posted } = await workspace();
+        branchAt('qa', 'dev');
+        remove('qa', at('flows/Orders.flow.yaml'));
+        write('dev', { 'work.txt': 'work' });
+
+        expect((await call('POST', '/git/backports', { target: 'QA' })).status).toBe(200);
+        expect(posted()[0]!.body.description).toContain('### Flows\n\n- Sales/Orders: removed');
+    });
+
+    test("a work branch's description carries the warnings of its checks", async () => {
+        const { call, at, projectId, write, posted } = await workspace({ topology: TOPOLOGY.replace('mode: direct', 'mode: protected') });
+        expect((await call('POST', '/git/hotfix', { name: 'urgent' })).status).toBe(201);
+        const script = { kind: 'script', path: 'fix.ts', content: 'export const fix = 1;\n' };
+        expect((await call('POST', `/projects/${projectId}/scripts`, script)).status).toBe(201);
+        expect((await commitAll(call, 'Fix')).status).toBe(200);
+        write('hotfix/urgent', { [at('notes.txt')]: 'stray' });
+
+        expect((await call('POST', '/git/pull-request', {})).status).toBe(200);
+        expect(posted()[0]!.body.description).toContain(
+            `### Warnings\n\n- ${at('notes.txt')}: It is not part of the repository format: it is left out.`,
+        );
     });
 
     test('a repair: squash off, its fixed title; an open one is linked, a closed one is opened again', async () => {

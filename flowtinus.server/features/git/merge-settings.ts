@@ -1,11 +1,9 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { gitAccess, type GitConfig } from './git-config';
-import { ProviderError, providerAdapter, type MergeSettings } from './provider-adapter';
-import type { Provider } from './pull-request';
+import { adapterOf } from './adapter-status';
+import type { GitConfig } from './git-config';
+import { PROVIDER_NAME, unlessProviderFails, type MergeSettings } from './provider-adapter';
 
 export type MergeSettingsBlock = { kind: 'squash' | 'merge-method'; message: string };
-
-const NAME: Record<Provider, string> = { gitlab: 'GitLab', github: 'GitHub' };
 
 const METHOD: Record<Exclude<MergeSettings['mergeMethod'], 'merge'>, string> = {
     'fast-forward': 'only by fast-forward',
@@ -18,25 +16,13 @@ export async function mergeSettingsBlocks(
     config: GitConfig,
     target: { branch: string; fastForward: () => Promise<boolean> },
 ): Promise<MergeSettingsBlock[]> {
-    const access = await gitAccess(ctx, config);
-    if (!access.ok) {
+    const adapter = await adapterOf(ctx, config);
+    const settings = adapter && (await unlessProviderFails<MergeSettings | null>(adapter.mergeSettings(), null));
+    if (!adapter || !settings) {
         return [];
-    }
-    const { adapter } = await providerAdapter(access.value);
-    if (!adapter) {
-        return [];
-    }
-    let settings: MergeSettings;
-    try {
-        settings = await adapter.mergeSettings();
-    } catch (e) {
-        if (e instanceof ProviderError) {
-            return [];
-        }
-        throw e;
     }
 
-    const name = NAME[adapter.provider];
+    const name = PROVIDER_NAME[adapter.provider];
     const blocks: MergeSettingsBlock[] = [];
     if (settings.squash === 'always') {
         blocks.push({ kind: 'squash', message: `This ${name} project forces squash: turn it off in the project's merge settings.` });

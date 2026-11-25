@@ -3,7 +3,7 @@ import type { GitRemote } from './git-remote';
 import { CONFIG_BRANCH, parseTopology, type EnvironmentDecl } from './topology';
 import { topologyAt } from './workspace-topology';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
-import { mergeRequestsOfRows, recordMergeRequest } from './merge-request';
+import { mergeRequestsOfRows, recordMergeRequest, type MergeRequestLink } from './merge-request';
 import type { ProviderAdapter, ProviderPullRequest } from './provider-adapter';
 
 export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
@@ -97,6 +97,24 @@ export async function promotionRows(ctx: UseCaseContext, query: PromotionQuery =
     return ctx.db.query<PromotionRow>(`${SELECT_PROMOTIONS} ${conditions.join(' ')} ORDER BY p.opened_at DESC${limit}`, params);
 }
 
+export type NewPromotion = { kind: PromotionKind; source: string; target: string; sha: string; branch: string };
+
+export async function insertPromotion(
+    ctx: UseCaseContext,
+    promotion: NewPromotion,
+    mergeRequest?: MergeRequestLink,
+): Promise<PromotionRow> {
+    const id = crypto.randomUUID();
+    const { kind, source, target, sha, branch } = promotion;
+    await ctx.db.query(
+        `INSERT INTO promotions (id, workspace_id, kind, source, target, sha, branch, opened_by, state, pull_request_number, pull_request_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10)`,
+        [id, ctx.workspaceId, kind, source, target, sha, branch, ctx.userId, mergeRequest?.number ?? null, mergeRequest?.url ?? null],
+    );
+    const [row] = await promotionRows(ctx, { id });
+    return row!;
+}
+
 export type PromotionLinks = { topology: Topology; repository: string; provider: Provider | null };
 
 export function toPromotion(row: PromotionRow, links: PromotionLinks): Promotion {
@@ -181,8 +199,8 @@ export async function followPromotions(
         const edge = row.state === 'open' ? rowEdge(topology, row) : null;
         return edge ? [{ row, into: edge.into.branch }] : [];
     });
-    const reached = open.length > 0 && adapter ? await adapter() : null;
-    const mergeRequests = reached ? await mergeRequestsOfRows(ctx, reached, open) : new Map<string, ProviderPullRequest>();
+    const adapterOn = open.length > 0 && adapter ? await adapter() : null;
+    const mergeRequests = adapterOn ? await mergeRequestsOfRows(ctx, adapterOn, open) : new Map<string, ProviderPullRequest>();
     for (const row of rows) {
         const edge = rowEdge(topology, row);
         if (!edge) {

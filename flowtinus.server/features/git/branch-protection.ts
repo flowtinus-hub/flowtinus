@@ -1,12 +1,10 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { gitAccess, type GitConfig } from './git-config';
-import { ProviderError, providerAdapter, type AccessRule, type BranchProtection } from './provider-adapter';
-import type { Provider } from './pull-request';
+import { adapterOf } from './adapter-status';
+import type { GitConfig } from './git-config';
+import { PROVIDER_NAME, unlessProviderFails, type AccessRule, type BranchProtection } from './provider-adapter';
 import type { EnvironmentDecl } from './topology';
 
 export type ProtectionWarning = { env: string; branch: string; message: string };
-
-const PROVIDER_NAME: Record<Provider, string> = { gitlab: 'GitLab', github: 'GitHub' };
 
 const OPENNESS: AccessRule[] = ['nobody', 'maintainers', 'developers'];
 
@@ -40,19 +38,10 @@ export async function protectionWarnings(
     config: GitConfig,
     environments: EnvironmentDecl[],
 ): Promise<ProtectionWarning[]> {
-    const access = await gitAccess(ctx, config);
-    const adapter = access.ok ? (await providerAdapter(access.value)).adapter : null;
-    if (!adapter) {
+    const adapter = await adapterOf(ctx, config);
+    const protections = adapter && (await unlessProviderFails<BranchProtection[] | null>(adapter.branchProtections(), null));
+    if (!adapter || !protections) {
         return [];
-    }
-    let protections: BranchProtection[];
-    try {
-        protections = await adapter.branchProtections();
-    } catch (e) {
-        if (e instanceof ProviderError) {
-            return [];
-        }
-        throw e;
     }
     return environments.flatMap(e => {
         const message = warningOf(e, whoPushes(protections, e.branch), PROVIDER_NAME[adapter.provider]);

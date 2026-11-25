@@ -1,10 +1,8 @@
-import type { GitAccess } from './git-remote';
-import { gitlabAdapter } from './gitlab-adapter';
-import { providerOf, type Provider } from './pull-request';
+import type { Provider } from './pull-request';
 
 export type PullRequestState = 'open' | 'merged' | 'closed';
 
-export type ProviderPullRequest = { number: number; url: string; source: string; target: string; title: string; state: PullRequestState };
+export type ProviderPullRequest = { number: number; url: string; source: string; target: string; state: PullRequestState };
 
 /** squash: false turns it off, absent keeps the project's default */
 export type NewPullRequest = {
@@ -25,7 +23,7 @@ export type MergeSettings = {
 export type AccessRule = 'nobody' | 'maintainers' | 'developers';
 
 /** branch: a name or a wildcard pattern; a branch no rule matches takes pushes from developers */
-export type BranchProtection = { branch: string; push: AccessRule; merge: AccessRule; forcePush: boolean };
+export type BranchProtection = { branch: string; push: AccessRule };
 
 export interface ProviderAdapter {
     readonly provider: Provider;
@@ -38,6 +36,8 @@ export interface ProviderAdapter {
     mergeSettings(): Promise<MergeSettings>;
     branchProtections(): Promise<BranchProtection[]>;
 }
+
+export const PROVIDER_NAME: Record<Provider, string> = { gitlab: 'GitLab', github: 'GitHub' };
 
 /** status null: the provider did not answer */
 export class ProviderError extends Error {
@@ -52,18 +52,26 @@ export class ProviderError extends Error {
 
 export const API_NOTICE = 'The API is not reachable with this token: add the `api` scope to use the adapter.';
 
-/** provider null: one the app does not know; adapter null: push and link, with a notice when the provider has an adapter */
-export type AdapterStatus =
-    | { provider: Provider | null; adapter: ProviderAdapter; notice: null }
-    | { provider: Provider | null; adapter: null; notice: string | null };
-
-export async function providerAdapter(access: GitAccess): Promise<AdapterStatus> {
-    const provider = await providerOf(access.repository);
-    if (provider !== 'gitlab') {
-        return { provider, adapter: null, notice: null };
+export function providerNotice(provider: Provider, error: unknown): string {
+    if (!(error instanceof ProviderError)) {
+        throw error;
     }
-    const reached = await gitlabAdapter(access);
-    return 'adapter' in reached
-        ? { provider, adapter: reached.adapter, notice: null }
-        : { provider, adapter: null, notice: reached.notice };
+    if (error.status === 401 || error.status === 403) {
+        return API_NOTICE;
+    }
+    if (error.status === null || error.status >= 500) {
+        return `${PROVIDER_NAME[provider]}'s API did not answer: ${error.message}`;
+    }
+    return `${PROVIDER_NAME[provider]}'s API answered ${error.status}: ${error.message}`;
+}
+
+export async function unlessProviderFails<T>(answer: Promise<T>, fallback: T): Promise<T> {
+    try {
+        return await answer;
+    } catch (e) {
+        if (e instanceof ProviderError) {
+            return fallback;
+        }
+        throw e;
+    }
 }

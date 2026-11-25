@@ -1,9 +1,9 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { gitAccess, gitAuthorOf, type GitConfig } from './git-config';
-import { gitlabNotice } from './gitlab-adapter';
+import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { gitAuthorOf } from './git-config';
 import type { Promotion, PromotionRow } from './promotion-state';
 import type { FileChange, FlowImpact } from './promotions';
-import { providerAdapter, ProviderError, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
+import { providerNotice, unlessProviderFails, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 export type MergeRequestLink = { number: number; url: string };
 
@@ -17,10 +17,19 @@ export type CheckedChanges = {
     notes?: string[];
 };
 
-export async function adapterOf(ctx: UseCaseContext, config: GitConfig): Promise<ProviderAdapter | null> {
-    const access = await gitAccess(ctx, config);
-    return access.ok ? (await providerAdapter(access.value)).adapter : null;
-}
+type PullRequestFields = Pick<NewPullRequest, 'source' | 'target' | 'title' | 'description'>;
+
+export const requestKeepingCommits = (fields: PullRequestFields): NewPullRequest => ({
+    ...fields,
+    squash: false,
+    removeSourceBranch: true,
+});
+
+export const workBranchRequest = (fields: PullRequestFields): NewPullRequest => ({ ...fields, removeSourceBranch: true });
+
+export const pullRequestUrl = (opened: OpenedMergeRequest, link: string | null): string | null => opened.mergeRequest?.url ?? link;
+
+export const refusedBy = (blocks: { message: string }[]) => fail('conflict', blocks.map(b => b.message).join(' '));
 
 export async function openMergeRequest(adapter: ProviderAdapter | null, request: NewPullRequest): Promise<OpenedMergeRequest> {
     if (!adapter) {
@@ -30,7 +39,7 @@ export async function openMergeRequest(adapter: ProviderAdapter | null, request:
         const opened = (await adapter.findOpenPullRequest(request.source, request.target)) ?? (await adapter.openPullRequest(request));
         return { mergeRequest: { number: opened.number, url: opened.url } };
     } catch (e) {
-        return { notice: `The merge request was not opened: ${gitlabNotice(e)}` };
+        return { notice: `The merge request was not opened: ${providerNotice(adapter.provider, e)}` };
     }
 }
 
@@ -39,32 +48,43 @@ export async function recordMergeRequest(ctx: UseCaseContext, id: string, link: 
 }
 
 /** closed: its merge request was closed without merging, and the row with it, so the caller opens a new one */
+export type ReusedRow = { closed: true } | { closed: false; promotion: Promotion; notice?: string };
+
+/** blocks: what refuses a new merge request, for a row that has none yet */
 export async function reuseOpenRow(
     ctx: UseCaseContext,
     adapter: ProviderAdapter | null,
     row: Promotion,
     request: NewPullRequest,
-): Promise<{ closed: true } | { closed: false; promotion: Promotion; notice?: string }> {
+    blocks: { message: string }[],
+): Promise<UseCaseResult<ReusedRow>> {
     if (!adapter) {
-        return { closed: false, promotion: row };
+        return success({ closed: false, promotion: row });
     }
     if (row.number !== null) {
         try {
             if ((await adapter.pullRequest(row.number)).state !== 'closed') {
-                return { closed: false, promotion: row };
+                return success({ closed: false, promotion: row });
             }
         } catch (e) {
-            return { closed: false, promotion: row, notice: `The merge request could not be read: ${gitlabNotice(e)}` };
+            return success({
+                closed: false,
+                promotion: row,
+                notice: `The merge request could not be read: ${providerNotice(adapter.provider, e)}`,
+            });
         }
         await ctx.db.query(`UPDATE promotions SET state = 'closed', state_at = now() WHERE id = $1 AND state = 'open'`, [row.id]);
-        return { closed: true };
+        return success({ closed: true });
+    }
+    if (blocks.length > 0) {
+        return refusedBy(blocks);
     }
     const { mergeRequest, notice } = await openMergeRequest(adapter, request);
     if (!mergeRequest) {
-        return { closed: false, promotion: row, notice };
+        return success({ closed: false, promotion: row, notice });
     }
     await recordMergeRequest(ctx, row.id, mergeRequest);
-    return { closed: false, promotion: { ...row, ...mergeRequest } };
+    return success({ closed: false, promotion: { ...row, ...mergeRequest } });
 }
 
 export type RowInto = { row: Pick<PromotionRow, 'id' | 'branch' | 'opened_at' | 'pull_request_number'>; into: string };
@@ -89,13 +109,8 @@ export async function mergeRequestsOfRows(
     for (const into of new Set(rows.map(r => r.into))) {
         const along = rows.filter(r => r.into === into).map(r => r.row);
         const since = new Date(Math.min(...along.map(r => new Date(r.opened_at).getTime())) - CLOCK_SKEW_MS);
-        let listed: ProviderPullRequest[];
-        try {
-            listed = await adapter.pullRequestsInto(into, since);
-        } catch (e) {
-            if (!(e instanceof ProviderError)) {
-                throw e;
-            }
+        const listed = await unlessProviderFails<ProviderPullRequest[] | null>(adapter.pullRequestsInto(into, since), null);
+        if (!listed) {
             continue;
         }
         for (const row of along) {
@@ -112,21 +127,21 @@ export async function mergeRequestsOfRows(
     return found;
 }
 
-const section = (title: string, lines: string[]) => (lines.length > 0 ? [`### ${title}`, '', ...lines, ''] : []);
+const descriptionSection = (title: string, lines: string[]) => (lines.length > 0 ? [`### ${title}`, '', ...lines, ''] : []);
 
 export async function mergeRequestDescription(ctx: UseCaseContext, checked: CheckedChanges): Promise<string> {
     const user = (await gitAuthorOf(ctx))?.name ?? ctx.userId;
     return [
         ...(checked.notes?.length ? [...checked.notes, ''] : []),
-        ...section(
+        ...descriptionSection(
             'Files',
             (checked.files ?? []).map(f => `- ${f.status} \`${f.path}\``),
         ),
-        ...section(
+        ...descriptionSection(
             'Flows',
             (checked.flows ?? []).map(f => `- ${f.name}${f.from ? ` (was ${f.from})` : ''}: ${f.changes.join(', ')}`),
         ),
-        ...section(
+        ...descriptionSection(
             'Warnings',
             (checked.warnings ?? []).flatMap(w => [`- ${w.message}`, ...(w.items ?? []).map(item => `  - ${item}`)]),
         ),

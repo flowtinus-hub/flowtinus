@@ -1,15 +1,17 @@
 import type { GitAccess } from './git-remote';
-import { API_NOTICE, ProviderError, type AccessRule, type BranchProtection, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
+import { API_NOTICE, ProviderError, providerNotice, type AccessRule, type BranchProtection, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 const TIMEOUT_MS = 10_000;
 
 const PAGE = 100;
 
-type MergeRequest = { iid: number; web_url: string; source_branch: string; target_branch: string; title: string; state: string };
+type MergeRequest = { iid: number; web_url: string; source_branch: string; target_branch: string; state: string };
 
 type AccessLevels = { access_level: number | null }[];
 
-type ProtectedBranch = { name: string; push_access_levels: AccessLevels; merge_access_levels: AccessLevels; allow_force_push: boolean };
+type ProtectedBranch = { name: string; push_access_levels: AccessLevels };
+
+const DEVELOPER = 30;
 
 const SQUASH: Record<string, MergeSettings['squash']> = {
     never: 'never',
@@ -25,17 +27,16 @@ const toPullRequest = (m: MergeRequest): ProviderPullRequest => ({
     url: m.web_url,
     source: m.source_branch,
     target: m.target_branch,
-    title: m.title,
     state: m.state === 'merged' ? 'merged' : m.state === 'closed' ? 'closed' : 'open',
 });
 
 // a level of 0 is "no one"; an entry for a user or a group has none, and lets only them
-function rule(levels: AccessLevels): AccessRule {
+function accessRuleOf(levels: AccessLevels): AccessRule {
     const lowest = Math.min(...levels.map(l => l.access_level).filter((l): l is number => !!l));
-    return lowest <= 30 ? 'developers' : lowest < Infinity ? 'maintainers' : 'nobody';
+    return lowest <= DEVELOPER ? 'developers' : lowest < Infinity ? 'maintainers' : 'nobody';
 }
 
-function parsed(text: string): { message?: unknown; error?: unknown; error_description?: unknown } {
+function jsonOf(text: string): { message?: unknown; error?: unknown; error_description?: unknown } {
     try {
         return JSON.parse(text) ?? {};
     } catch {
@@ -45,7 +46,7 @@ function parsed(text: string): { message?: unknown; error?: unknown; error_descr
 
 async function errorOf(response: Response): Promise<string> {
     const text = await response.text().catch(() => '');
-    const body = parsed(text);
+    const body = jsonOf(text);
     const message = body.message ?? body.error_description ?? body.error;
     if (message !== undefined) {
         return typeof message === 'string' ? message : JSON.stringify(message);
@@ -151,24 +152,9 @@ class GitLabClient implements ProviderAdapter {
     async branchProtections(): Promise<BranchProtection[]> {
         return (await this.list<ProtectedBranch>(`${this.project}/protected_branches`)).map(p => ({
             branch: p.name,
-            push: rule(p.push_access_levels),
-            merge: rule(p.merge_access_levels),
-            forcePush: p.allow_force_push,
+            push: accessRuleOf(p.push_access_levels),
         }));
     }
-}
-
-export function gitlabNotice(error: unknown): string {
-    if (!(error instanceof ProviderError)) {
-        throw error;
-    }
-    if (error.status === 401 || error.status === 403) {
-        return API_NOTICE;
-    }
-    if (error.status === null || error.status >= 500) {
-        return `GitLab's API did not answer: ${error.message}`;
-    }
-    return `GitLab's API answered ${error.status}: ${error.message}`;
 }
 
 export async function gitlabAdapter(access: GitAccess): Promise<{ adapter: ProviderAdapter } | { notice: string }> {
@@ -180,6 +166,6 @@ export async function gitlabAdapter(access: GitAccess): Promise<{ adapter: Provi
         await client.projectPath();
         return { adapter: client };
     } catch (e) {
-        return { notice: gitlabNotice(e) };
+        return { notice: providerNotice('gitlab', e) };
     }
 }
