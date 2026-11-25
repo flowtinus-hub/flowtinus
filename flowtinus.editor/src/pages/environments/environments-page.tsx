@@ -4,10 +4,11 @@ import { workspaceSettingsPath } from '@/app/paths';
 import { ResourceView } from '@/components/resource-view';
 import { useResource } from '@/data/use-resource';
 import { useWorkspace } from '@/data/workspaces/use-workspace';
-import { getEnvironments, getGitStatus, GIT_STATUS_CHANGED, type EnvironmentCard, type EnvironmentEdge, type Environments, type FlowCell, type FlowRow, type GitStatus } from '@/data/git/git-api';
+import { getEnvironments, getGitStatus, GIT_STATUS_CHANGED, type EnvironmentCard, type EnvironmentEdge, type Environments, type FlowCell, type FlowRow, type GitStatus, type PromotionState } from '@/data/git/git-api';
 import { cn } from '@/lib/utils';
 import { WorkspacePage } from '@/pages/workspaces/workspace-page';
 import { GitStatusPanel } from './git-status-panel';
+import { PromotePanel } from './promote-panel';
 
 type On = Extract<Environments, { on: true }>;
 
@@ -20,10 +21,12 @@ const short = (sha: string) => sha.slice(0, 7);
  * server's own state: the pipeline, this server's git status, and what runs where. Read only; git and this server only.
  */
 export function EnvironmentsPage() {
-    const { handle, canEdit } = useWorkspace();
+    const { handle, canEdit, isAdmin } = useWorkspace();
     const environments = useResource(`environments:${handle}`, () => getEnvironments(handle), { refreshOn: GIT_STATUS_CHANGED });
     const status = useResource(`git-status:${handle}`, () => getGitStatus(handle), { refreshOn: GIT_STATUS_CHANGED });
     const here = status.state.status === 'ready' ? status.state.value : null;
+    // read again in place: a reload would show "Loading" and drop the panels' state
+    const fresh = () => Promise.resolve({ ok: true as const, value: null });
 
     return (
         <WorkspacePage title="Environments">
@@ -54,14 +57,20 @@ export function EnvironmentsPage() {
                                         status={here}
                                         readOnly={!canEdit}
                                         onChanged={async () => {
-                                            // read again in place: a reload would show "Loading" and drop the panel's outcome
-                                            const fresh = Promise.resolve({ ok: true as const, value: null });
-                                            await Promise.all([status.run(fresh), environments.run(fresh)]);
+                                            await Promise.all([status.run(fresh()), environments.run(fresh())]);
                                         }}
                                     />
                                 </section>
                             )}
+                            <PromotePanel
+                                handle={handle}
+                                edges={value.edges.filter(e => e.source === value.environment)}
+                                branchOf={env => value.pipeline.find(c => c.env === env)?.branch ?? env}
+                                canPromote={isAdmin}
+                                onOpened={() => void environments.run(fresh())}
+                            />
                             <RunsWhere value={value} />
+                            <Activity value={value} />
                         </div>
                     )
                 }
@@ -240,5 +249,70 @@ function FlowLine({ flow, environments, here }: { flow: FlowRow; environments: s
                 );
             })}
         </tr>
+    );
+}
+
+const STATE_TEXT: Record<PromotionState, string> = { open: 'Open', merged: 'Merged', closed: 'Closed' };
+
+/** this server's promotions and its recent reconciles, newest first */
+function Activity({ value }: { value: On }) {
+    const events = [
+        ...value.promotions.map(p => ({
+            key: `promotion:${p.id}`,
+            at: p.openedAt,
+            node: (
+                <span className="grid gap-0.5">
+                    <span className="flex flex-wrap items-center gap-x-2">
+                        <span>
+                            Promotion {p.source} <ArrowRight className="inline size-3.5" /> {p.target} of{' '}
+                            <span className="font-mono">{short(p.sha)}</span>
+                        </span>
+                        <span
+                            className={cn(
+                                'rounded-full px-2 py-0.5 text-xs',
+                                p.state === 'open' ? 'bg-primary/15' : p.state === 'merged' ? 'bg-emerald-500/15' : 'bg-muted',
+                            )}
+                        >
+                            {STATE_TEXT[p.state]}
+                        </span>
+                        {p.url && (
+                            <a className="text-xs underline" href={p.url} target="_blank" rel="noreferrer">
+                                Pull request
+                            </a>
+                        )}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                        <span className="font-mono">{p.branch}</span>, by {p.openedBy ?? 'someone gone'}
+                        {!p.inTopology && ': this edge is no longer in the topology'}
+                    </span>
+                </span>
+            ),
+        })),
+        ...value.reconciles.map(r => ({
+            key: `reconcile:${r.sha}:${r.at}`,
+            at: r.at,
+            node: (
+                <span className={cn(r.outcome === 'refused' && 'text-destructive')}>
+                    {r.outcome === 'applied' ? 'Applied' : 'Refused'} <span className="font-mono">{short(r.sha)}</span>
+                </span>
+            ),
+        })),
+    ].sort((a, b) => b.at.localeCompare(a.at));
+    return (
+        <section className="grid gap-3">
+            <h2 className="text-lg font-semibold">Activity</h2>
+            {events.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No promotion or reconcile yet.</p>
+            ) : (
+                <ul className="max-h-96 divide-y overflow-y-auto rounded-lg border">
+                    {events.map(event => (
+                        <li key={event.key} className="flex items-start justify-between gap-3 px-3 py-2 text-sm">
+                            {event.node}
+                            <span className="shrink-0 text-xs text-muted-foreground">{new Date(event.at).toLocaleString()}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
     );
 }

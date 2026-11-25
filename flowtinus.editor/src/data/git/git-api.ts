@@ -79,9 +79,75 @@ export type Environments =
           pipeline: EnvironmentCard[];
           edges: EnvironmentEdge[];
           runsWhere: { environments: string[]; flows: FlowRow[] };
+          promotions: Promotion[];
+          reconciles: ReconcileEntry[];
       };
 
 export const getEnvironments = (ws: string) => api<Environments>(`/w/${ws}/git/environments`);
+
+export type PromotionState = 'open' | 'merged' | 'closed';
+
+/** url: the provider's page for a new pull request, while it is open; inTopology: its edge is still in the topology */
+export type Promotion = {
+    id: string;
+    source: string;
+    target: string;
+    sha: string;
+    branch: string;
+    state: PromotionState;
+    openedBy: string | null;
+    openedAt: string;
+    inTopology: boolean;
+    url: string | null;
+};
+
+export type ReconcileEntry = { sha: string; outcome: 'applied' | 'refused'; at: string };
+
+/** choosable: on the source's first-parent line; inTarget: shown for context, already in the target */
+export type GraphCommit = {
+    sha: string;
+    parents: string[];
+    message: string;
+    author: string;
+    at: string;
+    choosable: boolean;
+    inTarget: boolean;
+};
+
+/** next: the skip of the next page, null on the last one */
+export type CommitGraph = {
+    source: string;
+    target: string;
+    sourceTip: string | null;
+    targetTip: string | null;
+    commits: GraphCommit[];
+    next: number | null;
+};
+
+export const getCommitGraph = (ws: string, target: string, skip = 0) =>
+    api<CommitGraph>(`/w/${ws}/git/promotions/graph?${new URLSearchParams({ target, skip: String(skip) })}`);
+
+export type FlowChange = 'added' | 'removed' | 'renamed' | 'changed' | 'deployed' | 'undeployed';
+
+export type Preflight = {
+    sha: string;
+    files: { path: string; status: 'added' | 'modified' | 'deleted' }[];
+    impact: {
+        flows: { id: string; name: string; from?: string; changes: FlowChange[] }[];
+        scripts: { path: string; change: 'added' | 'changed' | 'removed' }[];
+    };
+    blocks: { kind: 'no-target' | 'conflicts' | 'ahead' | 'invalid' | 'empty'; message: string; issues?: TreeIssue[] }[];
+    warnings: { kind: 'connections' | 'triggers' | 'drafts'; message: string; items: string[] }[];
+    open: Promotion[];
+};
+
+export const getPreflight = (ws: string, target: string, sha: string) =>
+    api<Preflight>(`/w/${ws}/git/promotions/preflight?${new URLSearchParams({ target, sha })}`);
+
+export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: 'gitlab' | 'github' | null };
+
+export const openPromotion = (ws: string, target: string, sha: string) =>
+    api<OpenedPromotion>(`/w/${ws}/git/promotions`, { method: 'POST', body: { target, sha } });
 
 export type CurrentBranch = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: boolean };
 

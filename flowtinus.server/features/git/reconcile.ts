@@ -85,8 +85,12 @@ export async function applyCommit(
     const by = await recordCommit(ctx, remote, applied.commit);
     const { renamedDrafts } = await importWorkspace(ctx, handle, files, { commit: applied.commit, by });
     await markApplied(ctx, applied, warnings);
+    await logReconcile(ctx, applied.commit, 'applied');
     return renamedDrafts;
 }
+
+const logReconcile = (ctx: UseCaseContext, commit: string, outcome: 'applied' | 'refused') =>
+    ctx.db.query('INSERT INTO git_reconciles (workspace_id, sha, outcome) VALUES ($1, $2, $3)', [ctx.workspaceId, commit, outcome]);
 
 // the commit's author is the app user with that email, if there is one
 async function recordCommit(ctx: UseCaseContext, remote: GitRemote, commit: string): Promise<string | null> {
@@ -148,6 +152,7 @@ export async function reconcile(
             await recordCommit(tx, remote, tip);
             const refused = { commit: tip, errors: validation.errors, at: new Date().toISOString() };
             await writeWorkspaceSetting(db, ctx.workspaceId, RECONCILE_SETTING, { ...state, refused }, ctx.userId);
+            await logReconcile(tx, tip, 'refused');
             return success({ ...result, outcome: 'refused' as const, errors: refused.errors, refusedAt: refused.at });
         }
 
