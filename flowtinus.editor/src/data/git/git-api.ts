@@ -28,16 +28,20 @@ export type Topology =
 
 export type AccessTest = {
     ok: boolean;
-    checks: { step: 'read' | 'write'; ok: boolean; message: string }[];
+    /** api: the provider's API, for the adapter; when it fails git still works */
+    checks: { step: 'read' | 'write' | 'api'; ok: boolean; message: string }[];
     topology: Topology | null;
     note: string;
 };
 
 export const CONFIG_BRANCH = 'flowtinus/config';
 
+/** with git on, on a provider the app has an adapter for: whether it is on, and why not */
+export type AdapterView = { provider: Provider; on: boolean; notice?: string };
+
 /** hook (admins): the webhook's path on the server (git/hook/<workspace>/<token>) */
 export const getGitConfig = (ws: string) =>
-    api<{ config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll }>(`/w/${ws}/git`);
+    api<{ config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll; adapter?: AdapterView }>(`/w/${ws}/git`);
 
 export type GitCommitView = { sha: string; message?: string; author?: string; at?: string };
 

@@ -74,6 +74,13 @@ export function GitSection({ handle, readOnly }: { handle: string; readOnly: boo
                             page.
                         </p>
                     )}
+                    {saved.state.value.adapter?.notice && (
+                        <p className="flex gap-1.5 text-sm text-amber-700 dark:text-amber-400" role="status">
+                            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                            {saved.state.value.adapter.notice} Meanwhile the app pushes each pull request&apos;s branch and links to the
+                            provider&apos;s page.
+                        </p>
+                    )}
                     {saved.state.value.on && <ArrivedDisabledPanel handle={handle} />}
                     {saved.state.value.on && (
                         <HookPanel
@@ -391,7 +398,7 @@ function AccessTestResult({ test, environment }: { test: AccessTest; environment
         <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm" role="status">
             <p className="font-medium">{test.ok ? 'The access works.' : 'The access does not work.'}</p>
             {test.checks.map(check => (
-                <Check key={check.step} ok={check.ok}>
+                <Check key={check.step} ok={check.step === 'api' && !check.ok ? 'warn' : check.ok}>
                     {check.message}
                 </Check>
             ))}
