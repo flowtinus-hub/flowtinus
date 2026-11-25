@@ -1,9 +1,9 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { gitAccess, gitAuthorOf, type GitConfig } from './git-config';
 import { gitlabNotice } from './gitlab-adapter';
-import type { Promotion } from './promotion-state';
+import type { Promotion, PromotionRow } from './promotion-state';
 import type { FileChange, FlowImpact } from './promotions';
-import { providerAdapter, type NewPullRequest, type ProviderAdapter } from './provider-adapter';
+import { providerAdapter, ProviderError, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 export type MergeRequestLink = { number: number; url: string };
 
@@ -65,6 +65,51 @@ export async function reuseOpenRow(
     }
     await recordMergeRequest(ctx, row.id, mergeRequest);
     return { closed: false, promotion: { ...row, ...mergeRequest } };
+}
+
+export type RowInto = { row: Pick<PromotionRow, 'id' | 'branch' | 'opened_at' | 'pull_request_number'>; into: string };
+
+const CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
+
+/** one call per target branch; a row with no number takes the open merge request from its branch, else the newest no other row holds */
+export async function mergeRequestsOfRows(
+    ctx: UseCaseContext,
+    adapter: ProviderAdapter,
+    rows: RowInto[],
+): Promise<Map<string, ProviderPullRequest>> {
+    const found = new Map<string, ProviderPullRequest>();
+    const held = new Set(
+        (
+            await ctx.db.query<{ pull_request_number: number }>(
+                `SELECT pull_request_number FROM promotions WHERE workspace_id = $1 AND branch = ANY($2) AND pull_request_number IS NOT NULL`,
+                [ctx.workspaceId, rows.map(r => r.row.branch)],
+            )
+        ).map(r => r.pull_request_number),
+    );
+    for (const into of new Set(rows.map(r => r.into))) {
+        const along = rows.filter(r => r.into === into).map(r => r.row);
+        const since = new Date(Math.min(...along.map(r => new Date(r.opened_at).getTime())) - CLOCK_SKEW_MS);
+        let listed: ProviderPullRequest[];
+        try {
+            listed = await adapter.pullRequestsInto(into, since);
+        } catch (e) {
+            if (!(e instanceof ProviderError)) {
+                throw e;
+            }
+            continue;
+        }
+        for (const row of along) {
+            const match =
+                row.pull_request_number !== null
+                    ? listed.find(m => m.number === row.pull_request_number)
+                    : (listed.find(m => m.source === row.branch && m.state === 'open') ??
+                      listed.filter(m => m.source === row.branch && !held.has(m.number)).sort((a, b) => b.number - a.number)[0]);
+            if (match) {
+                found.set(row.id, match);
+            }
+        }
+    }
+    return found;
 }
 
 const section = (title: string, lines: string[]) => (lines.length > 0 ? [`### ${title}`, '', ...lines, ''] : []);

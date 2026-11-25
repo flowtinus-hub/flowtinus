@@ -6,6 +6,7 @@ import type { UseCaseResult } from '#shared/use-cases/use-case-result';
 import { lockBranch } from './branch-write';
 import { HEADS_SETTING, type GitConfig } from './git-config';
 import { GitError, type GitRemote } from './git-remote';
+import { adapterOf } from './merge-request';
 import { dropPendingMerge, pendingMerge } from './pending-merge';
 import { followPromotions } from './promotion-state';
 import { reconcile, type ReconcileResult } from './reconcile';
@@ -195,6 +196,6 @@ export async function fetchAndReconcile(
     const heads = await fetchHeads(remote);
     const result = await reconcile(ctx, remote, config, heads.fetched);
     await recordHeads(ctx, remote, config, heads);
-    await followPromotions(ctx, remote, heads.fetched);
+    await followPromotions(ctx, remote, heads.fetched, () => adapterOf(ctx, config));
     return result;
 }
