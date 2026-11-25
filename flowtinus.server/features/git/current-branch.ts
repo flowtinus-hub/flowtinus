@@ -43,7 +43,7 @@ export function branchKind(name: string, environments: string[]): { kind: Branch
     if (environments.includes(name)) {
         return { kind: 'environment' };
     }
-    if (/^(promote|backport|hotfix|flowtinus)\//.test(name)) {
+    if (/^(promote|repair|backport|hotfix|flowtinus)\//.test(name)) {
         return { kind: 'app' };
     }
     const user = /^users\/([^/]+)\/./.exec(name);

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { ArrowRight, CircleCheck, CircleX, ExternalLink, GitPullRequestArrow, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useResource } from '@/data/use-resource';
-import { getCommitGraph, getPreflight, openPromotion, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedPromotion, type Preflight } from '@/data/git/git-api';
+import { getCommitGraph, getPreflight, openPromotion, openRepair, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedPromotion, type OpenedRepair, type Preflight, type Promotion } from '@/data/git/git-api';
 import { cn } from '@/lib/utils';
 import { CommitGraph } from './commit-graph';
 
@@ -59,11 +59,21 @@ export function PromotePanel({
                                 onClick={() => setActive(e.target)}
                             >
                                 {e.source} <ArrowRight className="size-3" /> {e.target}
+                                {e.broken.length > 0 && <CircleX className="size-3 text-destructive" />}
                             </button>
                         ))}
                     </div>
                 )}
             </div>
+            {edge.broken.length > 0 && (
+                <BrokenLineage
+                    key={`broken:${edge.target}`}
+                    handle={handle}
+                    broken={edge.broken}
+                    targetBranch={branchOf(edge.target)}
+                    canRepair={canPromote}
+                />
+            )}
             {edge.targetExists ? (
                 <EdgePanel
                     key={edge.target}
@@ -81,6 +91,103 @@ export function PromotePanel({
                 </p>
             )}
         </section>
+    );
+}
+
+/** the edge is blocked until a repair of each broken promotion is merged: a merge of its sha that keeps the target's tree */
+function BrokenLineage({
+    handle,
+    broken,
+    targetBranch,
+    canRepair,
+}: {
+    handle: string;
+    broken: Promotion[];
+    targetBranch: string;
+    canRepair: boolean;
+}) {
+    return (
+        <div className="grid gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
+            <p className="flex gap-2">
+                <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
+                <span>
+                    The lineage into <span className="font-mono">{targetBranch}</span> is broken: a promotion reached it by a squash or a
+                    rebase, so its commit is not in <span className="font-mono">{targetBranch}</span>. Promoting along this edge is blocked
+                    until a repair is merged. The repair changes no file and deploys nothing.
+                </span>
+            </p>
+            <ul className="grid gap-2">
+                {broken.map(promotion => (
+                    <RepairRow key={promotion.id} handle={handle} promotion={promotion} targetBranch={targetBranch} canRepair={canRepair} />
+                ))}
+            </ul>
+        </div>
+    );
+}
+
+function RepairRow({
+    handle,
+    promotion,
+    targetBranch,
+    canRepair,
+}: {
+    handle: string;
+    promotion: Promotion;
+    targetBranch: string;
+    canRepair: boolean;
+}) {
+    const [opening, setOpening] = useState(false);
+    const [opened, setOpened] = useState<{ value?: OpenedRepair; error?: string } | null>(null);
+    const open = async () => {
+        setOpening(true);
+        const answer = await openRepair(handle, promotion.id);
+        setOpening(false);
+        setOpened(answer.ok ? { value: answer.value } : { error: answer.error.message });
+    };
+    const repair = opened?.value;
+
+    return (
+        <li className="grid gap-2">
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>
+                    <span className="font-mono">{promotion.sha.slice(0, 12)}</span>, from{' '}
+                    <span className="font-mono">{promotion.branch}</span>
+                </span>
+                {canRepair && !repair && (
+                    <Button size="sm" variant="outline" disabled={opening} onClick={() => void open()}>
+                        {opening ? <LoaderCircle className="animate-spin" /> : <GitPullRequestArrow />}
+                        Open repair
+                    </Button>
+                )}
+            </span>
+            {opened?.error && <span className="text-destructive">{opened.error}</span>}
+            {repair && (
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span>
+                        {repair.reused ? 'Already pushed: ' : 'Pushed '}
+                        <span className="font-mono">{repair.branch}</span>.
+                    </span>
+                    {repair.url ? (
+                        <Button size="sm" asChild>
+                            <a href={repair.url} target="_blank" rel="noreferrer">
+                                <ExternalLink />
+                                Open the pull request on {repair.provider ? PROVIDERS[repair.provider] : 'the provider'}
+                            </a>
+                        </Button>
+                    ) : (
+                        <span className="text-muted-foreground">
+                            Open a pull request from <span className="font-mono">{repair.branch}</span> into{' '}
+                            <span className="font-mono">{targetBranch}</span> on your git provider.
+                        </span>
+                    )}
+                </span>
+            )}
+            {repair && (
+                <span className="text-xs text-muted-foreground">
+                    Merge it with a merge commit: a squash or a rebase would not mend the history.
+                </span>
+            )}
+        </li>
     );
 }
 

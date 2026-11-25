@@ -7,11 +7,11 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { flowsIn } from './environments';
-import { readGitState, type GitConfig, type GitOptions } from './git-config';
+import { gitAuthorOf, readGitState, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import { fetchHeads, recordHeads } from './git-heads';
 import type { GitRemote } from './git-remote';
-import { providerOf, type Provider } from './pull-request';
+import { providerOf, pullRequestLink, type Provider } from './pull-request';
 import { edgeIn, followPromotions, promotionRows, toPromotion, type Promotion } from './promotion-state';
 import type { EnvironmentDecl } from './topology';
 import { isChange, workingRows } from './working-copy';
@@ -48,7 +48,11 @@ export type FlowImpact = { id: string; name: string; from?: string; changes: Flo
 
 export type ScriptImpact = { path: string; change: 'added' | 'changed' | 'removed' };
 
-export type PreflightBlock = { kind: 'no-target' | 'conflicts' | 'ahead' | 'invalid' | 'empty'; message: string; issues?: TreeIssue[] };
+export type PreflightBlock = {
+    kind: 'no-target' | 'conflicts' | 'ahead' | 'broken' | 'invalid' | 'empty';
+    message: string;
+    issues?: TreeIssue[];
+};
 
 export type PreflightWarning = { kind: 'connections' | 'triggers' | 'drafts'; message: string; items: string[] };
 
@@ -66,6 +70,8 @@ const CONTEXT_COMMITS = 3;
 const NO_ENVIRONMENT = { connections: [], secrets: [], variables: [] };
 
 export const promotionBranch = (source: string, sha: string) => `promote/${source}-${sha.slice(0, 12)}`;
+
+export const repairBranch = (target: string, sha: string) => `repair/${target}-${sha.slice(0, 12)}`;
 
 type Edge = { source: EnvironmentDecl; target: EnvironmentDecl; sourceTip: string | null; targetTip: string | null };
 
@@ -273,6 +279,17 @@ async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, 
             message: `${edge.target.env} is ahead of ${edge.source.env}: merge ${edge.target.branch} into ${edge.source.branch} first.`,
         });
     }
+    const broken = await promotionRows(ctx, `AND p.state = 'broken' AND p.source = $2 AND p.target = $3`, [
+        edge.source.env,
+        edge.target.env,
+    ]);
+    if (broken.length > 0) {
+        const shas = broken.map(row => row.sha.slice(0, 12)).join(', ');
+        blocks.push({
+            kind: 'broken',
+            message: `The lineage into ${edge.target.branch} is broken: ${shas} reached it by a squash or a rebase. Merge a repair first.`,
+        });
+    }
     if (merged.conflicts.length === 0) {
         const { errors } = validateWorkspaceTree({ workspace: handle, files: after, environment: NO_ENVIRONMENT });
         if (errors.length > 0) {
@@ -441,6 +458,70 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
             const links = { topology: { environments: [edge.value.source, edge.value.target] }, repository: config.repository, provider };
             const [row] = await promotionRows(ctx, 'AND p.id = $2', [id]);
             return success({ promotion: toPromotion(row!, links), reused: false, alsoOpen: open, provider });
+        });
+    }
+}
+
+/** reused: the repair branch was already pushed with the promoted sha in it */
+export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null };
+
+const RepairInput = z.object({ id: z.uuid('Invalid') });
+
+export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
+    constructor(private readonly options: GitOptions) {}
+
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<OpenedRepair>> {
+        const denied = requireRole(ctx, 'admin') ?? (await gitOff(ctx));
+        if (denied) {
+            return denied;
+        }
+        const parsed = validate(RepairInput, input);
+        if (!parsed.ok) {
+            return parsed;
+        }
+
+        return onWorkspaceRepository(ctx, this.options, async (remote, config): Promise<UseCaseResult<OpenedRepair>> => {
+            const heads = await fetchHeads(remote);
+            await recordHeads(ctx, remote, config, heads);
+            await followPromotions(ctx, remote, heads.fetched);
+
+            const [row] = await promotionRows(ctx, 'AND p.id = $2', [parsed.value.id]);
+            if (!row) {
+                return fail('not-found', 'Promotion not found.');
+            }
+            if (row.state !== 'broken') {
+                return fail('conflict', `Only a broken lineage takes a repair: this promotion is ${row.state}.`);
+            }
+            const edge = await edgeOut(remote, config.environment, row.target, heads.fetched);
+            if (!edge.ok) {
+                return edge;
+            }
+            const targetTip = edge.value.targetTip;
+            if (!targetTip) {
+                return fail('conflict', `The branch ${edge.value.target.branch} does not exist.`);
+            }
+
+            const branch = repairBranch(row.target, row.sha);
+            const there = heads.fetched.get(branch);
+            if (there && !(await remote.isAncestor(row.sha, there))) {
+                return fail(
+                    'conflict',
+                    `The branch ${branch} is in the repository without ${row.sha.slice(0, 12)}: delete it, then repair again.`,
+                );
+            }
+            if (!there) {
+                const commit = await remote.commit({
+                    parent: targetTip,
+                    changes: {},
+                    message: `Repair the lineage of ${row.sha.slice(0, 12)} into ${edge.value.target.branch}\n\nA merge that keeps ${edge.value.target.branch}'s tree: it changes no file.`,
+                    author: await gitAuthorOf(ctx),
+                    merge: { tree: targetTip, theirs: row.sha },
+                });
+                await remote.push(commit, branch, null);
+            }
+            const provider = await providerOf(config.repository);
+            const url = provider ? pullRequestLink(config.repository, provider, branch, edge.value.target.branch) : null;
+            return success({ branch, reused: !!there, url, provider });
         });
     }
 }

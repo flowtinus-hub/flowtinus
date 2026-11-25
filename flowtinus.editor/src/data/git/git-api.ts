@@ -62,7 +62,15 @@ export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`
 export type EnvironmentCard = { env: string; label: string; branch: string; mode: Mode; tip: string | null; here: boolean };
 
 /** behind: the files promoting the source's tip would change; ahead: merging the target into its source would change the source */
-export type EnvironmentEdge = { source: string; target: string; targetExists: boolean; behind: number | null; ahead: boolean | null };
+/** broken: this server's promotions along the edge whose lineage is broken, which block it until a repair is merged */
+export type EnvironmentEdge = {
+    source: string;
+    target: string;
+    targetExists: boolean;
+    behind: number | null;
+    ahead: boolean | null;
+    broken: Promotion[];
+};
 
 /** content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here */
 export type FlowCell = { state: 'deployed' | 'undeployed' | 'absent'; content: 'same' | 'other' | null; differs: boolean };
@@ -85,7 +93,7 @@ export type Environments =
 
 export const getEnvironments = (ws: string) => api<Environments>(`/w/${ws}/git/environments`);
 
-export type PromotionState = 'open' | 'merged' | 'closed';
+export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
 
 /** url: the provider's page for a new pull request, while it is open; inTopology: its edge is still in the topology */
 export type Promotion = {
@@ -136,7 +144,7 @@ export type Preflight = {
         flows: { id: string; name: string; from?: string; changes: FlowChange[] }[];
         scripts: { path: string; change: 'added' | 'changed' | 'removed' }[];
     };
-    blocks: { kind: 'no-target' | 'conflicts' | 'ahead' | 'invalid' | 'empty'; message: string; issues?: TreeIssue[] }[];
+    blocks: { kind: 'no-target' | 'conflicts' | 'ahead' | 'broken' | 'invalid' | 'empty'; message: string; issues?: TreeIssue[] }[];
     warnings: { kind: 'connections' | 'triggers' | 'drafts'; message: string; items: string[] }[];
     open: Promotion[];
 };
@@ -148,6 +156,12 @@ export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen:
 
 export const openPromotion = (ws: string, target: string, sha: string) =>
     api<OpenedPromotion>(`/w/${ws}/git/promotions`, { method: 'POST', body: { target, sha } });
+
+/** reused: the repair branch was already pushed */
+export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: 'gitlab' | 'github' | null };
+
+export const openRepair = (ws: string, promotion: string) =>
+    api<OpenedRepair>(`/w/${ws}/git/promotions/${promotion}/repair`, { method: 'POST' });
 
 export type CurrentBranch = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: boolean };
 

@@ -84,6 +84,14 @@ describe('promoting along an edge that leaves this server: a branch at a first-p
             git(repo, 'update-ref', `refs/heads/${into}`, commit);
             return commit;
         };
+        /** the promoted tree committed onto `into` with a single parent, as a squash merge on the provider */
+        const squashInto = (into: string, from: string) => {
+            const tree = git(repo, 'merge-tree', '--write-tree', into, from);
+            const who = ['-c', 'user.name=Someone', '-c', 'user.email=someone@example.com'];
+            const commit = git(repo, ...who, 'commit-tree', tree, '-p', tip(into), '-m', `Squash ${from} into ${into}`);
+            git(repo, 'update-ref', `refs/heads/${into}`, commit);
+            return commit;
+        };
         const addFile = (branch: string, path: string) => commitFiles(repo, branch, { ...filesOf(branch), [path]: path }, `Add ${path}`);
         const deleteBranch = (branch: string) => git(repo, 'update-ref', '-d', `refs/heads/${branch}`);
         const poll = () => call('POST', '/git/reconcile');
@@ -104,6 +112,7 @@ describe('promoting along an edge that leaves this server: a branch at a first-p
             has,
             deployFlow,
             mergeInto,
+            squashInto,
             addFile,
             deleteBranch,
             poll,
@@ -254,6 +263,109 @@ describe('promoting along an edge that leaves this server: a branch at a first-p
         deleteBranch(`promote/DEV-${short(a)}`);
         await poll();
         expect((await stateBySha())[a]).toBe('merged');
+    });
+
+    test('a squash merge is found as a broken lineage, after merged and before closed, and stays broken through a revert', async () => {
+        const { repo, filesOf, branchAt, addFile, squashInto, deleteBranch, poll, promotions, promote } = await newWorkspace();
+        branchAt('qa', 'dev');
+        const sha = addFile('dev', 'a.txt');
+        const branch = `promote/DEV-${short(sha)}`;
+        expect((await promote(sha)).status).toBe(200);
+        const before = filesOf('qa');
+
+        squashInto('qa', branch);
+        deleteBranch(branch);
+        await poll();
+        expect(states(await promotions())).toEqual([[sha, 'broken']]);
+
+        commitFiles(repo, 'qa', before, 'Revert the squash');
+        await poll();
+        expect(states(await promotions())).toEqual([[sha, 'broken']]);
+    });
+
+    test('a broken lineage blocks its edge: the pre-flight, opening, and the edge in the environments view', async () => {
+        const { call, branchAt, addFile, squashInto, poll, promote, preflight } = await newWorkspace();
+        branchAt('qa', 'dev');
+        const sha = addFile('dev', 'a.txt');
+        const opened = (await promote(sha)).body.promotion;
+        squashInto('qa', `promote/DEV-${short(sha)}`);
+        await poll();
+
+        const next = addFile('dev', 'b.txt');
+        const blocks = (await preflight(next)).body.blocks;
+        expect(blocks.map((b: { kind: string }) => b.kind)).toEqual(['broken']);
+        expect(blocks[0].message).toContain(short(sha));
+        const refused = await promote(next);
+        expect(refused.status).toBe(409);
+        expect(refused.body.error.message).toContain('lineage');
+
+        const edge = (await call('GET', '/git/environments')).body.edges.find((e: { target: string }) => e.target === 'QA');
+        expect(edge.broken).toMatchObject([{ id: opened.id, sha, state: 'broken' }]);
+    });
+
+    test("a broken lineage does not block promotions out of the target, on the target's server", async () => {
+        const { repo, branchAt, tip, addFile, squashInto, poll, promote } = await newWorkspace();
+        branchAt('qa', 'dev');
+        const sha = addFile('dev', 'a.txt');
+        await promote(sha);
+        squashInto('qa', `promote/DEV-${short(sha)}`);
+        await poll();
+        branchAt('main', 'dev');
+
+        const qa = crypto.randomUUID();
+        await insertWorkspace(db, qa);
+        const call = async (method: string, path: string, body?: unknown) => {
+            const response = await app.request(wsPath(qa, path), {
+                method,
+                headers: { 'x-user-id': ANA, 'content-type': 'application/json' },
+                body: body === undefined ? undefined : JSON.stringify(body),
+            });
+            return { status: response.status, body: (await response.json()) as any };
+        };
+        await call('POST', '/secrets', { name: 'git-token', value: 'tok3n' });
+        expect(
+            (await call('PUT', '/git', { repository: pathToFileURL(repo).href, tokenSecret: 'git-token', environment: 'QA' })).status,
+        ).toBe(200);
+        expect((await call('POST', '/git/on', { choice: 'git' })).status).toBe(200);
+
+        const checked = await call('GET', `/git/promotions/preflight?target=PROD&sha=${tip('qa')}`);
+        expect(checked.body.blocks).toEqual([]);
+        expect((await call('POST', '/git/promotions', { target: 'PROD', sha: tip('qa') })).status).toBe(200);
+    });
+
+    test("the repair: an admin's merge of the sha that keeps the target's tree; once merged, the row is merged and the edge free", async () => {
+        const { id, call, callAs, repo, tip, has, branchAt, addFile, squashInto, mergeInto, poll, promotions, promote, preflight } =
+            await newWorkspace();
+        branchAt('qa', 'dev');
+        const sha = addFile('dev', 'a.txt');
+        const opened = (await promote(sha)).body.promotion;
+        squashInto('qa', `promote/DEV-${short(sha)}`);
+        await poll();
+        const repair = (as = call) => as('POST', `/git/promotions/${opened.id}/repair`);
+        const branch = `repair/QA-${short(sha)}`;
+
+        const editor = await insertMember(db, id, { name: 'Eve', role: 'editor' });
+        expect((await repair(callAs(editor))).status).toBe(403);
+        expect(has(branch)).toBe(false);
+
+        const pushed = await repair();
+        expect(pushed.status).toBe(200);
+        expect(pushed.body).toMatchObject({ branch, reused: false, url: null, provider: null });
+        expect(git(repo, 'rev-list', '--parents', '-n', '1', branch).split(' ').slice(1)).toEqual([tip('qa'), sha]);
+        expect(git(repo, 'rev-parse', `${branch}^{tree}`)).toBe(git(repo, 'rev-parse', 'qa^{tree}'));
+        expect((await repair()).body).toMatchObject({ branch, reused: true });
+        const branches = (await call('GET', '/git/branches')).body.branches.map((b: { name: string }) => b.name);
+        expect(branches).not.toContain(branch);
+
+        mergeInto('qa', branch);
+        await poll();
+        expect(states(await promotions())).toEqual([[sha, 'merged']]);
+        const edge = (await call('GET', '/git/environments')).body.edges.find((e: { target: string }) => e.target === 'QA');
+        expect(edge.broken).toEqual([]);
+        expect((await repair()).status).toBe(409);
+        const next = addFile('dev', 'b.txt');
+        expect((await preflight(next)).body.blocks).toEqual([]);
+        expect((await promote(next)).status).toBe(200);
     });
 
     test('an edge taken out of the topology keeps its rows, shown as such and no longer polled; turning git off keeps the table', async () => {
