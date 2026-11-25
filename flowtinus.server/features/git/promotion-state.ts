@@ -44,8 +44,7 @@ export const edgeIn = (topology: Topology, source: string, target: string) => {
     return from && to && from.promotesTo.includes(target) ? { source: from, target: to } : null;
 };
 
-/** the topology edge a row runs along, and the environment its branch merges into */
-function rowEdge(topology: Topology, row: Pick<PromotionRow, 'kind' | 'source' | 'target'>) {
+export function rowEdge(topology: Topology, row: Pick<PromotionRow, 'kind' | 'source' | 'target'>) {
     if (row.kind === 'backport') {
         const edge = edgeIn(topology, row.target, row.source);
         return edge && { ...edge, into: edge.source };
@@ -58,8 +57,6 @@ const SELECT_PROMOTIONS = `SELECT p.id, p.kind, p.source, p.target, p.sha, p.bra
   FROM promotions p LEFT JOIN users u ON u.id::text = p.opened_by WHERE p.workspace_id = $1`;
 
 const RECENT_PROMOTIONS = 50;
-
-export const shortSha = (sha: string) => sha.slice(0, 12);
 
 export type PromotionQuery = {
     id?: string;
@@ -126,7 +123,6 @@ export async function brokenPromotions(ctx: UseCaseContext, links: PromotionLink
     return (await promotionRows(ctx, { kind: 'promotion', states: ['broken'] })).map(row => toPromotion(row, links));
 }
 
-/** open and broken backports, which block nothing */
 export async function liveBackports(ctx: UseCaseContext, links: PromotionLinks): Promise<Promotion[]> {
     return (await promotionRows(ctx, { kind: 'backport', states: ['open', 'broken'] })).map(row => toPromotion(row, links));
 }

@@ -4,7 +4,7 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { onClone } from './branch-read';
-import { branchKind, canEditBranch, currentBranch, editorOf } from './current-branch';
+import { branchKind, canEditBranch, currentBranch, editorOf, opensIntoEnvironment } from './current-branch';
 import { gitBranch, readGitConfig } from './git-config';
 import { fetchHeads, readHeads, recordHeads } from './git-heads';
 import { pendingMerge, pendingMergeRefusal } from './pending-merge';
@@ -95,7 +95,7 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
         const target = git.branch;
         const editor = await editorOf(ctx.db, ctx.workspaceId, ctx.userId);
         const { kind } = branchKind(branch, [...editor.environments, target]);
-        if (git.mode === 'protected' && kind !== 'hotfix' && kind !== 'backport') {
+        if (git.mode === 'protected' && !opensIntoEnvironment(kind)) {
             return fail('conflict', `${target} is protected: its server opens no pull request from a work branch.`);
         }
         if (branch === target) {
@@ -120,8 +120,9 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
             // only forward: a remote that moved past or away from the tip here is followed by the poll, not overwritten
             const pushed = !!here && here !== there && (await remote.hasCommit(here)) && (!there || (await remote.isAncestor(there, here)));
             const proposed = pushed ? here : there;
-            // a backport's tip is checked even when it is on the remote already: the app pushed it from a merge
-            if (proposed && (pushed || kind === 'backport')) {
+            // a hotfix's or a backport's tip is checked even when it is on the remote already (pushed by hand, or by the app from a
+            // merge): it goes straight into the environment's branch
+            if (proposed && (pushed || opensIntoEnvironment(kind))) {
                 const { errors } = await validateImport(
                     ctx.db,
                     ctx.workspaceId,

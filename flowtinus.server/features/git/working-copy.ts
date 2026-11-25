@@ -35,6 +35,14 @@ export const workingRows = (db: Database, workspaceId: string, branch = ENVIRONM
         [workspaceId, branch],
     );
 
+export async function hasWorkingCopy(db: Database, workspaceId: string, branch: string): Promise<boolean> {
+    const [row] = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM working_copy WHERE workspace_id = $1 AND branch = $2', [
+        workspaceId,
+        branch,
+    ]);
+    return row!.n > 0;
+}
+
 export function bestRows(rows: WorkingRow[]): Map<string, WorkingRow> {
     const best = new Map<string, WorkingRow>();
     for (const row of rows) {

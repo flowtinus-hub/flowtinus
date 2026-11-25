@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { connectionFromYaml, repoFlowFromYaml, validateWorkspaceTree, type TreeIssue } from '@flowtinus/core';
+import type { TreeIssue } from '@flowtinus/core';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -7,17 +7,16 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { flowsIn, targetAhead } from './environments';
-import { gitAuthorOf, readGitState, type GitConfig, type GitOptions } from './git-config';
+import { shortSha } from './current-branch';
+import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
-import { fetchHeads, recordHeads } from './git-heads';
 import type { GitRemote } from './git-remote';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
-import { edgeIn, followPromotions, promotionRows, shortSha, toPromotion, type Promotion, type PromotionLinks } from './promotion-state';
-import type { EnvironmentDecl } from './topology';
+import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMerge, openAlong, plural, type Edge, type PreflightWarning } from './promotion-edge';
+import { promotionRows, rowEdge, toPromotion, type Promotion } from './promotion-state';
 import { isChange, workingRows } from './working-copy';
-import { flowName, workspaceEntries, type RepoFiles } from './workspace-export';
+import { workspaceEntries, type RepoFiles } from './workspace-export';
 import { readBranchWorkspace } from './workspace-import';
-import { readTopology } from './workspace-topology';
 
 export type GraphCommit = {
     sha: string;
@@ -54,8 +53,6 @@ export type PreflightBlock = {
     issues?: TreeIssue[];
 };
 
-export type PreflightWarning = { kind: 'connections' | 'triggers' | 'drafts'; message: string; items: string[] };
-
 export type Preflight = {
     sha: string;
     branch: string;
@@ -68,35 +65,10 @@ export type Preflight = {
 
 const GRAPH_PAGE = 200;
 const CONTEXT_COMMITS = 3;
-export const NO_ENVIRONMENT = { connections: [], secrets: [], variables: [] };
 
 export const promotionBranch = (source: string, sha: string) => `promote/${source}-${shortSha(sha)}`;
 
 export const repairBranch = (target: string, sha: string) => `repair/${target}-${shortSha(sha)}`;
-
-export type Edge = { source: EnvironmentDecl; target: EnvironmentDecl; sourceTip: string | null; targetTip: string | null };
-
-export async function edgeOut(
-    remote: GitRemote,
-    environment: string,
-    target: string,
-    branches?: Map<string, string>,
-): Promise<UseCaseResult<Edge>> {
-    const known = branches ?? (await remote.branches());
-    const topology = await readTopology(remote, environment, known);
-    const edge = topology.exists ? edgeIn(topology, environment, target) : null;
-    if (!edge) {
-        return fail(
-            'conflict',
-            `${environment} does not promote to ${target}: a server promotes only along the edges that leave its environment.`,
-        );
-    }
-    return success({
-        ...edge,
-        sourceTip: await remote.fetch(edge.source.branch, known),
-        targetTip: await remote.fetch(edge.target.branch, known),
-    });
-}
 
 async function onFirstParentLine(remote: GitRemote, sha: string, tip: string): Promise<boolean> {
     if (!/^[0-9a-f]{40}$/.test(sha) || !(await remote.hasCommit(sha)) || !(await remote.isAncestor(sha, tip))) {
@@ -206,39 +178,6 @@ function scriptImpact(before: RepoFiles, after: RepoFiles, handle: string): Scri
     return impact.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export function connectionsIn(files: RepoFiles, handle: string): Map<string, string> {
-    const connections = new Map<string, string>();
-    for (const { entry, text } of workspaceEntries(files, handle, 'connection')) {
-        const read = connectionFromYaml(text);
-        if (read.ok) {
-            connections.set(read.value.id, entry.name);
-        }
-    }
-    return connections;
-}
-
-export function triggersIn(files: RepoFiles, handle: string): Map<string, string> {
-    const triggers = new Map<string, string>();
-    for (const { entry, text } of workspaceEntries(files, handle, 'flow')) {
-        const read = repoFlowFromYaml(text, entry.name);
-        if (!read.ok) {
-            continue;
-        }
-        const flow = flowName(entry);
-        read.value.schedules.forEach(s => triggers.set(s.id, `${flow}: schedule ${s.cron}`));
-        read.value.webhooks.forEach(w => triggers.set(w.id, `${flow}: webhook ${w.name}`));
-    }
-    return triggers;
-}
-
-export const newIn = (result: Map<string, string>, target: Map<string, string>) =>
-    [...result]
-        .filter(([id]) => !target.has(id))
-        .map(([, name]) => name)
-        .sort();
-
-export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, sha: string): Promise<Omit<Preflight, 'open'>> {
     const branch = promotionBranch(edge.source.env, sha);
     if (!edge.targetTip || !edge.sourceTip) {
@@ -278,29 +217,15 @@ async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, 
             message: `The lineage into ${edge.target.branch} is broken: ${shas} reached it by a squash or a rebase. Merge a repair first.`,
         });
     }
-    if (merged.conflicts.length === 0) {
-        const { errors } = validateWorkspaceTree({ workspace: handle, files: after, environment: NO_ENVIRONMENT });
-        if (errors.length > 0) {
-            blocks.push({
-                kind: 'invalid',
-                message: `The merge result is not valid: ${edge.target.env} would refuse it (${plural(errors.length, 'error', 'errors')}).`,
-                issues: errors,
-            });
-        }
+    const invalid = merged.conflicts.length === 0 ? invalidMerge(handle, after, edge.target.env) : null;
+    if (invalid) {
+        blocks.push(invalid);
     }
     if (files.length === 0) {
         blocks.push({ kind: 'empty', message: `Nothing to promote: ${edge.target.branch} already has every file of ${shortSha(sha)}.` });
     }
 
-    const warnings: PreflightWarning[] = [];
-    const connections = newIn(connectionsIn(after, handle), connectionsIn(before, handle));
-    if (connections.length > 0) {
-        warnings.push({ kind: 'connections', message: `New to ${edge.target.env}: they arrive not configured.`, items: connections });
-    }
-    const triggers = newIn(triggersIn(after, handle), triggersIn(before, handle));
-    if (triggers.length > 0) {
-        warnings.push({ kind: 'triggers', message: `New to ${edge.target.env}: they arrive disabled.`, items: triggers });
-    }
+    const warnings = arrivalWarnings(handle, before, after, edge.target.env);
     const drafts = (await workingRows(ctx.db, ctx.workspaceId)).filter(isChange).map(row => row.path);
     if (drafts.length > 0) {
         warnings.push({
@@ -344,28 +269,6 @@ export class GetCommitGraphHandler implements UseCaseHandler<CommitGraph> {
 
 const PromotionInput = z.object({ target: z.string().min(1, 'The target environment'), sha: z.string().min(1, 'The commit to promote') });
 
-export async function gitOff(ctx: UseCaseContext): Promise<UseCaseResult<never> | null> {
-    return (await readGitState(ctx.db, ctx.workspaceId))?.on ? null : fail('conflict', 'Git is off in this workspace.');
-}
-
-export async function fetchAndFollow(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<Map<string, string>> {
-    const heads = await fetchHeads(remote);
-    await recordHeads(ctx, remote, config, heads);
-    await followPromotions(ctx, remote, heads.fetched);
-    return heads.fetched;
-}
-
-export const edgeLinks = (edge: Edge, config: GitConfig, provider: Provider | null): PromotionLinks => ({
-    topology: { environments: [edge.source, edge.target] },
-    repository: config.repository,
-    provider,
-});
-
-const openOn = async (ctx: UseCaseContext, edge: Edge, links: PromotionLinks) =>
-    (await promotionRows(ctx, { kind: 'promotion', states: ['open'], edge: { source: edge.source.env, target: edge.target.env } })).map(
-        row => toPromotion(row, links),
-    );
-
 async function preflightOf(
     ctx: UseCaseContext,
     remote: GitRemote,
@@ -377,7 +280,7 @@ async function preflightOf(
         return notOnLine(sha, edge);
     }
     const checked = await runPreflight(ctx, remote, edge, sha);
-    const open = await openOn(ctx, edge, edgeLinks(edge, config, await providerOf(config.repository)));
+    const open = await openAlong(ctx, config, edge, { kind: 'promotion', source: edge.source.env, target: edge.target.env });
     return success({ ...checked, open });
 }
 
@@ -488,14 +391,13 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
             if (row.state !== 'broken') {
                 return fail('conflict', `Only a broken lineage takes a repair: this promotion is ${row.state}.`);
             }
-            // a backport runs against its edge: its row's target is this server's environment, the edge's source
-            const backport = row.kind === 'backport';
-            const edge = await edgeOut(remote, config.environment, backport ? row.source : row.target, heads);
+            const far = row.source === config.environment ? row.target : row.source;
+            const edge = await edgeOut(remote, config.environment, far, heads);
             if (!edge.ok) {
                 return edge;
             }
-            const into = backport ? edge.value.source : edge.value.target;
-            const intoTip = backport ? edge.value.sourceTip : edge.value.targetTip;
+            const into = rowEdge({ environments: [edge.value.source, edge.value.target] }, row)!.into;
+            const intoTip = heads.get(into.branch);
             if (!intoTip) {
                 return fail('conflict', `The branch ${into.branch} does not exist.`);
             }

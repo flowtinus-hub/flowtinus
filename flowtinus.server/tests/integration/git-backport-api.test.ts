@@ -323,7 +323,6 @@ describe("backporting an environment ahead of its source: a merge of its tip cut
         expect(await kinds(tip('dev'))).toEqual([]);
         expect((await call('POST', '/git/promotions', { target: 'QA', sha: tip('dev') })).status).toBe(200);
 
-        // the next hop is offered by PROD's source's server (QA's), never chained from here
         addFile('main', 'prod-fix.txt');
         const qa = await otherServer('QA');
         const edge = (await qa('GET', '/git/environments')).body.edges.find((e: { target: string }) => e.target === 'PROD');

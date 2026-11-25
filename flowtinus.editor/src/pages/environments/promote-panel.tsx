@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react';
+import type { TreeIssue } from '@flowtinus/core';
 import { ArrowRight, CircleCheck, CircleX, ExternalLink, GitBranch, GitMerge, GitPullRequestArrow, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { shortSha } from '@/data/deployments/deployment';
 import { useResource } from '@/data/use-resource';
 import { getBackportPreflight, getCommitGraph, getPreflight, openBackport, openPromotion, openRepair, promotionSha, PROVIDERS, setCurrentBranch, type BackportPreflight, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedBackport, type OpenedPromotion, type Preflight, type Promotion, type Provider } from '@/data/git/git-api';
-import { landingAfterSwitch, noteBranchSwitch } from '@/layout/branch-landing';
+import { landAfterSwitch } from '@/layout/branch-landing';
 import type { ApiResult } from '@/lib/api';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
@@ -92,6 +93,14 @@ export function PromotePanel({
         return null;
     }
     const brokenBackports = edge.backports.filter(p => p.state === 'broken');
+    const promote: PromoteEdge = {
+        handle,
+        edge,
+        sourceBranch: branchOf(edge.source),
+        targetBranch: branchOf(edge.target),
+        canPromote,
+        onOpened,
+    };
     return (
         <section className="grid gap-3">
             <div className="flex flex-wrap items-center gap-3">
@@ -118,50 +127,16 @@ export function PromotePanel({
                     </div>
                 )}
             </div>
-            {edge.broken.length > 0 && (
-                <BrokenLineage
-                    key={`broken:${edge.target}`}
-                    handle={handle}
-                    broken={edge.broken}
-                    targetBranch={branchOf(edge.target)}
-                    canRepair={canPromote}
-                />
-            )}
+            {edge.broken.length > 0 && <BrokenLineage key={`broken:${edge.target}`} promote={promote} />}
             {brokenBackports.length > 0 && (
-                <BrokenBackports
-                    key={`broken-backports:${edge.target}`}
-                    handle={handle}
-                    broken={brokenBackports}
-                    sourceBranch={branchOf(edge.source)}
-                    canRepair={canPromote}
-                />
+                <BrokenBackports key={`broken-backports:${edge.target}`} promote={promote} broken={brokenBackports} />
             )}
-            {edge.ahead && (
-                <Backport
-                    key={`backport:${edge.target}`}
-                    handle={handle}
-                    edge={edge}
-                    sourceBranch={branchOf(edge.source)}
-                    targetBranch={branchOf(edge.target)}
-                    canBackport={canPromote}
-                    onOpened={onOpened}
-                />
-            )}
+            {edge.ahead && <Backport key={`backport:${edge.target}`} promote={promote} />}
             {edge.targetExists ? (
-                <EdgePanel
-                    key={edge.target}
-                    promote={{
-                        handle,
-                        edge,
-                        sourceBranch: branchOf(edge.source),
-                        targetBranch: branchOf(edge.target),
-                        canPromote,
-                        onOpened,
-                    }}
-                />
+                <EdgePanel key={edge.target} promote={promote} />
             ) : (
                 <p className="rounded-lg border p-4 text-sm text-muted-foreground">
-                    The branch <span className="font-mono">{branchOf(edge.target)}</span> of {edge.target} does not exist: turning git on in{' '}
+                    The branch <span className="font-mono">{promote.targetBranch}</span> of {edge.target} does not exist: turning git on in{' '}
                     {edge.target} creates it. Nothing to promote until then.
                 </p>
             )}
@@ -170,17 +145,8 @@ export function PromotePanel({
 }
 
 /** the edge is blocked until a repair of each broken promotion is merged: a merge of its sha that keeps the target's tree */
-function BrokenLineage({
-    handle,
-    broken,
-    targetBranch,
-    canRepair,
-}: {
-    handle: string;
-    broken: Promotion[];
-    targetBranch: string;
-    canRepair: boolean;
-}) {
+function BrokenLineage({ promote }: { promote: PromoteEdge }) {
+    const { edge, targetBranch } = promote;
     return (
         <div className="grid gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
             <p className="flex gap-2">
@@ -192,26 +158,16 @@ function BrokenLineage({
                 </span>
             </p>
             <ul className="grid gap-2">
-                {broken.map(promotion => (
-                    <RepairRow key={promotion.id} handle={handle} promotion={promotion} targetBranch={targetBranch} canRepair={canRepair} />
+                {edge.broken.map(promotion => (
+                    <RepairRow key={promotion.id} promote={promote} promotion={promotion} into={targetBranch} />
                 ))}
             </ul>
         </div>
     );
 }
 
-/** a backport squashed or rebased into the source: the source has its changes but not its commit, which blocks nothing */
-function BrokenBackports({
-    handle,
-    broken,
-    sourceBranch,
-    canRepair,
-}: {
-    handle: string;
-    broken: Promotion[];
-    sourceBranch: string;
-    canRepair: boolean;
-}) {
+function BrokenBackports({ promote, broken }: { promote: PromoteEdge; broken: Promotion[] }) {
+    const { sourceBranch } = promote;
     return (
         <div className="grid gap-3 rounded-lg border p-4 text-sm">
             <p className="flex gap-2">
@@ -223,24 +179,15 @@ function BrokenBackports({
             </p>
             <ul className="grid gap-2">
                 {broken.map(promotion => (
-                    <RepairRow key={promotion.id} handle={handle} promotion={promotion} targetBranch={sourceBranch} canRepair={canRepair} />
+                    <RepairRow key={promotion.id} promote={promote} promotion={promotion} into={sourceBranch} />
                 ))}
             </ul>
         </div>
     );
 }
 
-function RepairRow({
-    handle,
-    promotion,
-    targetBranch,
-    canRepair,
-}: {
-    handle: string;
-    promotion: Promotion;
-    targetBranch: string;
-    canRepair: boolean;
-}) {
+function RepairRow({ promote, promotion, into }: { promote: PromoteEdge; promotion: Promotion; into: string }) {
+    const { handle, canPromote: canRepair } = promote;
     const { opening, opened, open } = useOpening(() => openRepair(handle, promotion.id));
     const repair = opened?.value;
 
@@ -265,13 +212,7 @@ function RepairRow({
                         {repair.reused ? 'Already pushed: ' : 'Pushed '}
                         <span className="font-mono">{repair.branch}</span>.
                     </span>
-                    <PullRequestLink
-                        url={repair.url}
-                        provider={repair.provider}
-                        branch={repair.branch}
-                        targetBranch={targetBranch}
-                        size="sm"
-                    />
+                    <PullRequestLink url={repair.url} provider={repair.provider} branch={repair.branch} targetBranch={into} size="sm" />
                 </span>
             )}
             {repair && (
@@ -283,22 +224,8 @@ function RepairRow({
     );
 }
 
-/** the target has changes the source lacks: a merge of its tip, cut from the source's branch, brings them back one hop */
-function Backport({
-    handle,
-    edge,
-    sourceBranch,
-    targetBranch,
-    canBackport,
-    onOpened,
-}: {
-    handle: string;
-    edge: EnvironmentEdge;
-    sourceBranch: string;
-    targetBranch: string;
-    canBackport: boolean;
-    onOpened: () => void;
-}) {
+function Backport({ promote }: { promote: PromoteEdge }) {
+    const { handle, edge, sourceBranch, targetBranch, canPromote: canBackport, onOpened } = promote;
     const checked = useResource(`backport:${handle}:${edge.target}`, () => getBackportPreflight(handle, edge.target));
     const { opening, opened, open } = useOpening(() => openBackport(handle, edge.target), onOpened);
     const preflight: BackportPreflight | null = checked.state.status === 'ready' ? checked.state.value : null;
@@ -325,26 +252,7 @@ function Backport({
                 </p>
             )}
             {preflight && (
-                <ul className="grid gap-2">
-                    {preflight.blocks.map(block => (
-                        <li key={block.kind} className="flex gap-2">
-                            <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
-                            <span className="grid gap-1">
-                                {block.message}
-                                {block.issues?.map(issue => (
-                                    <span key={`${issue.path}:${issue.message}`} className="text-xs text-muted-foreground">
-                                        <span className="font-mono">{issue.path}</span>: {issue.message}
-                                    </span>
-                                ))}
-                            </span>
-                        </li>
-                    ))}
-                    {preflight.blocks.length === 0 && (
-                        <li className="flex gap-2">
-                            <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-                            Nothing blocks the backport.
-                        </li>
-                    )}
+                <Checks blocks={preflight.blocks} warnings={preflight.warnings} clear="Nothing blocks the backport.">
                     {preflight.conflicts.length > 0 && (
                         <li className="flex gap-2">
                             <GitMerge className="mt-0.5 size-4 shrink-0 text-amber-500" />
@@ -359,20 +267,7 @@ function Backport({
                             </span>
                         </li>
                     )}
-                    {preflight.warnings.map(warning => (
-                        <li key={warning.kind} className="flex gap-2">
-                            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
-                            <span className="grid gap-1">
-                                {warning.message}
-                                {warning.items.map(item => (
-                                    <span key={item} className="truncate text-xs text-muted-foreground" title={item}>
-                                        {item}
-                                    </span>
-                                ))}
-                            </span>
-                        </li>
-                    ))}
-                </ul>
+                </Checks>
             )}
             {others.length > 0 && (
                 <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
@@ -415,8 +310,7 @@ function OpenedBackportView({ handle, opened, sourceBranch }: { handle: string; 
             setError(result.error.message);
             return;
         }
-        noteBranchSwitch();
-        window.location.assign(await landingAfterSwitch(handle));
+        await landAfterSwitch(handle);
     };
     return (
         <div className="grid gap-2">
@@ -548,42 +442,18 @@ function PreflightView({ promote, sha }: { promote: PromoteEdge; sha: string }) 
                 )}
             </Block>
             <Block title="Pre-flight">
-                <ul className="grid gap-2">
-                    {preflight.blocks.map(block => (
-                        <li key={block.kind} className="flex gap-2 text-sm">
-                            <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
-                            <span className="grid gap-1">
-                                {block.kind === 'ahead'
-                                    ? `${edge.target} is ahead of ${edge.source}: the backport above brings it into ${sourceBranch} first.`
-                                    : block.message}
-                                {block.issues?.map(issue => (
-                                    <span key={`${issue.path}:${issue.message}`} className="text-xs text-muted-foreground">
-                                        <span className="font-mono">{issue.path}</span>: {issue.message}
-                                    </span>
-                                ))}
-                            </span>
-                        </li>
-                    ))}
-                    {preflight.blocks.length === 0 && (
-                        <li className="flex gap-2 text-sm">
-                            <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-                            Nothing blocks the promotion.
-                        </li>
+                <Checks
+                    blocks={preflight.blocks.map(block =>
+                        block.kind === 'ahead'
+                            ? {
+                                  ...block,
+                                  message: `${edge.target} is ahead of ${edge.source}: the backport above brings it into ${sourceBranch} first.`,
+                              }
+                            : block,
                     )}
-                    {preflight.warnings.map(warning => (
-                        <li key={warning.kind} className="flex gap-2 text-sm">
-                            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
-                            <span className="grid gap-1">
-                                {warning.message}
-                                {warning.items.map(item => (
-                                    <span key={item} className="truncate text-xs text-muted-foreground" title={item}>
-                                        {item}
-                                    </span>
-                                ))}
-                            </span>
-                        </li>
-                    ))}
-                </ul>
+                    warnings={preflight.warnings}
+                    clear="Nothing blocks the promotion."
+                />
             </Block>
             <Block title={`Impact on ${edge.target}`}>
                 {preflight.impact.flows.length === 0 && preflight.impact.scripts.length === 0 ? (
@@ -653,6 +523,58 @@ function OpenedView({ opened, targetBranch }: { opened: OpenedPromotion; targetB
             </p>
             <PullRequestLink url={promotion.url} provider={provider} branch={promotion.branch} targetBranch={targetBranch} />
         </div>
+    );
+}
+
+type Check = { kind: string; message: string };
+
+function Checks({
+    blocks,
+    warnings,
+    clear,
+    children,
+}: {
+    blocks: (Check & { issues?: TreeIssue[] })[];
+    warnings: (Check & { items: string[] })[];
+    clear: string;
+    children?: ReactNode;
+}) {
+    return (
+        <ul className="grid gap-2 text-sm">
+            {blocks.map(block => (
+                <li key={block.kind} className="flex gap-2">
+                    <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
+                    <span className="grid gap-1">
+                        {block.message}
+                        {block.issues?.map(issue => (
+                            <span key={`${issue.path}:${issue.message}`} className="text-xs text-muted-foreground">
+                                <span className="font-mono">{issue.path}</span>: {issue.message}
+                            </span>
+                        ))}
+                    </span>
+                </li>
+            ))}
+            {blocks.length === 0 && (
+                <li className="flex gap-2">
+                    <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                    {clear}
+                </li>
+            )}
+            {children}
+            {warnings.map(warning => (
+                <li key={warning.kind} className="flex gap-2">
+                    <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                    <span className="grid gap-1">
+                        {warning.message}
+                        {warning.items.map(item => (
+                            <span key={item} className="truncate text-xs text-muted-foreground" title={item}>
+                                {item}
+                            </span>
+                        ))}
+                    </span>
+                </li>
+            ))}
+        </ul>
     );
 }
 

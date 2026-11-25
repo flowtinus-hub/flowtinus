@@ -8,6 +8,7 @@ import { onClone } from './branch-read';
 import { noteHead } from './branch-write';
 import { gitBranchNameError, HOTFIX_PREFIX } from './current-branch';
 import { gitBranch } from './git-config';
+import { hasWorkingCopy } from './working-copy';
 
 export type CreatedHotfix = { branch: string };
 
@@ -35,11 +36,7 @@ export class CreateHotfixHandler implements UseCaseHandler<CreatedHotfix> {
         if (invalid) {
             return fail('validation', 'The request has invalid fields.', { name: invalid });
         }
-        const [held] = await ctx.db.query<{ n: number }>(
-            'SELECT count(*)::int AS n FROM working_copy WHERE workspace_id = $1 AND branch = $2',
-            [ctx.workspaceId, name],
-        );
-        if (held!.n > 0) {
+        if (await hasWorkingCopy(ctx.db, ctx.workspaceId, name)) {
             return fail('conflict', `This server still has changes on a branch ${name}: pick another name.`);
         }
 

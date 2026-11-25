@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { validateWorkspaceTree } from '@flowtinus/core';
+import type { TreeIssue } from '@flowtinus/core';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -7,20 +7,17 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { lockBranch, noteHead } from './branch-write';
+import { backportBranch, shortSha } from './current-branch';
 import { targetAhead } from './environments';
 import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
-import { pendingMerge } from './pending-merge';
-import { connectionsIn, edgeLinks, edgeOut, fetchAndFollow, gitOff, newIn, NO_ENVIRONMENT, plural, triggersIn, type Edge, type PreflightWarning } from './promotions';
-import { promotionRows, shortSha, toPromotion, type Promotion, type PromotionLinks } from './promotion-state';
+import { holdMerge, inScope, pendingMerge } from './pending-merge';
+import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMerge, openAlong, type Edge, type PreflightWarning } from './promotion-edge';
+import { promotionRows, toPromotion, type Promotion } from './promotion-state';
 import { providerOf, type Provider } from './pull-request';
-import { holdMerge, inScope } from './update';
-import { workingRows } from './working-copy';
+import { hasWorkingCopy } from './working-copy';
 import { readBranchWorkspace } from './workspace-import';
-import type { TreeIssue } from '@flowtinus/core';
-
-export const backportBranch = (from: string, sha: string) => `backport/${from}-${shortSha(sha)}`;
 
 export type BackportBlock = { kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid'; message: string; issues?: TreeIssue[] };
 
@@ -64,37 +61,18 @@ async function runBackportPreflight(ctx: UseCaseContext, remote: GitRemote, edge
             message: `Merging ${edge.target.branch} into ${edge.source.branch} conflicts outside this workspace (${outside.join(', ')}): backport it in git.`,
         });
     }
-    if (merged.conflicts.length === 0) {
-        const { errors } = validateWorkspaceTree({ workspace: handle, files: after, environment: NO_ENVIRONMENT });
-        if (errors.length > 0) {
-            blocks.push({
-                kind: 'invalid',
-                message: `The merge result is not valid: ${edge.source.env} would refuse it (${plural(errors.length, 'error', 'errors')}).`,
-                issues: errors,
-            });
-        }
+    const invalid = merged.conflicts.length === 0 ? invalidMerge(handle, after, edge.source.env) : null;
+    if (invalid) {
+        blocks.push(invalid);
     }
 
-    const warnings: PreflightWarning[] = [];
-    const connections = newIn(connectionsIn(after, handle), connectionsIn(before, handle));
-    if (connections.length > 0) {
-        warnings.push({ kind: 'connections', message: `New to ${edge.source.env}: they arrive not configured.`, items: connections });
-    }
-    const triggers = newIn(triggersIn(after, handle), triggersIn(before, handle));
-    if (triggers.length > 0) {
-        warnings.push({ kind: 'triggers', message: `New to ${edge.source.env}: they arrive disabled.`, items: triggers });
-    }
+    const warnings = arrivalWarnings(handle, before, after, edge.source.env);
     return { sha, branch, conflicts: merged.conflicts, blocks, warnings, tree: merged.tree };
 }
 
-const backportsOn = async (ctx: UseCaseContext, edge: Edge, links: PromotionLinks) =>
-    (await promotionRows(ctx, { kind: 'backport', states: ['open'], edge: { source: edge.target.env, target: edge.source.env } })).map(
-        row => toPromotion(row, links),
-    );
-
 async function preflightOf(ctx: UseCaseContext, remote: GitRemote, config: GitConfig, edge: Edge) {
     const { tree, ...checked } = await runBackportPreflight(ctx, remote, edge);
-    const open = await backportsOn(ctx, edge, edgeLinks(edge, config, await providerOf(config.repository)));
+    const open = await openAlong(ctx, config, edge, { kind: 'backport', source: edge.target.env, target: edge.source.env });
     return { checked: { ...checked, open }, tree };
 }
 
@@ -163,8 +141,7 @@ export class OpenBackportHandler implements UseCaseHandler<OpenedBackport> {
             if (heads.has(branch)) {
                 return fail('conflict', `The branch ${branch} is in the repository: delete it, then backport again.`);
             }
-            const left = (await workingRows(ctx.db, ctx.workspaceId, branch)).length > 0;
-            if (left || (await pendingMerge(ctx.db, ctx.workspaceId, branch))) {
+            if ((await hasWorkingCopy(ctx.db, ctx.workspaceId, branch)) || (await pendingMerge(ctx.db, ctx.workspaceId, branch))) {
                 return fail('conflict', `The branch ${branch} still has changes on this server: discard them, then backport again.`);
             }
 

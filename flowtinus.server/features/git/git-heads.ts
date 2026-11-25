@@ -16,7 +16,6 @@ import { topologyAt } from './workspace-topology';
 
 export type Head = { name: string; sha: string; merged: boolean; removed?: true; lostTip?: true };
 
-/** targets: the environments this server's environment promotes to, whose backports it takes */
 export type Heads = { at: string; environment: string | null; environments: string[]; targets?: string[]; heads: Head[] };
 
 export const readHeads = async (db: Database, workspaceId: string) =>
