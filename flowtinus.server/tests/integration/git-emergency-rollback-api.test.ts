@@ -125,6 +125,7 @@ describe('the emergency rollback: an environment runs an older version of one fl
             deployments,
             runs,
             relabel,
+            setMode,
         };
     }
 
@@ -214,6 +215,36 @@ describe('the emergency rollback: an environment runs an older version of one fl
         expect((await rollBack(call, orders, v3)).status).toBe(409);
     });
 
+    test('refused: another version with the content of the one that runs, with or without a rollback', async () => {
+        const { call, orders, v2, v3, relabel, runs } = await workspace();
+        await relabel(orders, 'Two');
+        const v4 = (await call('POST', `/flows/${orders}/deploy`)).body.versions[0] as Version;
+        await relabel(orders, 'Three');
+        const v5 = (await call('POST', `/flows/${orders}/deploy`)).body.versions[0] as Version;
+        expect(v5.number).toBe(5);
+
+        const sameAsGit = await rollBack(call, orders, v3);
+        expect([sameAsGit.status, sameAsGit.body.error.message]).toEqual([400, 'v3 has the content of the version that runs.']);
+
+        expect((await rollBack(call, orders, v2)).status).toBe(200);
+        const sameAsRunning = await rollBack(call, orders, v4);
+        expect([sameAsRunning.status, sameAsRunning.body.error.message]).toEqual([400, 'v4 has the content of the version that runs.']);
+        expect(await runs()).toBe(2);
+    });
+
+    test('a rollback an editor started in direct takes an admin to end once the environment turns protected', async () => {
+        const { id, as, call, orders, v1, setMode, runs } = await workspace('direct');
+        const editor = await insertMember(db, id, { name: 'Eva', role: 'editor' });
+        expect((await rollBack(as(editor), orders, v1)).status).toBe(200);
+
+        await setMode('protected');
+        const refused = await as(editor)('DELETE', `/flows/${orders}/emergency-rollback`);
+        expect([refused.status, refused.body.error.message]).toEqual([403, 'Only an admin of this workspace can do this.']);
+        expect(await runs()).toBe(1);
+        expect((await call('DELETE', `/flows/${orders}/emergency-rollback`)).status).toBe(200);
+        expect(await runs()).toBe(3);
+    });
+
     test("rolling back again keeps git's version; a version with git's content ends the rollback", async () => {
         const { call, orders, v1, v2, v3, relabel, deployments } = await workspace();
         expect((await rollBack(call, orders, v2)).status).toBe(200);
@@ -238,6 +269,25 @@ describe('the emergency rollback: an environment runs an older version of one fl
             expect.objectContaining({ action: 'emergency-rollback', fromNumber: 5, toNumber: 2 }),
         ]);
         expect((await deployments()).emergencyRollback).toBeUndefined();
+    });
+
+    test("each version says what choosing it does: roll back, end the rollback (git's content), or nothing (what runs)", async () => {
+        const { call, orders, relabel, deployments } = await workspace();
+        await relabel(orders, 'One');
+        expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(200);
+        const offers = async () =>
+            Object.fromEntries(
+                ((await deployments()).versions as { number: number; emergencyRollbackOffer?: string }[]).map(v => [
+                    v.number,
+                    v.emergencyRollbackOffer ?? null,
+                ]),
+            );
+
+        expect(await offers()).toEqual({ 4: null, 3: 'roll-back', 2: 'roll-back', 1: null });
+
+        const v2 = (await deployments()).versions.find((v: Version) => v.number === 2) as Version;
+        expect((await rollBack(call, orders, v2)).status).toBe(200);
+        expect(await offers()).toEqual({ 4: 'end', 3: 'roll-back', 2: null, 1: 'end' });
     });
 
     test("ending by hand goes back to git's version, recorded with the version it left", async () => {

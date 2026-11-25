@@ -404,7 +404,12 @@ export function DeployMenu({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-72">
                     <DropdownMenuLabel className="font-normal text-muted-foreground">
-                        {deployed && current.deployed ? (
+                        {deployed && current.deployed && rollback ? (
+                            <>
+                                <span className="font-medium text-foreground">v{deployed.number}</span> runs on {environment} · {target} has
+                                v{rollback.gitNumber}
+                            </>
+                        ) : deployed && current.deployed ? (
                             <>
                                 <span className="font-medium text-foreground">v{deployed.number}</span> {git ? 'on' : 'in'} {target} ·{' '}
                                 <span title={formatDateTime(current.deployed.deployedAt)}>{relativeTime(current.deployed.deployedAt)}</span>
@@ -469,6 +474,7 @@ export function DeployMenu({
                 busy={busy}
                 onSwitch={pullRequestsOnly ? undefined : switchTo}
                 onEmergencyRollback={git ? rollBackTo : undefined}
+                onEndEmergencyRollback={rollback ? () => endRollback(rollback) : undefined}
                 onRestore={restore}
             />
             {rollback && (
@@ -679,15 +685,15 @@ export function VersionsDialog(props: {
     /** absent: versions cannot be deployed from here (an environment that only takes pull requests) */
     onSwitch?: (version: FlowVersion) => void;
     onEmergencyRollback?: (version: FlowVersion) => void;
+    onEndEmergencyRollback?: () => void;
     onRestore: (version: FlowVersion) => void;
 }) {
-    const { open, onClose, deployments, busy, onSwitch, onEmergencyRollback, onRestore } = props;
+    const { open, onClose, deployments, busy, onSwitch, onEmergencyRollback, onEndEmergencyRollback, onRestore } = props;
     const deployed = deployedVersion(deployments);
-    const ranHere = new Set(deployments.history.flatMap(e => (e.toNumber === null ? [] : [e.toNumber])));
 
     return (
         <Dialog open={open} onOpenChange={isOpen => !isOpen && onClose()}>
-            <DialogContent className="sm:max-w-xl">
+            <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>Versions</DialogTitle>
                 </DialogHeader>
@@ -696,9 +702,9 @@ export function VersionsDialog(props: {
                         const isDeployed = version.id === deployed?.id;
                         const action = switchAction(deployments, version);
                         return (
-                            <li key={version.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                            <li key={version.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
                                 <span className="w-10 font-mono font-medium">v{version.number}</span>
-                                <span className="grid min-w-0 flex-1 text-muted-foreground">
+                                <span className="grid min-w-40 flex-1 basis-40 text-muted-foreground">
                                     {version.commit && (
                                         <span className="truncate text-foreground" title={version.commitMessage}>
                                             <span className="font-mono text-xs text-muted-foreground">{shortSha(version.commit)}</span>{' '}
@@ -710,42 +716,55 @@ export function VersionsDialog(props: {
                                         {version.createdByName && ` · ${version.createdByName}`}
                                     </span>
                                 </span>
-                                {!isDeployed && onEmergencyRollback && ranHere.has(version.number) && (
+                                <span className="ml-auto flex shrink-0 items-center gap-1">
+                                    {version.emergencyRollbackOffer === 'end' && onEndEmergencyRollback && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={busy}
+                                            onClick={onEndEmergencyRollback}
+                                            title="This is git's content: going back to it ends the emergency rollback"
+                                        >
+                                            <Undo2 /> End the emergency rollback
+                                        </Button>
+                                    )}
+                                    {version.emergencyRollbackOffer === 'roll-back' && onEmergencyRollback && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={busy}
+                                            onClick={() => onEmergencyRollback(version)}
+                                            title="Run this version here now, without a commit"
+                                        >
+                                            <TriangleAlert /> Emergency rollback
+                                        </Button>
+                                    )}
+                                    {isDeployed ? (
+                                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                            {deployments.emergencyRollback ? 'Runs here' : 'Deployed'}
+                                        </span>
+                                    ) : version.emergencyRollbackOffer === 'end' ? null : (
+                                        <Button variant="ghost" size="sm" disabled={busy || !onSwitch} onClick={() => onSwitch?.(version)}>
+                                            {action === 'rollback' ? <Undo2 /> : deployments.git ? <GitCommitHorizontal /> : <Rocket />}
+                                            {action === 'rollback'
+                                                ? deployments.git
+                                                    ? 'Revert'
+                                                    : 'Roll back'
+                                                : deployments.git
+                                                  ? 'Commit'
+                                                  : 'Deploy'}
+                                        </Button>
+                                    )}
                                     <Button
                                         variant="ghost"
                                         size="sm"
                                         disabled={busy}
-                                        onClick={() => onEmergencyRollback(version)}
-                                        title="Run this version here now, without a commit"
+                                        onClick={() => onRestore(version)}
+                                        title="Replace the draft by this version"
                                     >
-                                        <TriangleAlert /> Emergency rollback
+                                        <RotateCcw /> Restore draft
                                     </Button>
-                                )}
-                                {isDeployed ? (
-                                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                                        {deployments.emergencyRollback ? 'Runs here' : 'Deployed'}
-                                    </span>
-                                ) : (
-                                    <Button variant="ghost" size="sm" disabled={busy || !onSwitch} onClick={() => onSwitch?.(version)}>
-                                        {action === 'rollback' ? <Undo2 /> : deployments.git ? <GitCommitHorizontal /> : <Rocket />}
-                                        {action === 'rollback'
-                                            ? deployments.git
-                                                ? 'Revert'
-                                                : 'Roll back'
-                                            : deployments.git
-                                              ? 'Commit'
-                                              : 'Deploy'}
-                                    </Button>
-                                )}
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    disabled={busy}
-                                    onClick={() => onRestore(version)}
-                                    title="Replace the draft by this version"
-                                >
-                                    <RotateCcw /> Restore draft
-                                </Button>
+                                </span>
                             </li>
                         );
                     })}
@@ -758,7 +777,7 @@ export function VersionsDialog(props: {
                                 <li key={i} className="flex items-center gap-3 px-3 py-1.5 text-sm">
                                     <span className="min-w-0 flex-1 truncate">
                                         {eventText(event)}
-                                        {event.commit && (
+                                        {event.commit && event.action !== 'end-emergency-rollback' && (
                                             <span className="font-mono text-xs text-muted-foreground"> · {shortSha(event.commit)}</span>
                                         )}
                                     </span>

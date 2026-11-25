@@ -12,7 +12,7 @@ import { withUpdatedByName } from '#features/users/user-names';
 import { SCHEDULES_CHANNEL } from '#features/schedules/schedules';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail } from '#shared/use-cases/use-case-result';
-import { endsEmergencyRollbackByAccident, endsRollbackMessage } from './emergency-rollback/emergency-rollback-content';
+import { endsEmergencyRollbackByAccident, endsRollbackMessage, hasGitContent } from './emergency-rollback/emergency-rollback-content';
 
 /*
  * A flow's deploys in its own environment (a promotion to another environment is apart): a deploy freezes the draft as
@@ -34,7 +34,11 @@ export type FlowVersionView = {
     commit: string | null;
     commitMessage?: string;
     endsEmergencyRollback?: string;
+    /** with git on: what choosing this version in an emergency rollback does; absent, the rollback is not offered */
+    emergencyRollbackOffer?: EmergencyRollbackOffer;
 };
+
+export type EmergencyRollbackOffer = 'roll-back' | 'end';
 
 export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy' | 'emergency-rollback' | 'end-emergency-rollback';
 
@@ -88,7 +92,7 @@ async function names(db: Database, ids: (string | null)[]): Promise<Map<string, 
 }
 
 export async function loadDeployments(db: Database, workspaceId: string, flowId: string): Promise<FlowDeploymentsView> {
-    const [versions, deployed, history, commits, git, [flow], rollback] = await Promise.all([
+    const [versions, deployed, history, commits, git, [flow], rollback, ran] = await Promise.all([
         db.query<{
             id: string;
             number: number;
@@ -128,6 +132,10 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
         gitBranch(db, workspaceId),
         new FlowRepository(db, workspaceId).findAll(eq(flows.id, flowId)),
         emergencyRollbackOf(db, workspaceId, flowId),
+        db.query<{ to_version_id: string }>(
+            `SELECT DISTINCT to_version_id FROM deployment_history WHERE workspace_id = $1 AND flow_id = $2 AND to_version_id IS NOT NULL`,
+            [workspaceId, flowId],
+        ),
     ]);
     const draft = git && flow ? await loadDraft(db, workspaceId, flow) : null;
     const commit = new Map(commits.map(c => [c.sha, c]));
@@ -142,6 +150,17 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
         id && who.has(id) ? who.get(id) : !id && sha ? commit.get(sha)?.author_name : undefined;
     const current = deployed[0];
     const ends = flow ? await rollbackEndWarning(db, workspaceId, flow, rollback) : () => null;
+    const running = versions.find(v => v.id === current?.flow_version_id);
+    const ranHere = new Set(ran.map(r => r.to_version_id));
+    const offer = (v: { id: string; content_hash: string }): EmergencyRollbackOffer | null => {
+        if (!git || !running || v.content_hash === running.content_hash) {
+            return null;
+        }
+        if (rollback && hasGitContent(rollback, v.content_hash)) {
+            return 'end';
+        }
+        return ranHere.has(v.id) ? 'roll-back' : null;
+    };
     return {
         versions: versions.map(v => ({
             id: v.id,
@@ -154,6 +173,7 @@ export async function loadDeployments(db: Database, workspaceId: string, flowId:
             commit: v.commit_sha,
             ...(v.commit_sha && commit.has(v.commit_sha) ? { commitMessage: commit.get(v.commit_sha)!.message } : {}),
             ...(ends(v.content_hash) ? { endsEmergencyRollback: ends(v.content_hash)! } : {}),
+            ...(offer(v) ? { emergencyRollbackOffer: offer(v)! } : {}),
         })),
         deployed: current
             ? {

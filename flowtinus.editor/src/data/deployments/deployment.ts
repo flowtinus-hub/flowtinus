@@ -22,6 +22,8 @@ export type FlowVersion = {
     commit?: string | null;
     commitMessage?: string;
     endsEmergencyRollback?: string;
+    /** with git on: what choosing it in an emergency rollback does (git's content ends the rollback); absent, not offered */
+    emergencyRollbackOffer?: 'roll-back' | 'end';
 };
 
 export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy' | 'emergency-rollback' | 'end-emergency-rollback';

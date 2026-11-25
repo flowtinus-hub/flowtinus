@@ -131,11 +131,12 @@ export class EmergencyRollbackHandler implements UseCaseHandler<FlowDeploymentsV
                 return { code: 'validation', message: `v${version.number} is the version that runs.` };
             }
 
+            if (version.content_hash === current.hash) {
+                return { code: 'validation', message: `v${version.number} has the content of the version that runs.` };
+            }
+
             const git = rollback?.git ?? current;
-            if (hasGitContent({ git }, version.content_hash)) {
-                if (!rollback) {
-                    return { code: 'validation', message: `v${version.number} has the content of the version that runs.` };
-                }
+            if (rollback && hasGitContent({ git }, version.content_hash)) {
                 await goBackToGit(db, ctx, flow.id, rollback);
                 return null;
             }
