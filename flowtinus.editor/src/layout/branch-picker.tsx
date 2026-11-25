@@ -15,6 +15,7 @@ const GROUPS: { kind: BranchKind; label: string }[] = [
     { kind: 'environment', label: 'Environments' },
     { kind: 'user', label: "Users' branches" },
     { kind: 'shared', label: 'Shared branches' },
+    { kind: 'backport', label: 'Backports' },
 ];
 
 function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: string | null; onPick: (name: string) => void }) {
@@ -119,7 +120,9 @@ export function BranchPicker({ handle }: { handle: string }) {
     const work = list.find(b => b.name === value.branch && b.kind !== 'environment');
     const updatable = canEdit && environment && work?.editable ? work : null;
     const pushable = work?.removed && (work.kind === 'shared' || work.mine) ? work : null;
-    const proposable = canEdit && environment && branches?.mode !== 'protected' ? (updatable ?? pushable) : null;
+    // a backport goes into this server's environment whatever its mode
+    const proposable =
+        canEdit && environment && (branches?.mode !== 'protected' || work?.kind === 'backport') ? (updatable ?? pushable) : null;
 
     return (
         <>

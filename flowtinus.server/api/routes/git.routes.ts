@@ -7,6 +7,7 @@ import { OpenPullRequestHandler } from '#features/git/pull-request';
 import { GetFileDiffHandler } from '#features/git/file-diff';
 import { GetEnvironmentsHandler } from '#features/git/environments';
 import { GetCommitGraphHandler, GetPreflightHandler, OpenPromotionHandler, OpenRepairHandler } from '#features/git/promotions';
+import { GetBackportPreflightHandler, OpenBackportHandler } from '#features/git/backports';
 import { ListArrivedDisabledHandler } from '#features/git/arrived-disabled';
 import { CommitChangesHandler, CreateBranchHandler, DiscardChangesHandler, GetChangesHandler, GetConflictHandler, GetUpdateHandler, ResolveConflictHandler, UpdateBranchHandler } from '#features/git/working-copy-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
@@ -38,6 +39,10 @@ export function gitRoutes(options: GitOptions) {
         .post('/promotions/:id/repair', async c =>
             toHttpResult(c, await new OpenRepairHandler(options).handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
+        .get('/backports/preflight', async c =>
+            toHttpResult(c, await new GetBackportPreflightHandler(options).handle(c.req.query(), c.get('useCase'))),
+        )
+        .post('/backports', async c => toHttpResult(c, await new OpenBackportHandler(options).handle(await jsonBody(c), c.get('useCase'))))
         .get('/arrived-disabled', async c => toHttpResult(c, await new ListArrivedDisabledHandler().handle({}, c.get('useCase'))))
         .get('/branches', async c => toHttpResult(c, await new ListBranchesHandler(options).handle({}, c.get('useCase'))))
         .post('/branches', async c => toHttpResult(c, await new CreateBranchHandler().handle(await jsonBody(c), c.get('useCase')), 201))

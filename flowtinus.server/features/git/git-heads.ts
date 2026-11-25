@@ -16,7 +16,8 @@ import { topologyAt } from './workspace-topology';
 
 export type Head = { name: string; sha: string; merged: boolean; removed?: true; lostTip?: true };
 
-export type Heads = { at: string; environment: string | null; environments: string[]; heads: Head[] };
+/** targets: the environments this server's environment promotes to, whose backports it takes */
+export type Heads = { at: string; environment: string | null; environments: string[]; targets?: string[]; heads: Head[] };
 
 export const readHeads = async (db: Database, workspaceId: string) =>
     (await readWorkspaceSetting(db, workspaceId, HEADS_SETTING)) as Heads | null;
@@ -35,7 +36,8 @@ export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config
     const configTip = fetched.get(CONFIG_BRANCH);
     const text = configTip ? await topologyAt(remote, configTip) : null;
     const environments = text === null ? [] : parseTopology(text).environments;
-    const environment = environments.find(e => e.env === config.environment)?.branch ?? null;
+    const here = environments.find(e => e.env === config.environment);
+    const environment = here?.branch ?? null;
     const envTip = environment ? fetched.get(environment) : undefined;
 
     const before = await readHeads(ctx.db, ctx.workspaceId);
@@ -61,7 +63,13 @@ export async function recordHeads(ctx: UseCaseContext, remote: GitRemote, config
         since,
     ]);
 
-    const value: Heads = { at: new Date().toISOString(), environment, environments: environments.map(e => e.branch), heads };
+    const value: Heads = {
+        at: new Date().toISOString(),
+        environment,
+        environments: environments.map(e => e.branch),
+        targets: here?.promotesTo ?? [],
+        heads,
+    };
     await writeWorkspaceSetting(ctx.db, ctx.workspaceId, HEADS_SETTING, value, ctx.userId);
     return value;
 }
