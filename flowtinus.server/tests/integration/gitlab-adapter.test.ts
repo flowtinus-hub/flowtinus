@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fakeGitLab, type FakeGitLab } from '../helpers/fake-gitlab';
-import { API_NOTICE, providerAdapter, ProviderError, type ProviderAdapter } from '#features/git/provider-adapter';
+import { providerAdapter } from '#features/git/adapter-status';
+import { API_NOTICE, ProviderError, type ProviderAdapter } from '#features/git/provider-adapter';
 
 describe("the GitLab adapter: what it asks GitLab's API, and what it makes of the answers", () => {
     let gitlab: FakeGitLab;
@@ -33,7 +34,6 @@ describe("the GitLab adapter: what it asks GitLab's API, and what it makes of th
             url: `${gitlab.origin}/omc/open/-/merge_requests/1`,
             source: 'promote/dev-abc123def456',
             target: 'qa',
-            title: 'Promote DEV into QA (abc123def456)',
             state: 'open',
         });
         expect(gitlab.requests.at(-1)).toEqual({
@@ -91,10 +91,10 @@ describe("the GitLab adapter: what it asks GitLab's API, and what it makes of th
 
         expect(await gl.branchProtections()).toEqual([]);
         gitlab.protect('omc/settings', 'main', { push: 0, merge: 40 });
-        gitlab.protect('omc/settings', 'dev', { push: 30, merge: 30, forcePush: true });
+        gitlab.protect('omc/settings', 'dev', { push: 30, merge: 30 });
         expect(await gl.branchProtections()).toEqual([
-            { branch: 'main', push: 'nobody', merge: 'maintainers', forcePush: false },
-            { branch: 'dev', push: 'developers', merge: 'developers', forcePush: true },
+            { branch: 'main', push: 'nobody' },
+            { branch: 'dev', push: 'developers' },
         ]);
     });
 

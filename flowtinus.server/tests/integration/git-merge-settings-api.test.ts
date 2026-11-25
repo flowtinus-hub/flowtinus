@@ -180,6 +180,56 @@ describe("the GitLab project's merge settings, read at each check, block a promo
         expect(tip('qa')).toBe(hotfix);
     });
 
+    test('squash forced blocks the merge request of an open promotion or backport that has none yet', async () => {
+        const { project, branchAt, addFile, squashInto, poll, promote, backport } = await workspace();
+        branchAt('qa', 'dev');
+        const sha = addFile('dev', 'a.txt');
+        const allow = gitlab.refuse('POST', /\/merge_requests$/, 503, { message: 'GitLab is restarting' });
+        try {
+            expect((await promote(sha)).body.promotion).toMatchObject({ number: null });
+        } finally {
+            allow();
+        }
+        project.squash_option = 'always';
+        const promotionRefused = await promote(sha);
+        expect(promotionRefused.status).toBe(409);
+        expect(promotionRefused.body.error.message).toBe(SQUASH);
+
+        project.squash_option = 'default_off';
+        squashInto('qa', `promote/DEV-${short(sha)}`);
+        await poll();
+        addFile('qa', 'hotfix.txt');
+        const refuseAgain = gitlab.refuse('POST', /\/merge_requests$/, 503, { message: 'GitLab is restarting' });
+        try {
+            expect((await backport()).body.promotion).toMatchObject({ kind: 'backport', number: null });
+        } finally {
+            refuseAgain();
+        }
+        project.squash_option = 'always';
+        const backportRefused = await backport();
+        expect(backportRefused.status).toBe(409);
+        expect(backportRefused.body.error.message).toBe(SQUASH);
+        expect(project.mergeRequests).toHaveLength(0);
+    });
+
+    test("a fast-forward-only project blocks reopening a backport whose branch the source's branch has moved past", async () => {
+        const { project, branchAt, addFile, backportPreflight, backport } = await workspace();
+        branchAt('qa', 'dev');
+        addFile('qa', 'hotfix.txt');
+        addFile('dev', 'work.txt');
+        expect((await backport()).status).toBe(200);
+        gitlab.close(project.path, 1);
+
+        project.merge_method = 'ff';
+        expect((await backportPreflight()).body.blocks).toEqual([]);
+        addFile('dev', 'more.txt');
+        const blocks = (await backportPreflight()).body.blocks;
+        expect(kinds({ blocks })).toEqual(['merge-method']);
+        const refused = await backport();
+        expect(refused.status).toBe(409);
+        expect(refused.body.error.message).toBe(blocks[0].message);
+    });
+
     test("a work branch's pull request is never blocked by the merge settings", async () => {
         const { call, projectId, project } = await workspace();
         project.squash_option = 'always';

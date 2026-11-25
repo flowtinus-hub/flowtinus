@@ -17,7 +17,7 @@ import { readLastPoll, recordPoll, type LastPoll } from './git-poll-state';
 import { readState } from './reconcile';
 import { fetchAndReconcile } from './git-heads';
 import { workspaceHandle } from '#features/folders/project-tree';
-import { providerAdapter } from './provider-adapter';
+import { providerAdapter } from './adapter-status';
 import { protectionWarnings, type ProtectionWarning } from './branch-protection';
 import type { Provider } from './pull-request';
 

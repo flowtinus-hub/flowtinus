@@ -10,7 +10,6 @@ import { createApp } from '../../api/app';
 
 setDefaultTimeout(180_000);
 
-// the GitLab of the Compose profile: `docker compose --profile git up -d gitlab` (its first start takes some minutes)
 const GITLAB = process.env.GITLAB_URL ?? `http://localhost:${process.env.GITLAB_PORT ?? '8929'}`;
 const ROOT = join(import.meta.dir, '../../..');
 

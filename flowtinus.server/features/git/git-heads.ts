@@ -6,7 +6,7 @@ import type { UseCaseResult } from '#shared/use-cases/use-case-result';
 import { lockBranch } from './branch-write';
 import { HEADS_SETTING, type GitConfig } from './git-config';
 import { GitError, type GitRemote } from './git-remote';
-import { adapterOf } from './merge-request';
+import { adapterOf } from './adapter-status';
 import { dropPendingMerge, pendingMerge } from './pending-merge';
 import { followPromotions } from './promotion-state';
 import { reconcile, type ReconcileResult } from './reconcile';

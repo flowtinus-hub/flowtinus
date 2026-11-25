@@ -9,7 +9,8 @@ import { onClone } from './branch-read';
 import { branchKind, canEditBranch, currentBranch, editorOf, opensIntoEnvironment } from './current-branch';
 import { gitBranch, readGitConfig } from './git-config';
 import { fetchHeads, readHeads, recordHeads } from './git-heads';
-import { adapterOf, mergeRequestDescription, openMergeRequest, type OpenedMergeRequest } from './merge-request';
+import { adapterOf } from './adapter-status';
+import { mergeRequestDescription, openMergeRequest, pullRequestUrl, workBranchRequest, type OpenedMergeRequest } from './merge-request';
 import { pendingMerge, pendingMergeRefusal } from './pending-merge';
 import { fileChanges, flowImpact } from './promotions';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
@@ -131,10 +132,11 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
             // only forward: a remote that moved past or away from the tip here is followed by the poll, not overwritten
             const pushed = !!here && here !== there && (await remote.hasCommit(here)) && (!there || (await remote.isAncestor(there, here)));
             const proposed = pushed ? here : there;
+            const warnings: { message: string }[] = [];
             // a hotfix's or a backport's tip is checked even when it is on the remote already (pushed by hand, or by the app from a
             // merge): it goes straight into the environment's branch
             if (proposed && (pushed || opensIntoEnvironment(kind))) {
-                const { errors } = await validateImport(
+                const { errors, warnings: found } = await validateImport(
                     ctx.db,
                     ctx.workspaceId,
                     handle,
@@ -143,6 +145,7 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
                 if (errors.length > 0) {
                     return fail('validation', `${branch} is not valid: no pull request was opened.`, issueFields(errors));
                 }
+                warnings.push(...found.map(w => ({ message: `${w.path}: ${w.message}` })));
             }
             if (pushed) {
                 await remote.push(here, branch, there ?? null);
@@ -190,6 +193,7 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
                 notes: borrowed.map(b => `Also brings ${b.commits} commit(s) of ${b.branch}, not merged into ${target} yet.`),
                 files: await fileChanges(remote, targetTip, merged.tree),
                 flows: flowImpact(before, after, handle),
+                warnings,
             });
             return success({ pushed, commits, borrowed, description });
         });
@@ -198,14 +202,11 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
         }
         const { description, ...view } = checked.value;
         const provider = await providerOf(config.repository);
-        const opened = await openMergeRequest(adapter, {
-            source: branch,
-            target,
-            title: parsed.value.title || branch,
-            description,
-            removeSourceBranch: true,
-        });
+        const opened = await openMergeRequest(
+            adapter,
+            workBranchRequest({ source: branch, target, title: parsed.value.title || branch, description }),
+        );
         const link = provider ? pullRequestLink(config.repository, provider, branch, target) : null;
-        return success({ branch, target, ...view, provider, url: opened.mergeRequest?.url ?? link, ...opened });
+        return success({ branch, target, ...view, provider, url: pullRequestUrl(opened, link), ...opened });
     }
 }

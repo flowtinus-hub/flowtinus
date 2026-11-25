@@ -8,6 +8,7 @@ export type GitLabMergeRequest = {
     squash: boolean;
     force_remove_source_branch: boolean;
     web_url: string;
+    created_at: string;
 };
 
 export type GitLabAccessLevel = 0 | 30 | 40;
@@ -35,21 +36,15 @@ export type FakeRoute = (request: { method: string; path: string; query: URLSear
 
 export type FakeGitLab = {
     origin: string;
-    /** the remote's URL of a project (made if new) */
     repository(path: string): string;
-    /** the project, made if new: change its settings, branches and merge requests in place */
     project(path: string): GitLabProject;
-    /** a token the API takes, with its scopes (`api`, `read_api`, `read_repository`, `write_repository`) */
     token(value: string, scopes: string[]): void;
     requests: RecordedRequest[];
-    /** every API answer is this status (a 5xx: GitLab down) until fail(null); the version probe included */
     fail(status: number | null): void;
-    /** requests matching method and path get this answer instead, until the returned function is called */
     refuse(method: string, path: RegExp, status: number, message?: unknown): () => void;
     close(path: string, iid: number): void;
     merge(path: string, iid: number): void;
-    protect(path: string, branch: string, levels?: { push?: GitLabAccessLevel; merge?: GitLabAccessLevel; forcePush?: boolean }): void;
-    /** more endpoints, tried before the built-in ones; null passes the request on */
+    protect(path: string, branch: string, levels?: { push?: GitLabAccessLevel; merge?: GitLabAccessLevel }): void;
     route(handler: FakeRoute): void;
     stop(): Promise<void>;
 };
@@ -128,7 +123,8 @@ export function fakeGitLab(): FakeGitLab {
                     m =>
                         (!state || state === 'all' || m.state === state) &&
                         (!query.get('source_branch') || m.source_branch === query.get('source_branch')) &&
-                        (!query.get('target_branch') || m.target_branch === query.get('target_branch')),
+                        (!query.get('target_branch') || m.target_branch === query.get('target_branch')) &&
+                        (!query.get('created_after') || m.created_at > new Date(query.get('created_after')!).toISOString()),
                 ),
             );
         }
@@ -164,6 +160,7 @@ export function fakeGitLab(): FakeGitLab {
                 squash,
                 force_remove_source_branch: !!body.remove_source_branch,
                 web_url: `${origin}/${p.path}/-/merge_requests/${iid}`,
+                created_at: new Date().toISOString(),
             };
             p.mergeRequests.push(created);
             return json(created, 201);
@@ -243,7 +240,7 @@ export function fakeGitLab(): FakeGitLab {
                 name: branch,
                 push_access_levels: [{ access_level: levels.push ?? 40 }],
                 merge_access_levels: [{ access_level: levels.merge ?? 40 }],
-                allow_force_push: levels.forcePush ?? false,
+                allow_force_push: false,
             });
         },
         route: handler => void routes.push(handler),

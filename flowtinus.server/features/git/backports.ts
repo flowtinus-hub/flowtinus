@@ -15,9 +15,10 @@ import type { GitRemote } from './git-remote';
 import { mergeSettingsBlocks, type MergeSettingsBlock } from './merge-settings';
 import { holdMerge, inScope, pendingMerge } from './pending-merge';
 import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMerge, openAlong, type Edge, type PreflightWarning } from './promotion-edge';
-import { promotionRows, toPromotion, type Promotion } from './promotion-state';
-import { adapterOf, mergeRequestDescription, openMergeRequest, reuseOpenRow } from './merge-request';
-import { fileChanges } from './promotions';
+import { insertPromotion, toPromotion, type Promotion } from './promotion-state';
+import { adapterOf } from './adapter-status';
+import { mergeRequestDescription, openMergeRequest, refusedBy, requestKeepingCommits, reuseOpenRow } from './merge-request';
+import { fileChanges, flowImpact, type FlowImpact } from './promotions';
 import { providerOf, type Provider } from './pull-request';
 import { hasWorkingCopy } from './working-copy';
 import { readBranchWorkspace } from './workspace-import';
@@ -35,11 +36,11 @@ export type BackportPreflight = {
     open: Promotion[];
 };
 
-type Checked = Omit<BackportPreflight, 'open'> & { tree: string | null };
+type Checked = Omit<BackportPreflight, 'open'> & { tree: string | null; flows: FlowImpact[] };
 
 // the edge leaves this server (S → E): the backport runs against it, E's tip merged into S's branch
 async function runBackportPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge): Promise<Checked> {
-    const nothing = { conflicts: [], warnings: [], tree: null };
+    const nothing = { conflicts: [], warnings: [], tree: null, flows: [] };
     if (!edge.sourceTip || !edge.targetTip) {
         const missing = edge.sourceTip ? edge.target.branch : edge.source.branch;
         return { sha: null, branch: null, ...nothing, blocks: [{ kind: 'no-branch', message: `The branch ${missing} does not exist.` }] };
@@ -71,18 +72,23 @@ async function runBackportPreflight(ctx: UseCaseContext, remote: GitRemote, edge
     }
 
     const warnings = arrivalWarnings(handle, before, after, edge.source.env);
-    return { sha, branch, conflicts: merged.conflicts, blocks, warnings, tree: merged.tree };
+    const flows = flowImpact(before, after, handle);
+    return { sha, branch, conflicts: merged.conflicts, blocks, warnings, tree: merged.tree, flows };
 }
 
 async function preflightOf(ctx: UseCaseContext, remote: GitRemote, config: GitConfig, edge: Edge) {
-    const { tree, ...checked } = await runBackportPreflight(ctx, remote, edge);
-    if (checked.sha) {
-        // the backport's commit is cut from the tip of the branch it goes into: a fast-forward is possible until that moves
-        const fastForward = () => Promise.resolve(true);
+    const { tree, flows, ...checked } = await runBackportPreflight(ctx, remote, edge);
+    const branch = checked.sha && checked.branch;
+    if (branch) {
+        // a new backport's commit is cut from the tip of the branch it goes into; a reopened one keeps the commit it was pushed with
+        const fastForward = async () => {
+            const pushed = await remote.fetch(branch);
+            return !pushed || (await remote.isAncestor(edge.sourceTip!, pushed));
+        };
         checked.blocks.push(...(await mergeSettingsBlocks(ctx, config, { branch: edge.source.branch, fastForward })));
     }
     const open = await openAlong(ctx, config, edge, { kind: 'backport', source: edge.target.env, target: edge.source.env });
-    return { checked: { ...checked, open }, tree };
+    return { checked: { ...checked, open }, tree, flows };
 }
 
 const BackportInput = z.object({ target: z.string().min(1, 'The environment ahead') });
@@ -183,13 +189,16 @@ export class OpenBackportHandler implements UseCaseHandler<OpenedBackport> {
             if (!edge.ok) {
                 return edge;
             }
-            const { checked, tree } = await preflightOf(ctx, remote, config, edge.value);
-            const { sha, branch, blocks } = checked;
-            let { conflicts, open } = checked;
+            const { checked, tree, flows } = await preflightOf(ctx, remote, config, edge.value);
+            const { sha, branch, blocks, open } = checked;
             const provider = await providerOf(config.repository);
             const { source, target } = edge.value;
             const adapter = await adapterOf(ctx, config);
-            const request = {
+            const same = open.find(p => p.sha === sha);
+            const alsoOpen = open.filter(p => p !== same);
+            const waiting = same ? await pendingMerge(ctx.db, ctx.workspaceId, same.branch) : null;
+            const conflicts = same ? (waiting?.conflicts ?? []) : checked.conflicts;
+            const request = requestKeepingCommits({
                 source: branch ?? '',
                 target: source.branch,
                 title: `Backport ${target.env} into ${source.env} (${shortSha(sha ?? '')})`,
@@ -198,30 +207,25 @@ export class OpenBackportHandler implements UseCaseHandler<OpenedBackport> {
                         ? await mergeRequestDescription(ctx, {
                               notes: conflicts.length > 0 ? [`Its merge waits on conflicts in: ${conflicts.join(', ')}.`] : [],
                               files: await fileChanges(remote, edge.value.sourceTip!, tree),
+                              flows,
                               warnings: checked.warnings,
                           })
                         : '',
-                squash: false as const,
-                removeSourceBranch: true,
-            };
-            let reopened = false;
-            const same = open.find(p => p.sha === sha);
+            });
             if (same) {
-                const waiting = await pendingMerge(ctx.db, ctx.workspaceId, same.branch);
-                const alsoOpen = open.filter(p => p !== same);
-                const reused = await reuseOpenRow(ctx, adapter, same, request);
-                if (!reused.closed) {
-                    const { promotion, notice } = reused;
-                    const view = { promotion, reused: true, alsoOpen, conflicts: waiting?.conflicts ?? [], provider };
-                    return success({ ...view, ...(notice ? { notice } : {}) });
+                const reused = await reuseOpenRow(ctx, adapter, same, request, blocks);
+                if (!reused.ok) {
+                    return reused;
                 }
-                open = alsoOpen;
-                conflicts = waiting?.conflicts ?? [];
-                reopened = heads.has(same.branch);
+                if (!reused.value.closed) {
+                    const { promotion, notice } = reused.value;
+                    return success({ promotion, reused: true, alsoOpen, conflicts, provider, ...(notice ? { notice } : {}) });
+                }
             }
             if (blocks.length > 0 || !sha || !branch || !tree) {
-                return fail('conflict', blocks.map(b => b.message).join(' '));
+                return refusedBy(blocks);
             }
+            const reopened = !!same && heads.has(same.branch);
             if (!reopened) {
                 if (heads.has(branch)) {
                     return fail('conflict', `The branch ${branch} is in the repository: delete it, then backport again.`);
@@ -236,27 +240,11 @@ export class OpenBackportHandler implements UseCaseHandler<OpenedBackport> {
             }
 
             const { mergeRequest, notice } = await openMergeRequest(adapter, request);
-            const id = crypto.randomUUID();
-            await ctx.db.query(
-                `INSERT INTO promotions (id, workspace_id, kind, source, target, sha, branch, opened_by, state, pull_request_number, pull_request_url)
-                 VALUES ($1, $2, 'backport', $3, $4, $5, $6, $7, 'open', $8, $9)`,
-                [
-                    id,
-                    ctx.workspaceId,
-                    target.env,
-                    source.env,
-                    sha,
-                    branch,
-                    ctx.userId,
-                    mergeRequest?.number ?? null,
-                    mergeRequest?.url ?? null,
-                ],
-            );
-            const [row] = await promotionRows(ctx, { id });
+            const row = await insertPromotion(ctx, { kind: 'backport', source: target.env, target: source.env, sha, branch }, mergeRequest);
             return success({
-                promotion: toPromotion(row!, edgeLinks(edge.value, config, provider)),
+                promotion: toPromotion(row, edgeLinks(edge.value, config, provider)),
                 reused: false,
-                alsoOpen: open,
+                alsoOpen,
                 conflicts,
                 provider,
                 ...(notice ? { notice } : {}),

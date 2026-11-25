@@ -1,5 +1,5 @@
 import { Check, ChevronsUpDown, Flame, GitBranch, GitBranchPlus, GitMerge, GitPullRequestArrow, Lock, TriangleAlert } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, opensIntoEnvironment, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type MergeRequestLink, type Mode } from '@/data/git/git-api';
@@ -73,6 +73,7 @@ export function BranchPicker({ handle }: { handle: string }) {
         mode?: Mode;
         error?: string;
     } | null>(null);
+    const listedOnMount = useRef<string | null>(null);
     const [showMerged, setShowMerged] = useState(false);
     const [error, setError] = useState('');
     const [creating, setCreating] = useState(false);
@@ -97,6 +98,7 @@ export function BranchPicker({ handle }: { handle: string }) {
 
     useEffect(() => {
         let gone = false;
+        listedOnMount.current = handle;
         void listBranches(handle).then(
             result =>
                 !gone &&
@@ -118,6 +120,10 @@ export function BranchPicker({ handle }: { handle: string }) {
             return;
         }
         setError('');
+        if (listedOnMount.current === handle) {
+            listedOnMount.current = null;
+            return;
+        }
         void listBranches(handle).then(result =>
             setBranches(
                 result.ok

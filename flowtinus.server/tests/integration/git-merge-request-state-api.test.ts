@@ -169,6 +169,32 @@ describe("with the adapter on, the poll and the branch picker read the merge req
         expect(await promotions()).toEqual([{ ...opened, number: mr.iid, url: mr.web_url }]);
     });
 
+    test('the poll lists the merge requests opened since a day before its oldest open row: an older one on the branch is not taken', async () => {
+        const { at, branchAt, write, promote, poll, promotions, project, listed, byHand } = await workspace();
+        branchAt('qa', 'dev');
+        const sha = write('dev', { [at('scripts/tax.ts')]: 'export const tax = 1;\n' });
+        const branch = `promote/DEV-${short(sha)}`;
+        const allow = gitlab.refuse('POST', /\/merge_requests$/, 503, { message: 'GitLab is restarting' });
+        let opened;
+        try {
+            opened = await promote(sha);
+        } finally {
+            allow();
+        }
+
+        const old = await byHand(branch, 'qa');
+        const stale = project().mergeRequests.find(m => m.iid === old.iid)!;
+        stale.state = 'closed';
+        stale.created_at = new Date(Date.parse(opened.openedAt) - 25 * 60 * 60 * 1000).toISOString();
+        await poll();
+        expect(listed().at(-1)!.query.created_after).toBe(new Date(Date.parse(opened.openedAt) - 24 * 60 * 60 * 1000).toISOString());
+        expect((await promotions())[0]).toMatchObject({ state: 'open', number: null });
+
+        const recent = await byHand(branch, 'qa');
+        await poll();
+        expect((await promotions())[0]).toMatchObject({ state: 'open', number: recent.iid, url: recent.web_url });
+    });
+
     test('a merge request closed without merging makes its row closed, while its branch is still there', async () => {
         const { at, tip, branchAt, write, promote, poll, promotions, path } = await workspace();
         branchAt('qa', 'dev');

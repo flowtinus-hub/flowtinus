@@ -8,8 +8,9 @@ import { gitBranch, readGitConfig, type GitOptions } from './git-config';
 import type { Mode } from './topology';
 import { onWorkspaceRepository } from './git-handlers';
 import { readHeads, recordHeads } from './git-heads';
-import { adapterOf, type MergeRequestLink } from './merge-request';
-import { ProviderError, type ProviderPullRequest } from './provider-adapter';
+import { adapterOf } from './adapter-status';
+import type { MergeRequestLink } from './merge-request';
+import { unlessProviderFails } from './provider-adapter';
 import { ENVIRONMENT_BRANCH, type WorkingRow } from './working-copy';
 import { changeCount } from './working-copy-changes';
 
@@ -26,6 +27,7 @@ export type BranchView = {
     changes: number;
     removed?: true;
     lostTip?: true;
+    /** its open merge request into the environment's branch, with the adapter on */
     mergeRequest?: MergeRequestLink;
 };
 
@@ -56,14 +58,7 @@ async function changesPerBranch(db: Database, workspaceId: string, environment: 
 async function openMergeRequestsInto(ctx: UseCaseContext, environment: string | null): Promise<Map<string, MergeRequestLink>> {
     const config = environment ? await readGitConfig(ctx.db, ctx.workspaceId) : null;
     const adapter = config ? await adapterOf(ctx, config) : null;
-    let open: ProviderPullRequest[] = [];
-    try {
-        open = adapter && environment ? await adapter.openPullRequestsInto(environment) : [];
-    } catch (e) {
-        if (!(e instanceof ProviderError)) {
-            throw e;
-        }
-    }
+    const open = adapter && environment ? await unlessProviderFails(adapter.openPullRequestsInto(environment), []) : [];
     return new Map(open.map(m => [m.source, { number: m.number, url: m.url }]));
 }
 
