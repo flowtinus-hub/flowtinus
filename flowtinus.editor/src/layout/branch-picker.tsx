@@ -1,20 +1,23 @@
-import { Check, ChevronsUpDown, GitBranch, GitBranchPlus, GitMerge, GitPullRequestArrow, Lock, TriangleAlert } from 'lucide-react';
+import { Check, ChevronsUpDown, Flame, GitBranch, GitBranchPlus, GitMerge, GitPullRequestArrow, Lock, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
+import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, opensIntoEnvironment, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { cn } from '@/lib/utils';
-import { landingAfterSwitch, noteBranchSwitch } from './branch-landing';
+import { landAfterSwitch } from './branch-landing';
 import { CreateBranchDialog } from './create-branch-dialog';
+import { CreateHotfixDialog } from './create-hotfix-dialog';
 import { PullRequestDialog } from './pull-request-dialog';
 import { UpdateDialog } from './update-dialog';
 
 const GROUPS: { kind: BranchKind; label: string }[] = [
     { kind: 'environment', label: 'Environments' },
+    { kind: 'hotfix', label: 'Hotfixes' },
     { kind: 'user', label: "Users' branches" },
     { kind: 'shared', label: 'Shared branches' },
+    { kind: 'backport', label: 'Backports' },
 ];
 
 function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: string | null; onPick: (name: string) => void }) {
@@ -57,6 +60,7 @@ export function BranchPicker({ handle }: { handle: string }) {
     const [showMerged, setShowMerged] = useState(false);
     const [error, setError] = useState('');
     const [creating, setCreating] = useState(false);
+    const [hotfixing, setHotfixing] = useState(false);
     const [proposing, setProposing] = useState(false);
     const [updating, setUpdating] = useState(false);
     const { state } = useMe();
@@ -102,9 +106,7 @@ export function BranchPicker({ handle }: { handle: string }) {
             setError(result.error.message);
             return;
         }
-        noteBranchSwitch();
-        // every page read so far was the other branch's: the page again, from scratch, on this one
-        window.location.assign(await landingAfterSwitch(handle));
+        await landAfterSwitch(handle);
     };
 
     const list = branches?.handle === handle ? branches.list : [];
@@ -119,7 +121,8 @@ export function BranchPicker({ handle }: { handle: string }) {
     const work = list.find(b => b.name === value.branch && b.kind !== 'environment');
     const updatable = canEdit && environment && work?.editable ? work : null;
     const pushable = work?.removed && (work.kind === 'shared' || work.mine) ? work : null;
-    const proposable = canEdit && environment && branches?.mode !== 'protected' ? (updatable ?? pushable) : null;
+    const protectedHere = branches?.handle === handle && branches.mode === 'protected';
+    const proposable = canEdit && environment && (!protectedHere || opensIntoEnvironment(work?.kind)) ? (updatable ?? pushable) : null;
 
     return (
         <>
@@ -163,7 +166,16 @@ export function BranchPicker({ handle }: { handle: string }) {
                             )
                         );
                     })}
-                    {canEdit && userHandle && (
+                    {canEdit && protectedHere && environment && (
+                        <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => setHotfixing(true)}>
+                                <Flame />
+                                Create hotfix...
+                            </DropdownMenuItem>
+                        </>
+                    )}
+                    {canEdit && !protectedHere && userHandle && (
                         <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={() => setCreating(true)}>
@@ -219,6 +231,9 @@ export function BranchPicker({ handle }: { handle: string }) {
                 />
             )}
             {updating && <UpdateDialog handle={handle} onClose={() => setUpdating(false)} />}
+            {hotfixing && environment && (
+                <CreateHotfixDialog handle={handle} environment={environment} onClose={() => setHotfixing(false)} />
+            )}
             {creating && userHandle && (
                 <CreateBranchDialog
                     handle={handle}

@@ -9,7 +9,7 @@ import { isReadOnly, useProject } from '@/data/projects/use-project';
 import { setUnsavedWork, useUnsavedWork } from '@/data/git/unsaved-work';
 import { createScriptPath, deleteScriptPath, discardScript, flushScripts, newPathIssue, reloadAll, renameScriptPath, scriptFolders, scriptUsage, useProjectScripts, type SaveState } from '@/data/scripts/scripts-store';
 import { cn } from '@/lib/utils';
-import { getCurrentBranch, getGitStatus, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
+import { getCurrentBranch, getGitStatus, listBranches, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
 import { useResource } from '@/data/use-resource';
 import { useBranchOffer } from '@/layout/use-branch-offer';
 import type { ApiResult } from '@/lib/api';
@@ -73,10 +73,13 @@ export function ScriptsPage() {
     // on a pull-request server a branch the user may edit (a work branch) takes a Commit; its environment's branch does not
     const branch = useResource(`current-branch:${ws}`, () => getCurrentBranch(ws));
     const editable = branch.state.status === 'ready' && branch.state.value.editable;
+    const branches = useResource(`branches:${ws}`, () => listBranches(ws));
+    const listed = branches.state.status === 'ready' ? branches.state.value : null;
+    const onHotfix = editable && listed?.branches.find(b => b.name === listed.current)?.kind === 'hotfix';
     const pullRequestsOnly =
         gitStatus.state.status === 'ready' &&
         gitStatus.state.value.on &&
-        (gitStatus.state.value.mode === 'protected' || (gitStatus.state.value.mode === 'pull-request' && !editable));
+        (gitStatus.state.value.mode === 'protected' ? !onHotfix : gitStatus.state.value.mode === 'pull-request' && !editable);
     const project = useProject(projectId);
     const archived = isReadOnly(project);
     const scripts = useProjectScripts(projectId);

@@ -6,9 +6,13 @@ import { providerOf, pullRequestLink, type Provider } from './pull-request';
 
 export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
 
+/** a backport runs against its edge: from the environment ahead (source) into the one it is promoted from (target) */
+export type PromotionKind = 'promotion' | 'backport';
+
 /** url: the provider's page for a new pull request, while it is open; inTopology: its edge is still in the topology */
 export type Promotion = {
     id: string;
+    kind: PromotionKind;
     source: string;
     target: string;
     sha: string;
@@ -24,6 +28,7 @@ export type Topology = { environments: EnvironmentDecl[] };
 
 export type PromotionRow = {
     id: string;
+    kind: PromotionKind;
     source: string;
     target: string;
     sha: string;
@@ -39,14 +44,27 @@ export const edgeIn = (topology: Topology, source: string, target: string) => {
     return from && to && from.promotesTo.includes(target) ? { source: from, target: to } : null;
 };
 
-const SELECT_PROMOTIONS = `SELECT p.id, p.source, p.target, p.sha, p.branch, p.state, u.name AS opened_by_name, p.opened_at
+export function rowEdge(topology: Topology, row: Pick<PromotionRow, 'kind' | 'source' | 'target'>) {
+    if (row.kind === 'backport') {
+        const edge = edgeIn(topology, row.target, row.source);
+        return edge && { ...edge, into: edge.source };
+    }
+    const edge = edgeIn(topology, row.source, row.target);
+    return edge && { ...edge, into: edge.target };
+}
+
+const SELECT_PROMOTIONS = `SELECT p.id, p.kind, p.source, p.target, p.sha, p.branch, p.state, u.name AS opened_by_name, p.opened_at
   FROM promotions p LEFT JOIN users u ON u.id::text = p.opened_by WHERE p.workspace_id = $1`;
 
 const RECENT_PROMOTIONS = 50;
 
-export const shortSha = (sha: string) => sha.slice(0, 12);
-
-export type PromotionQuery = { id?: string; state?: PromotionState; edge?: { source: string; target: string }; limit?: number };
+export type PromotionQuery = {
+    id?: string;
+    kind?: PromotionKind;
+    states?: PromotionState[];
+    edge?: { source: string; target: string };
+    limit?: number;
+};
 
 export async function promotionRows(ctx: UseCaseContext, query: PromotionQuery = {}): Promise<PromotionRow[]> {
     const params: unknown[] = [ctx.workspaceId];
@@ -58,8 +76,12 @@ export async function promotionRows(ctx: UseCaseContext, query: PromotionQuery =
     if (query.id) {
         where('p.id', query.id);
     }
-    if (query.state) {
-        where('p.state', query.state);
+    if (query.kind) {
+        where('p.kind', query.kind);
+    }
+    if (query.states) {
+        params.push(query.states);
+        conditions.push(`AND p.state = ANY($${params.length})`);
     }
     if (query.edge) {
         where('p.source', query.edge.source);
@@ -72,9 +94,10 @@ export async function promotionRows(ctx: UseCaseContext, query: PromotionQuery =
 export type PromotionLinks = { topology: Topology; repository: string; provider: Provider | null };
 
 export function toPromotion(row: PromotionRow, links: PromotionLinks): Promotion {
-    const edge = edgeIn(links.topology, row.source, row.target);
+    const edge = rowEdge(links.topology, row);
     return {
         id: row.id,
+        kind: row.kind,
         source: row.source,
         target: row.target,
         sha: row.sha,
@@ -85,7 +108,7 @@ export function toPromotion(row: PromotionRow, links: PromotionLinks): Promotion
         inTopology: !!edge,
         url:
             edge && links.provider && row.state === 'open'
-                ? pullRequestLink(links.repository, links.provider, row.branch, edge.target.branch)
+                ? pullRequestLink(links.repository, links.provider, row.branch, edge.into.branch)
                 : null,
     };
 }
@@ -95,9 +118,13 @@ export async function listPromotions(ctx: UseCaseContext, topology: Topology, re
     return (await promotionRows(ctx, { limit: RECENT_PROMOTIONS })).map(row => toPromotion(row, links));
 }
 
-/** every broken row, whatever its age: each blocks its edge until it is merged */
+/** every broken promotion, whatever its age: each blocks its edge until it is merged */
 export async function brokenPromotions(ctx: UseCaseContext, links: PromotionLinks): Promise<Promotion[]> {
-    return (await promotionRows(ctx, { state: 'broken' })).map(row => toPromotion(row, links));
+    return (await promotionRows(ctx, { kind: 'promotion', states: ['broken'] })).map(row => toPromotion(row, links));
+}
+
+export async function liveBackports(ctx: UseCaseContext, links: PromotionLinks): Promise<Promotion[]> {
+    return (await promotionRows(ctx, { kind: 'backport', states: ['open', 'broken'] })).map(row => toPromotion(row, links));
 }
 
 async function stateInGit(
@@ -129,7 +156,7 @@ async function hasContentOf(remote: GitRemote, targetTip: string, sha: string): 
 /** merged and closed are final; broken ends only as merged */
 export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, heads: Map<string, string>): Promise<void> {
     const rows = await ctx.db.query<PromotionRow>(
-        `SELECT id, source, target, sha, branch, state, NULL AS opened_by_name, opened_at FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
+        `SELECT id, kind, source, target, sha, branch, state, NULL AS opened_by_name, opened_at FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
         [ctx.workspaceId],
     );
     const configTip = heads.get(CONFIG_BRANCH);
@@ -139,11 +166,11 @@ export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, h
     }
     const topology = parseTopology(text);
     for (const row of rows) {
-        const edge = edgeIn(topology, row.source, row.target);
+        const edge = rowEdge(topology, row);
         if (!edge) {
             continue;
         }
-        const state = await stateInGit(remote, row, heads.get(edge.target.branch), heads);
+        const state = await stateInGit(remote, row, heads.get(edge.into.branch), heads);
         if (state !== row.state) {
             await ctx.db.query(`UPDATE promotions SET state = $2, state_at = now() WHERE id = $1 AND state = $3`, [
                 row.id,

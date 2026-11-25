@@ -73,6 +73,7 @@ export type EnvironmentEdge = {
     behind: number | null;
     ahead: boolean | null;
     broken: Promotion[];
+    backports: Promotion[];
 };
 
 export type FlowCell = { state: 'deployed' | 'undeployed' | 'absent'; content: 'same' | 'other' | null; differs: boolean };
@@ -98,6 +99,7 @@ export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
 
 export type Promotion = {
     id: string;
+    kind: 'promotion' | 'backport';
     source: string;
     target: string;
     sha: string;
@@ -157,6 +159,29 @@ export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen:
 export const openPromotion = (ws: string, target: string, sha: string) =>
     api<OpenedPromotion>(`/w/${ws}/git/promotions`, { method: 'POST', body: { target, sha } });
 
+export type BackportPreflight = {
+    sha: string | null;
+    branch: string | null;
+    conflicts: string[];
+    blocks: { kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid'; message: string; issues?: TreeIssue[] }[];
+    warnings: { kind: 'connections' | 'triggers'; message: string; items: string[] }[];
+    open: Promotion[];
+};
+
+export const getBackportPreflight = (ws: string, target: string) =>
+    api<BackportPreflight>(`/w/${ws}/git/backports/preflight?${new URLSearchParams({ target })}`);
+
+export type OpenedBackport = {
+    promotion: Promotion;
+    reused: boolean;
+    alsoOpen: Promotion[];
+    conflicts: string[];
+    provider: Provider | null;
+};
+
+export const openBackport = (ws: string, target: string) =>
+    api<OpenedBackport>(`/w/${ws}/git/backports`, { method: 'POST', body: { target } });
+
 export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null };
 
 export const openRepair = (ws: string, promotion: string) =>
@@ -169,7 +194,9 @@ export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git
 export const setCurrentBranch = (ws: string, branch: string) =>
     api<CurrentBranch>(`/w/${ws}/git/current-branch`, { method: 'PUT', body: { branch } });
 
-export type BranchKind = 'environment' | 'user' | 'shared';
+export type BranchKind = 'environment' | 'hotfix' | 'user' | 'shared' | 'backport';
+
+export const opensIntoEnvironment = (kind: BranchKind | undefined) => kind === 'hotfix' || kind === 'backport';
 
 export type BranchInfo = {
     name: string;
@@ -213,6 +240,9 @@ export const createBranch = (ws: string, name: string, draft?: { flowId: string;
         method: 'POST',
         body: draft ? { name, draft } : { name },
     });
+
+export const createHotfix = (ws: string, name: string) =>
+    api<{ branch: string }>(`/w/${ws}/git/hotfix`, { method: 'POST', body: { name } });
 
 export const branchNamePart = (name: string) =>
     name

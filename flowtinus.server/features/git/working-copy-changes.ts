@@ -1,4 +1,4 @@
-import { branchKind, editorOf, gitBranchNameError, refuseOffEditableBranch } from './current-branch';
+import { branchKind, editorOf, gitBranchNameError, opensIntoEnvironment, refuseOffEditableBranch } from './current-branch';
 import { flowCalls, flowResources, flowScriptUses, handleOf, repoEntry, repoFlowFromYaml, repoFlowToYaml, scriptImport, scriptImports, toExecutableFlow, type RepoEntry } from '@flowtinus/core';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { saveBlob, scriptBlobs } from '#features/scripts/script-store';
@@ -14,7 +14,7 @@ import { pendingMerge, pendingMergeRefusal } from './pending-merge';
 import { dropNeverCommitted, liveFolderIds } from './never-committed';
 import { lockReconcile } from './reconcile';
 import { abortMerge, commitPendingMerge } from './update';
-import { ENVIRONMENT_BRANCH, followGit, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
+import { ENVIRONMENT_BRANCH, followGit, hasWorkingCopy, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
 import { committedFlowText, exportTree, flowsInRepo, type GitChanges, type RepoFiles } from './workspace-export';
 import { importStructure, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 
@@ -488,7 +488,7 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
     }
     const editor = await editorOf(ctx.db, ctx.workspaceId, ctx.userId);
     const { kind, owner } = branchKind(name, [...editor.environments, git.branch]);
-    if (kind === 'environment' || kind === 'app') {
+    if (kind === 'environment' || kind === 'app' || opensIntoEnvironment(kind)) {
         return fail('validation', 'The request has invalid fields.', {
             name: kind === 'environment' ? "That is an environment's branch." : 'That name is kept for the branches the app makes.',
         });
@@ -498,11 +498,7 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
             name: `users/${owner}/… is ${owner}'s: name yours users/${editor.handle}/…`,
         });
     }
-    const [held] = await ctx.db.query<{ n: number }>(
-        'SELECT count(*)::int AS n FROM working_copy WHERE workspace_id = $1 AND branch = $2',
-        [ctx.workspaceId, name],
-    );
-    if (held!.n > 0) {
+    if (await hasWorkingCopy(ctx.db, ctx.workspaceId, name)) {
         return fail('conflict', `This server still has changes on a branch ${name}: pick another name.`);
     }
 

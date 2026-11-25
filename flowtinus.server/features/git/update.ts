@@ -4,12 +4,12 @@ import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { onClone, workBranch, type WorkBranch } from './branch-read';
-import { branchIds, lockBranch, noteHead, refuseReadOnly } from './branch-write';
+import { lockBranch, noteHead, refuseReadOnly } from './branch-write';
 import { gitAuthorOf, gitBranch } from './git-config';
 import { GitError, type GitRemote } from './git-remote';
-import { dropPendingMerge, pendingMerge, pendingMergeRefusal, pendingMergeView, type PendingMerge, type PendingMergeView } from './pending-merge';
+import { dropPendingMerge, holdMerge, inScope, pendingMerge, pendingMergeRefusal, pendingMergeView, scopeOf, type PendingMerge, type PendingMergeView } from './pending-merge';
 import { followGit, isChange, overlayRows, workingRows } from './working-copy';
-import type { GitChanges, RepoFiles } from './workspace-export';
+import type { GitChanges } from './workspace-export';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 
 export type UpdateStatus = { branch: string; environment: string; behind: number; pending?: PendingMergeView };
@@ -18,10 +18,6 @@ export type UpdateOutcome =
     | { outcome: 'up-to-date' }
     | { outcome: 'merged'; commit: string }
     | { outcome: 'pending'; conflicts: string[]; errors?: Record<string, string> };
-
-const scopeOf = (handle: string) => [handle, '.gitattributes'];
-
-const inScope = (path: string, handle: string) => path.startsWith(`${handle}/`) || path === '.gitattributes';
 
 async function updatable(ctx: UseCaseContext): Promise<{ branch: WorkBranch; environment: string }> {
     const git = await gitBranch(ctx.db, ctx.workspaceId);
@@ -155,94 +151,6 @@ async function pushOrRefuse(remote: GitRemote, commit: string, branch: string, f
         }
         throw e;
     }
-}
-
-// marked as a moved branch marks a file: row.base, row.content and the file at row.conflict are the three texts
-async function holdMerge(
-    db: Database,
-    ctx: UseCaseContext,
-    remote: GitRemote,
-    merge: {
-        branch: string;
-        handle: string;
-        ours: string;
-        theirs: string;
-        base: string;
-        environment: string;
-        tipFiles: RepoFiles;
-        tree: string;
-        conflicts: string[];
-    },
-): Promise<PendingMerge> {
-    const scope = scopeOf(merge.handle);
-    const baseFiles = await readBranchWorkspace(remote, merge.base, merge.handle);
-    const theirsFiles = await readBranchWorkspace(remote, merge.theirs, merge.handle);
-    const mergedFiles = await remote.files(merge.tree, scope);
-    // a conflicted file's merged text has markers and reads as nothing: its id comes from either side
-    const ids = {
-        ...branchIds(theirsFiles, merge.handle),
-        ...branchIds(merge.tipFiles, merge.handle),
-        ...branchIds(mergedFiles, merge.handle),
-    };
-    const paths = [...new Set([...(await remote.changedPaths(merge.ours, merge.tree, scope)), ...merge.conflicts])].sort();
-
-    const written: string[] = [];
-    const conflicts: string[] = [];
-    for (const path of paths) {
-        const ours = merge.tipFiles[path];
-        let row: { content: string; deleted: boolean; base: string | undefined; conflict: string | null };
-        if (merge.conflicts.includes(path)) {
-            const base = baseFiles[path];
-            const theirs = theirsFiles[path];
-            if (ours === undefined && base === undefined && theirs === undefined) {
-                continue;
-            }
-            row = { content: ours ?? theirs ?? base!, deleted: ours === undefined && base !== undefined, base, conflict: merge.theirs };
-        } else {
-            const merged = mergedFiles[path];
-            if (merged === undefined && ours === undefined) {
-                continue;
-            }
-            row = { content: merged ?? ours!, deleted: merged === undefined, base: ours, conflict: null };
-        }
-        await db.query(
-            `INSERT INTO working_copy (workspace_id, branch, path, content, deleted, file_id, base, edited_by, conflict, revision)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)
-           ON CONFLICT (workspace_id, branch, path) DO UPDATE SET content = EXCLUDED.content, deleted = EXCLUDED.deleted,
-             file_id = EXCLUDED.file_id, base = EXCLUDED.base, edited_by = EXCLUDED.edited_by, conflict = EXCLUDED.conflict,
-             revision = working_copy.revision + 1, updated_at = now()`,
-            [
-                ctx.workspaceId,
-                merge.branch,
-                path,
-                row.content,
-                row.deleted,
-                ids[path] ?? null,
-                row.base === undefined ? null : await saveBlob(db, ctx.workspaceId, row.base),
-                ctx.userId,
-                row.conflict,
-            ],
-        );
-        written.push(path);
-        if (row.conflict) {
-            conflicts.push(path);
-        }
-    }
-    await db.query(
-        `INSERT INTO pending_merges (workspace_id, branch, ours, theirs, source, paths, conflicts, merged_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [ctx.workspaceId, merge.branch, merge.ours, merge.theirs, merge.environment, written, conflicts, ctx.userId],
-    );
-    return {
-        branch: merge.branch,
-        ours: merge.ours,
-        theirs: merge.theirs,
-        source: merge.environment,
-        paths: written,
-        conflicts,
-        mergedBy: ctx.userId,
-        createdAt: new Date(),
-    };
 }
 
 export async function commitPendingMerge(ctx: UseCaseContext, branch: WorkBranch, message: string): Promise<UseCaseResult<string>> {
