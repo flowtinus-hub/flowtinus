@@ -2,10 +2,13 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { workspaceHandle } from '#features/folders/project-tree';
 import { onClone } from './branch-read';
 import { branchKind, canEditBranch, currentBranch, editorOf } from './current-branch';
 import { gitBranch, readGitConfig } from './git-config';
 import { fetchHeads, readHeads, recordHeads } from './git-heads';
+import { pendingMerge, pendingMergeRefusal } from './pending-merge';
+import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 
 export type Provider = 'gitlab' | 'github';
 
@@ -90,20 +93,25 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
             return fail('conflict', 'Git is off in this workspace: there are no branches.');
         }
         const target = git.branch;
-        if (git.mode === 'protected') {
+        const editor = await editorOf(ctx.db, ctx.workspaceId, ctx.userId);
+        const { kind } = branchKind(branch, [...editor.environments, target]);
+        if (git.mode === 'protected' && kind !== 'backport') {
             return fail('conflict', `${target} is protected: its server opens no pull request from a work branch.`);
         }
         if (branch === target) {
             return fail('conflict', `A pull request goes from a work branch into ${target}: create or pick one first.`);
         }
-        const editor = await editorOf(ctx.db, ctx.workspaceId, ctx.userId);
-        const { kind } = branchKind(branch, [...editor.environments, target]);
         if (kind === 'environment' || kind === 'app') {
             return fail('conflict', `${branch} is not a work branch: no pull request from it here.`);
         }
         if (!canEditBranch(branch, target, editor)) {
             return fail('conflict', `${branch} is not yours: only its owner opens its pull request.`);
         }
+        const waiting = await pendingMerge(ctx.db, ctx.workspaceId, branch);
+        if (waiting) {
+            return fail('conflict', pendingMergeRefusal(waiting));
+        }
+        const handle = await workspaceHandle(ctx);
 
         const checked = await onClone(ctx, 'Git could not be reached, no pull request was opened', async remote => {
             const here = (await readHeads(ctx.db, ctx.workspaceId))?.heads.find(h => h.name === branch)?.sha;
@@ -111,6 +119,18 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
             const there = fetched.fetched.get(branch);
             // only forward: a remote that moved past or away from the tip here is followed by the poll, not overwritten
             const pushed = !!here && here !== there && (await remote.hasCommit(here)) && (!there || (await remote.isAncestor(there, here)));
+            const proposed = pushed ? here : there;
+            if (kind === 'backport' && proposed) {
+                const { errors } = await validateImport(
+                    ctx.db,
+                    ctx.workspaceId,
+                    handle,
+                    await readBranchWorkspace(remote, proposed, handle),
+                );
+                if (errors.length > 0) {
+                    return fail('validation', `${branch} is not valid: no pull request was opened.`, issueFields(errors));
+                }
+            }
             if (pushed) {
                 await remote.push(here, branch, there ?? null);
                 fetched.fetched.set(branch, here);

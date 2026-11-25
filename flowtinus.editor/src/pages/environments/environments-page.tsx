@@ -165,6 +165,7 @@ function EdgeLine({ edge, branch }: { edge: EnvironmentEdge; branch: string }) {
                     </span>
                     <span className={cn(edge.ahead && 'text-amber-700 dark:text-amber-400')}>
                         Ahead: {edge.ahead ? `yes, it has changes ${edge.source} lacks` : 'no'}
+                        {edge.ahead && edge.backports.length > 0 && ' · backport open'}
                     </span>
                     {edge.broken.length > 0 && <span className="text-destructive">Lineage broken: blocked until a repair is merged</span>}
                 </>
@@ -262,8 +263,8 @@ function Activity({ value }: { value: On }) {
                 <span className="grid gap-0.5">
                     <span className="flex flex-wrap items-center gap-x-2">
                         <span>
-                            Promotion {p.source} <ArrowRight className="inline size-3.5" /> {p.target} of{' '}
-                            <span className="font-mono">{shortSha(p.sha)}</span>
+                            {p.kind === 'backport' ? 'Backport' : 'Promotion'} {p.source} <ArrowRight className="inline size-3.5" />{' '}
+                            {p.target} of <span className="font-mono">{shortSha(p.sha)}</span>
                         </span>
                         <span
                             className={cn(
@@ -306,7 +307,7 @@ function Activity({ value }: { value: On }) {
         <section className="grid gap-3">
             <h2 className="text-lg font-semibold">Activity</h2>
             {events.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No promotion or reconcile yet.</p>
+                <p className="text-sm text-muted-foreground">No promotion, backport or reconcile yet.</p>
             ) : (
                 <ul className="max-h-96 divide-y overflow-y-auto rounded-lg border">
                     {events.map(event => (

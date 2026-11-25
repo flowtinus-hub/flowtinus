@@ -50,7 +50,7 @@ async function changesPerBranch(db: Database, workspaceId: string, environment: 
     return new Map([...byBranch].map(([name, list]) => [name, changeCount(list)]));
 }
 
-const KIND_ORDER = { environment: 0, user: 1, shared: 2 };
+const KIND_ORDER = { environment: 0, user: 1, shared: 2, backport: 3 };
 
 export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
     constructor(private readonly options: GitOptions) {}
@@ -91,10 +91,13 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
             owners.set(user.handle, user.name);
         }
 
+        const editor = { handle: me?.handle ?? null, environments: heads.environments, targets: heads.targets ?? [], mode: git.mode };
         const branches: BranchView[] = [];
         for (const head of heads.heads) {
             const { kind, owner } = branchKind(head.name, heads.environments);
-            if (kind === 'app') {
+            const editable = canEditBranch(head.name, environment, editor);
+            // a backport is listed only where it is changed: on the server of the environment it goes into
+            if (kind === 'app' || (kind === 'backport' && !editable)) {
                 continue;
             }
             const changes = counts.get(head.name) ?? 0;
@@ -103,13 +106,7 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 kind,
                 ...(owner ? { owner, ...(owners.has(owner) ? { ownerName: owners.get(owner) } : {}) } : {}),
                 mine: owner !== undefined && owner === me?.handle,
-                editable:
-                    !head.removed &&
-                    canEditBranch(head.name, environment, {
-                        handle: me?.handle ?? null,
-                        environments: heads.environments,
-                        mode: git.mode,
-                    }),
+                editable: !head.removed && editable,
                 merged: head.merged && changes === 0,
                 changes,
                 ...(head.removed ? { removed: true as const } : {}),
