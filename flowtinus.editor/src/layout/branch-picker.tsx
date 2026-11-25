@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown, GitBranch, GitBranchPlus, GitMerge, GitPullRequestArrow, Lock, TriangleAlert } from 'lucide-react';
+import { Check, ChevronsUpDown, Flame, GitBranch, GitBranchPlus, GitMerge, GitPullRequestArrow, Lock, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
@@ -8,11 +8,13 @@ import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { cn } from '@/lib/utils';
 import { landingAfterSwitch, noteBranchSwitch } from './branch-landing';
 import { CreateBranchDialog } from './create-branch-dialog';
+import { CreateHotfixDialog } from './create-hotfix-dialog';
 import { PullRequestDialog } from './pull-request-dialog';
 import { UpdateDialog } from './update-dialog';
 
 const GROUPS: { kind: BranchKind; label: string }[] = [
     { kind: 'environment', label: 'Environments' },
+    { kind: 'hotfix', label: 'Hotfixes' },
     { kind: 'user', label: "Users' branches" },
     { kind: 'shared', label: 'Shared branches' },
     { kind: 'backport', label: 'Backports' },
@@ -58,6 +60,7 @@ export function BranchPicker({ handle }: { handle: string }) {
     const [showMerged, setShowMerged] = useState(false);
     const [error, setError] = useState('');
     const [creating, setCreating] = useState(false);
+    const [hotfixing, setHotfixing] = useState(false);
     const [proposing, setProposing] = useState(false);
     const [updating, setUpdating] = useState(false);
     const { state } = useMe();
@@ -120,9 +123,10 @@ export function BranchPicker({ handle }: { handle: string }) {
     const work = list.find(b => b.name === value.branch && b.kind !== 'environment');
     const updatable = canEdit && environment && work?.editable ? work : null;
     const pushable = work?.removed && (work.kind === 'shared' || work.mine) ? work : null;
-    // a backport goes into this server's environment whatever its mode
+    const protectedHere = branches?.handle === handle && branches.mode === 'protected';
+    // hotfixes and backports go into this server's environment whatever its mode
     const proposable =
-        canEdit && environment && (branches?.mode !== 'protected' || work?.kind === 'backport') ? (updatable ?? pushable) : null;
+        canEdit && environment && (!protectedHere || work?.kind === 'hotfix' || work?.kind === 'backport') ? (updatable ?? pushable) : null;
 
     return (
         <>
@@ -166,7 +170,16 @@ export function BranchPicker({ handle }: { handle: string }) {
                             )
                         );
                     })}
-                    {canEdit && userHandle && (
+                    {canEdit && protectedHere && environment && (
+                        <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => setHotfixing(true)}>
+                                <Flame />
+                                Create hotfix...
+                            </DropdownMenuItem>
+                        </>
+                    )}
+                    {canEdit && !protectedHere && userHandle && (
                         <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={() => setCreating(true)}>
@@ -222,6 +235,9 @@ export function BranchPicker({ handle }: { handle: string }) {
                 />
             )}
             {updating && <UpdateDialog handle={handle} onClose={() => setUpdating(false)} />}
+            {hotfixing && environment && (
+                <CreateHotfixDialog handle={handle} environment={environment} onClose={() => setHotfixing(false)} />
+            )}
             {creating && userHandle && (
                 <CreateBranchDialog
                     handle={handle}

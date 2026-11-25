@@ -196,7 +196,7 @@ export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git
 export const setCurrentBranch = (ws: string, branch: string) =>
     api<CurrentBranch>(`/w/${ws}/git/current-branch`, { method: 'PUT', body: { branch } });
 
-export type BranchKind = 'environment' | 'user' | 'shared' | 'backport';
+export type BranchKind = 'environment' | 'hotfix' | 'user' | 'shared' | 'backport';
 
 export type BranchInfo = {
     name: string;
@@ -240,6 +240,12 @@ export const createBranch = (ws: string, name: string, draft?: { flowId: string;
         method: 'POST',
         body: draft ? { name, draft } : { name },
     });
+
+export const HOTFIX_PREFIX = 'hotfix/';
+
+/** only on a protected server: hotfix/<name> cut from the environment's tip, and the user on it */
+export const createHotfix = (ws: string, name: string) =>
+    api<{ branch: string }>(`/w/${ws}/git/hotfix`, { method: 'POST', body: { name } });
 
 export const branchNamePart = (name: string) =>
     name

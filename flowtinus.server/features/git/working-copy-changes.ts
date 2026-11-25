@@ -488,7 +488,7 @@ export async function createBranch(ctx: UseCaseContext, name: string): Promise<U
     }
     const editor = await editorOf(ctx.db, ctx.workspaceId, ctx.userId);
     const { kind, owner } = branchKind(name, [...editor.environments, git.branch]);
-    if (kind === 'environment' || kind === 'app' || kind === 'backport') {
+    if (kind === 'environment' || kind === 'app' || kind === 'hotfix' || kind === 'backport') {
         return fail('validation', 'The request has invalid fields.', {
             name: kind === 'environment' ? "That is an environment's branch." : 'That name is kept for the branches the app makes.',
         });
