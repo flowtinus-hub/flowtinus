@@ -275,4 +275,16 @@ describe('hotfix branches: cut from a protected environment, shared on its serve
         expect(Object.keys(invalid.body.error.fields)).toEqual([ordersPath]);
         expect(git(repo, 'branch', '--list', 'hotfix/urgent')).toBe('');
     });
+
+    test('Open pull request refuses a hotfix whose tip, pushed by hand, has an invalid tree', async () => {
+        const { call, ordersPath, repo, filesOf } = await workspace();
+        expect((await call('POST', '/git/hotfix', { name: 'urgent' })).status).toBe(201);
+        const broken = commitFiles(repo, 'hotfix/urgent', { ...filesOf('hotfix/urgent'), [ordersPath]: 'nodes: 1\n' }, 'Broken by hand');
+        expect((await call('POST', '/git/reconcile')).status).toBe(200);
+
+        const refused = await call('POST', '/git/pull-request');
+        expect(refused.status).toBe(400);
+        expect(Object.keys(refused.body.error.fields)).toEqual([ordersPath]);
+        expect(git(repo, 'rev-parse', 'hotfix/urgent')).toBe(broken);
+    });
 });

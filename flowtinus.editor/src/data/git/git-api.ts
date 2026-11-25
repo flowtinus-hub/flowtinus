@@ -73,7 +73,6 @@ export type EnvironmentEdge = {
     behind: number | null;
     ahead: boolean | null;
     broken: Promotion[];
-    /** this server's open and broken backports from the target into the source, which block nothing */
     backports: Promotion[];
 };
 
@@ -160,7 +159,6 @@ export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen:
 export const openPromotion = (ws: string, target: string, sha: string) =>
     api<OpenedPromotion>(`/w/${ws}/git/promotions`, { method: 'POST', body: { target, sha } });
 
-/** sha: the target's tip, the only commit a backport takes; conflicts: left as a pending merge on its branch, they do not block */
 export type BackportPreflight = {
     sha: string | null;
     branch: string | null;
@@ -197,6 +195,8 @@ export const setCurrentBranch = (ws: string, branch: string) =>
     api<CurrentBranch>(`/w/${ws}/git/current-branch`, { method: 'PUT', body: { branch } });
 
 export type BranchKind = 'environment' | 'hotfix' | 'user' | 'shared' | 'backport';
+
+export const opensIntoEnvironment = (kind: BranchKind | undefined) => kind === 'hotfix' || kind === 'backport';
 
 export type BranchInfo = {
     name: string;
@@ -241,9 +241,6 @@ export const createBranch = (ws: string, name: string, draft?: { flowId: string;
         body: draft ? { name, draft } : { name },
     });
 
-export const HOTFIX_PREFIX = 'hotfix/';
-
-/** only on a protected server: hotfix/<name> cut from the environment's tip, and the user on it */
 export const createHotfix = (ws: string, name: string) =>
     api<{ branch: string }>(`/w/${ws}/git/hotfix`, { method: 'POST', body: { name } });
 

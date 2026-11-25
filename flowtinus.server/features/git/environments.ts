@@ -187,8 +187,8 @@ async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, config: 
     for (const e of ordered) {
         for (const target of e.promotesTo.filter(t => tips.has(t))) {
             const along = broken.filter(p => p.source === e.env && p.target === target);
-            const back = backports.filter(p => p.source === target && p.target === e.env);
-            edges.push({ ...(await edgeOf(remote, e.env, target, tips)), broken: along, backports: back });
+            const backportsInto = backports.filter(p => p.source === target && p.target === e.env);
+            edges.push({ ...(await edgeOf(remote, e.env, target, tips)), broken: along, backports: backportsInto });
         }
     }
 

@@ -17,6 +17,12 @@ export async function landingAfterSwitch(handle: string): Promise<string> {
     return read && !read.ok && read.error.code === 'not-found' ? projectsPath(handle) : here;
 }
 
+/** every page read so far was the other branch's: the page again, from scratch, on the new one */
+export async function landAfterSwitch(handle: string): Promise<void> {
+    noteBranchSwitch();
+    window.location.assign(await landingAfterSwitch(handle));
+}
+
 const SWITCHED_KEY = 'flowtinus.branchSwitchedAt';
 const loadedAt = Date.now();
 

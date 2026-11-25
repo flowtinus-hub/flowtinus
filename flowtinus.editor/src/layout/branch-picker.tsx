@@ -2,11 +2,11 @@ import { Check, ChevronsUpDown, Flame, GitBranch, GitBranchPlus, GitMerge, GitPu
 import { useEffect, useState } from 'react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
+import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, opensIntoEnvironment, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { cn } from '@/lib/utils';
-import { landingAfterSwitch, noteBranchSwitch } from './branch-landing';
+import { landAfterSwitch } from './branch-landing';
 import { CreateBranchDialog } from './create-branch-dialog';
 import { CreateHotfixDialog } from './create-hotfix-dialog';
 import { PullRequestDialog } from './pull-request-dialog';
@@ -106,9 +106,7 @@ export function BranchPicker({ handle }: { handle: string }) {
             setError(result.error.message);
             return;
         }
-        noteBranchSwitch();
-        // every page read so far was the other branch's: the page again, from scratch, on this one
-        window.location.assign(await landingAfterSwitch(handle));
+        await landAfterSwitch(handle);
     };
 
     const list = branches?.handle === handle ? branches.list : [];
@@ -124,9 +122,7 @@ export function BranchPicker({ handle }: { handle: string }) {
     const updatable = canEdit && environment && work?.editable ? work : null;
     const pushable = work?.removed && (work.kind === 'shared' || work.mine) ? work : null;
     const protectedHere = branches?.handle === handle && branches.mode === 'protected';
-    // hotfixes and backports go into this server's environment whatever its mode
-    const proposable =
-        canEdit && environment && (!protectedHere || work?.kind === 'hotfix' || work?.kind === 'backport') ? (updatable ?? pushable) : null;
+    const proposable = canEdit && environment && (!protectedHere || opensIntoEnvironment(work?.kind)) ? (updatable ?? pushable) : null;
 
     return (
         <>

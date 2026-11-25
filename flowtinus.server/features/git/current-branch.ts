@@ -41,6 +41,14 @@ export type BranchKind = 'environment' | 'app' | 'hotfix' | 'backport' | 'user' 
 
 export const HOTFIX_PREFIX = 'hotfix/';
 
+export const shortSha = (sha: string) => sha.slice(0, 12);
+
+const BACKPORT = /^backport\/(.+)-[0-9a-f]{12}$/;
+
+export const backportBranch = (from: string, sha: string) => `backport/${from}-${shortSha(sha)}`;
+
+export const opensIntoEnvironment = (kind: BranchKind) => kind === 'hotfix' || kind === 'backport';
+
 /** from: a backport's environment, the one ahead it merges from */
 export function branchKind(name: string, environments: string[]): { kind: BranchKind; owner?: string; from?: string } {
     if (environments.includes(name)) {
@@ -49,7 +57,7 @@ export function branchKind(name: string, environments: string[]): { kind: Branch
     if (name.startsWith(HOTFIX_PREFIX)) {
         return { kind: 'hotfix' };
     }
-    const backport = /^backport\/(.+)-[0-9a-f]{12}$/.exec(name);
+    const backport = BACKPORT.exec(name);
     if (backport) {
         return { kind: 'backport', from: backport[1]! };
     }
@@ -77,16 +85,11 @@ export function canEditBranch(branch: string | null, environment: string | null,
     return sharedHere(kind, editor) || (editor.mode !== 'protected' && kind === 'user' && owner === editor.handle);
 }
 
-/** a work branch of this kind that every editor of this server writes: a protected server's are its hotfixes */
 export const sharedHere = (kind: BranchKind, editor: Pick<Editor, 'mode'>) =>
     editor.mode === 'protected' ? kind === 'hotfix' : kind === 'shared';
 
-/**
- * the branches this server's picker offers, a backport only where it may be edited: a protected server's own branch, its
- * hotfixes and the backports into it only
- */
 export const listedHere = (name: string, kind: BranchKind, environment: string | null, editor: Pick<Editor, 'mode'>) =>
-    editor.mode === 'protected' ? name === environment || kind === 'hotfix' || kind === 'backport' : kind !== 'app' && kind !== 'hotfix';
+    editor.mode === 'protected' ? name === environment || opensIntoEnvironment(kind) : kind !== 'app' && kind !== 'hotfix';
 
 export async function editorOf(db: Database, workspaceId: string, userId: string): Promise<Editor> {
     const [[me], heads, git] = await Promise.all([
