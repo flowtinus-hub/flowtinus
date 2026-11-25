@@ -96,6 +96,15 @@ export function deployState(deployments: FlowDeployments, draft: FlowFile | null
     return { kind: 'deployed', version, changed: draft !== null && !sameFlow(draft, version.definition) };
 }
 
+/** with git on: committing this content ends the emergency rollback by accident, being neither git's version nor what runs */
+export function endsEmergencyRollback(deployments: FlowDeployments, content: FlowFile): boolean {
+    const rollback = deployments.emergencyRollback;
+    return (
+        !!rollback &&
+        !deployments.versions.some(v => (v.id === rollback.versionId || v.id === rollback.gitVersionId) && sameFlow(v.definition, content))
+    );
+}
+
 export function nextNumber(deployments: FlowDeployments, draft: FlowFile | null): number {
     const newest = deployments.versions[0];
     return newest && draft && sameFlow(draft, newest.definition) ? newest.number : (newest?.number ?? 0) + 1;

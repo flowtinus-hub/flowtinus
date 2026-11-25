@@ -88,6 +88,7 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
     // a pending merge is committed whole: every file, whatever is checked
     const all = merge ? (changes ?? []).map(c => c.path) : [...chosen, ...locked.keys()];
     const conflicted = (changes ?? []).filter(c => c.conflict && all.includes(c.path));
+    const endings = (changes ?? []).flatMap(c => (c.endsEmergencyRollback && all.includes(c.path) ? [c.endsEmergencyRollback] : []));
     const pickable = (changes ?? []).filter(c => !c.conflict && !locked.has(c.path)).map(c => c.path);
     const pickedCount = pickable.filter(path => chosen.has(path)).length;
     const allPicked: boolean | 'indeterminate' =
@@ -316,13 +317,20 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
                                 Discard changes, or create a branch of your own and take yours there.
                             </p>
                         ) : (
-                            <Input
-                                aria-label="Commit message"
-                                placeholder="Commit message"
-                                value={message}
-                                disabled={busy}
-                                onChange={e => setMessage(e.target.value)}
-                            />
+                            <>
+                                {endings.map(ending => (
+                                    <p key={ending} className="flex gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" /> {ending}
+                                    </p>
+                                ))}
+                                <Input
+                                    aria-label="Commit message"
+                                    placeholder="Commit message"
+                                    value={message}
+                                    disabled={busy}
+                                    onChange={e => setMessage(e.target.value)}
+                                />
+                            </>
                         )}
                     </>
                 )}

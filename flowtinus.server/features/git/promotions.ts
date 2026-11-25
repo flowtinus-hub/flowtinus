@@ -19,6 +19,7 @@ import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMer
 import { insertPromotion, promotionRows, rowEdge, toPromotion, type Promotion } from './promotion-state';
 import { isChange, workingRows } from './working-copy';
 import { workspaceEntries, type RepoFiles } from './workspace-export';
+import { promotedRollbacksWarning } from './emergency-rollback-warnings';
 import { readBranchWorkspace } from './workspace-import';
 
 export type GraphCommit = {
@@ -235,12 +236,14 @@ async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, 
             items: drafts,
         });
     }
+    const flows = flowImpact(before, after, handle);
+    warnings.push(...(await promotedRollbacksWarning(ctx.db, ctx.workspaceId, flows, edge.source.env)));
 
     return {
         sha,
         branch,
         files,
-        impact: { flows: flowImpact(before, after, handle), scripts: scriptImpact(before, after, handle) },
+        impact: { flows, scripts: scriptImpact(before, after, handle) },
         blocks,
         warnings,
     };

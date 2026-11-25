@@ -12,7 +12,11 @@ import { readTopology } from './workspace-topology';
 
 export type Edge = { source: EnvironmentDecl; target: EnvironmentDecl; sourceTip: string | null; targetTip: string | null };
 
-export type PreflightWarning = { kind: 'connections' | 'triggers' | 'drafts'; message: string; items: string[] };
+export type PreflightWarning = {
+    kind: 'connections' | 'triggers' | 'drafts' | 'emergency-rollback' | 'ends-emergency-rollback';
+    message: string;
+    items: string[];
+};
 
 const NO_ENVIRONMENT = { connections: [], secrets: [], variables: [] };
 

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type EmergencyRollback, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
+import { deployedVersion, deployState, endsEmergencyRollback, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type EmergencyRollback, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
 import { deployFlow, deployVersion, discardDraft, emergencyRollback, endEmergencyRollback, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
 import { CHANGES_CHANGED, getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
@@ -20,6 +20,8 @@ import type { ApiResult } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
+
+const endsRollbackText = (flowName: string, environment: string) => `This ends the emergency rollback of ${flowName} on ${environment}.`;
 
 /** the chip on the Deploy button */
 export function DeployBadge({ state, emergencyRollback = false }: { state: DeployState; emergencyRollback?: boolean }) {
@@ -200,7 +202,11 @@ export function DeployMenu({
 
         const latest = fresh?.ok ? fresh.value : current;
         const before = deployedVersion(latest);
-        const warnings = latest.warnings ?? [];
+        const draft = draftNow();
+        const warnings = [
+            ...(latest.warnings ?? []),
+            ...(draft && endsEmergencyRollback(latest, draft) ? [endsRollbackText(draft.name, environment)] : []),
+        ];
         if (latest.git) {
             setCommitting({
                 number: nextNumber(latest, draftNow()),
@@ -241,9 +247,20 @@ export function DeployMenu({
         const action = switchAction(current, version);
         const newest = current.versions[0]?.number ?? version.number;
         if (git) {
+            const ends = endsEmergencyRollback(current, version.definition);
             confirm({
                 title: version.number < newest ? `Commit a revert to v${version.number}?` : `Commit v${version.number} to ${target}?`,
-                description: `A commit to ${target} of v${version.number}'s content, deployed as a new version.${deployed ? ` Replaces v${deployed.number}.` : ''}`,
+                description: (
+                    <>
+                        {`A commit to ${target} of v${version.number}'s content, deployed as a new version.${deployed ? ` Replaces v${deployed.number}.` : ''}`}
+                        {ends && (
+                            <span className="mt-2 flex gap-1.5 text-amber-700 dark:text-amber-400">
+                                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />{' '}
+                                {endsRollbackText(version.definition.name, environment)}
+                            </span>
+                        )}
+                    </>
+                ),
                 confirmLabel: 'Commit',
                 busyLabel: 'Committing…',
                 onConfirm: () => act(() => deployVersion(flowId, version.id)),
