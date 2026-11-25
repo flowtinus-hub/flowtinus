@@ -1,12 +1,22 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowRight, CircleCheck, CircleX, ExternalLink, GitPullRequestArrow, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { shortSha } from '@/data/deployments/deployment';
 import { useResource } from '@/data/use-resource';
-import { getCommitGraph, getPreflight, openPromotion, openRepair, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedPromotion, type OpenedRepair, type Preflight, type Promotion } from '@/data/git/git-api';
+import { getCommitGraph, getPreflight, openPromotion, openRepair, promotionSha, PROVIDERS, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedPromotion, type Preflight, type Promotion, type Provider } from '@/data/git/git-api';
+import type { ApiResult } from '@/lib/api';
+import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { CommitGraph } from './commit-graph';
 
-const PROVIDERS = { gitlab: 'GitLab', github: 'GitHub' };
+type PromoteEdge = {
+    handle: string;
+    edge: EnvironmentEdge;
+    sourceBranch: string;
+    targetBranch: string;
+    canPromote: boolean;
+    onOpened: () => void;
+};
 
 const CHANGE: Record<FlowChange, string> = {
     added: 'added',
@@ -19,9 +29,49 @@ const CHANGE: Record<FlowChange, string> = {
 
 const FILE_STATUS = { added: 'A', modified: 'M', deleted: 'D' } as const;
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+function useOpening<T>(request: () => Promise<ApiResult<T>>, onOpened?: () => void) {
+    const [opening, setOpening] = useState(false);
+    const [opened, setOpened] = useState<{ value?: T; error?: string } | null>(null);
+    const open = async () => {
+        setOpening(true);
+        const answer = await request();
+        setOpening(false);
+        setOpened(answer.ok ? { value: answer.value } : { error: answer.error.message });
+        if (answer.ok) {
+            onOpened?.();
+        }
+    };
+    return { opening, opened, open };
+}
 
-/** one tab per edge leaving this server's environment; none without one */
+function PullRequestLink({
+    url,
+    provider,
+    branch,
+    targetBranch,
+    size,
+}: {
+    url: string | null;
+    provider: Provider | null;
+    branch: string;
+    targetBranch: string;
+    size?: 'sm';
+}) {
+    return url ? (
+        <Button size={size} asChild>
+            <a href={url} target="_blank" rel="noreferrer">
+                <ExternalLink />
+                Open the pull request on {provider ? PROVIDERS[provider] : 'the provider'}
+            </a>
+        </Button>
+    ) : (
+        <span className="text-muted-foreground">
+            Open a pull request from <span className="font-mono">{branch}</span> into <span className="font-mono">{targetBranch}</span> on
+            your git provider.
+        </span>
+    );
+}
+
 export function PromotePanel({
     handle,
     edges,
@@ -77,12 +127,14 @@ export function PromotePanel({
             {edge.targetExists ? (
                 <EdgePanel
                     key={edge.target}
-                    handle={handle}
-                    edge={edge}
-                    sourceBranch={branchOf(edge.source)}
-                    targetBranch={branchOf(edge.target)}
-                    canPromote={canPromote}
-                    onOpened={onOpened}
+                    promote={{
+                        handle,
+                        edge,
+                        sourceBranch: branchOf(edge.source),
+                        targetBranch: branchOf(edge.target),
+                        canPromote,
+                        onOpened,
+                    }}
                 />
             ) : (
                 <p className="rounded-lg border p-4 text-sm text-muted-foreground">
@@ -136,21 +188,14 @@ function RepairRow({
     targetBranch: string;
     canRepair: boolean;
 }) {
-    const [opening, setOpening] = useState(false);
-    const [opened, setOpened] = useState<{ value?: OpenedRepair; error?: string } | null>(null);
-    const open = async () => {
-        setOpening(true);
-        const answer = await openRepair(handle, promotion.id);
-        setOpening(false);
-        setOpened(answer.ok ? { value: answer.value } : { error: answer.error.message });
-    };
+    const { opening, opened, open } = useOpening(() => openRepair(handle, promotion.id));
     const repair = opened?.value;
 
     return (
         <li className="grid gap-2">
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span>
-                    <span className="font-mono">{promotion.sha.slice(0, 12)}</span>, from{' '}
+                    <span className="font-mono">{promotionSha(promotion.sha)}</span>, from{' '}
                     <span className="font-mono">{promotion.branch}</span>
                 </span>
                 {canRepair && !repair && (
@@ -167,19 +212,13 @@ function RepairRow({
                         {repair.reused ? 'Already pushed: ' : 'Pushed '}
                         <span className="font-mono">{repair.branch}</span>.
                     </span>
-                    {repair.url ? (
-                        <Button size="sm" asChild>
-                            <a href={repair.url} target="_blank" rel="noreferrer">
-                                <ExternalLink />
-                                Open the pull request on {repair.provider ? PROVIDERS[repair.provider] : 'the provider'}
-                            </a>
-                        </Button>
-                    ) : (
-                        <span className="text-muted-foreground">
-                            Open a pull request from <span className="font-mono">{repair.branch}</span> into{' '}
-                            <span className="font-mono">{targetBranch}</span> on your git provider.
-                        </span>
-                    )}
+                    <PullRequestLink
+                        url={repair.url}
+                        provider={repair.provider}
+                        branch={repair.branch}
+                        targetBranch={targetBranch}
+                        size="sm"
+                    />
                 </span>
             )}
             {repair && (
@@ -191,21 +230,8 @@ function RepairRow({
     );
 }
 
-function EdgePanel({
-    handle,
-    edge,
-    sourceBranch,
-    targetBranch,
-    canPromote,
-    onOpened,
-}: {
-    handle: string;
-    edge: EnvironmentEdge;
-    sourceBranch: string;
-    targetBranch: string;
-    canPromote: boolean;
-    onOpened: () => void;
-}) {
+function EdgePanel({ promote }: { promote: PromoteEdge }) {
+    const { handle, edge, sourceBranch, targetBranch } = promote;
     const first = useResource(`promote-graph:${handle}:${edge.target}`, () => getCommitGraph(handle, edge.target));
     const [more, setMore] = useState<{ commits: GraphCommit[]; next: number | null } | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -265,16 +291,7 @@ function EdgePanel({
             </div>
             <aside className="grid content-start gap-5 border-t p-4 lg:border-t-0 lg:border-l">
                 {chosen ? (
-                    <PreflightView
-                        key={chosen}
-                        handle={handle}
-                        edge={edge}
-                        sha={chosen}
-                        sourceBranch={sourceBranch}
-                        targetBranch={targetBranch}
-                        canPromote={canPromote}
-                        onOpened={onOpened}
-                    />
+                    <PreflightView key={chosen} promote={promote} sha={chosen} />
                 ) : (
                     <p className="text-sm text-muted-foreground">Nothing to promote.</p>
                 )}
@@ -283,26 +300,10 @@ function EdgePanel({
     );
 }
 
-function PreflightView({
-    handle,
-    edge,
-    sha,
-    sourceBranch,
-    targetBranch,
-    canPromote,
-    onOpened,
-}: {
-    handle: string;
-    edge: EnvironmentEdge;
-    sha: string;
-    sourceBranch: string;
-    targetBranch: string;
-    canPromote: boolean;
-    onOpened: () => void;
-}) {
+function PreflightView({ promote, sha }: { promote: PromoteEdge; sha: string }) {
+    const { handle, edge, sourceBranch, targetBranch, canPromote, onOpened } = promote;
     const checked = useResource(`preflight:${handle}:${edge.target}:${sha}`, () => getPreflight(handle, edge.target, sha));
-    const [opening, setOpening] = useState(false);
-    const [opened, setOpened] = useState<{ value?: OpenedPromotion; error?: string } | null>(null);
+    const { opening, opened, open } = useOpening(() => openPromotion(handle, edge.target, sha), onOpened);
 
     if (checked.state.status !== 'ready') {
         return checked.state.status === 'error' ? (
@@ -314,15 +315,6 @@ function PreflightView({
         );
     }
     const preflight: Preflight = checked.state.value;
-    const open = async () => {
-        setOpening(true);
-        const answer = await openPromotion(handle, edge.target, sha);
-        setOpening(false);
-        setOpened(answer.ok ? { value: answer.value } : { error: answer.error.message });
-        if (answer.ok) {
-            onOpened();
-        }
-    };
     const others = preflight.open.filter(p => p.sha !== sha);
     const same = preflight.open.find(p => p.sha === sha);
     const result = opened?.value;
@@ -413,7 +405,7 @@ function PreflightView({
                         {others.length === 1 ? 'A promotion' : 'Promotions'} of{' '}
                         {others.map(p => (
                             <span key={p.id} className="font-mono">
-                                {p.sha.slice(0, 7)}{' '}
+                                {shortSha(p.sha)}{' '}
                             </span>
                         ))}
                         {others.length === 1 ? 'is' : 'are'} open on this edge. An older one counts as merged once a newer one is.
@@ -428,11 +420,8 @@ function PreflightView({
                 {opened?.error && <p className="text-sm text-destructive">{opened.error}</p>}
                 {result && <OpenedView opened={result} targetBranch={targetBranch} />}
                 <p className="text-center text-xs text-muted-foreground">
-                    Up to <span className="font-mono">{sha.slice(0, 12)}</span> of <span className="font-mono">{sourceBranch}</span>, from{' '}
-                    <span className="font-mono">
-                        promote/{edge.source}-{sha.slice(0, 12)}
-                    </span>
-                    . Merge it without a squash or a rebase.
+                    Up to <span className="font-mono">{promotionSha(sha)}</span> of <span className="font-mono">{sourceBranch}</span>, from{' '}
+                    <span className="font-mono">{preflight.branch}</span>. Merge it without a squash or a rebase.
                 </p>
             </div>
         </>
@@ -446,21 +435,9 @@ function OpenedView({ opened, targetBranch }: { opened: OpenedPromotion; targetB
             <p>
                 {reused ? 'This promotion was already open: ' : 'Pushed '}
                 <span className="font-mono">{promotion.branch}</span>
-                {reused ? '.' : ` at ${promotion.sha.slice(0, 12)}.`}
+                {reused ? '.' : ` at ${promotionSha(promotion.sha)}.`}
             </p>
-            {promotion.url ? (
-                <Button asChild>
-                    <a href={promotion.url} target="_blank" rel="noreferrer">
-                        <ExternalLink />
-                        Open the pull request on {provider ? PROVIDERS[provider] : 'the provider'}
-                    </a>
-                </Button>
-            ) : (
-                <p className="text-muted-foreground">
-                    Open a pull request from <span className="font-mono">{promotion.branch}</span> into{' '}
-                    <span className="font-mono">{targetBranch}</span> on your git provider.
-                </p>
-            )}
+            <PullRequestLink url={promotion.url} provider={provider} branch={promotion.branch} targetBranch={targetBranch} />
         </div>
     );
 }

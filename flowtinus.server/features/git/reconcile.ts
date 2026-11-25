@@ -16,6 +16,8 @@ import type { Mode } from './topology';
 
 export type ReconcileOutcome = 'applied' | 'up-to-date' | 'refused';
 
+export type LoggedOutcome = Exclude<ReconcileOutcome, 'up-to-date'>;
+
 export type ReconcileResult = {
     outcome: ReconcileOutcome;
     branch: string;
@@ -89,7 +91,7 @@ export async function applyCommit(
     return renamedDrafts;
 }
 
-const logReconcile = (ctx: UseCaseContext, commit: string, outcome: 'applied' | 'refused') =>
+const logReconcile = (ctx: UseCaseContext, commit: string, outcome: LoggedOutcome) =>
     ctx.db.query('INSERT INTO git_reconciles (workspace_id, sha, outcome) VALUES ($1, $2, $3)', [ctx.workspaceId, commit, outcome]);
 
 // the commit's author is the app user with that email, if there is one

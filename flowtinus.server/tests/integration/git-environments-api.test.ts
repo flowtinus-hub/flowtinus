@@ -117,6 +117,18 @@ describe('the Environments page: every environment of the topology, as git says,
         expect(await edge()).toMatchObject({ behind: 2, ahead: false });
     });
 
+    test('a conflict when merging the target into its source counts as ahead', async () => {
+        const { repo, filesOf, branchAt, environments } = await newWorkspace();
+        commitFiles(repo, 'dev', { ...filesOf('dev'), 'a.txt': 'a' }, 'A file');
+        branchAt('qa', 'dev');
+        commitFiles(repo, 'dev', { ...filesOf('dev'), 'a.txt': 'changed in DEV' }, 'Change it in DEV');
+        const { 'a.txt': _, ...rest } = filesOf('qa');
+        commitFiles(repo, 'qa', rest, 'Delete it in QA');
+
+        const edge = (await environments()).edges.find((e: { source: string }) => e.source === 'DEV');
+        expect(edge).toMatchObject({ ahead: true });
+    });
+
     const flowText = (text: string, name: string, change: (flow: any, read: any) => [any, any]) => {
         const read = repoFlowFromYaml(text, name);
         if (!read.ok) {

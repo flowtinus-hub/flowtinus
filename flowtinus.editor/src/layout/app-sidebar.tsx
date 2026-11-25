@@ -74,7 +74,6 @@ function WorkspaceSwitcher({
 /** looked at again on this interval, and on each page */
 const GIT_STATUS_MS = 60_000;
 
-/** the workspace's git status, read on each page, on this interval and when it changed here; null until it answers */
 function useGitStatus(handle: string | null, pathname: string): GitStatus | null {
     const [status, setStatus] = useState<{ handle: string; value: GitStatus } | null>(null);
     useEffect(() => {
@@ -105,7 +104,6 @@ function GitItems({ handle, pathname, value }: { handle: string; pathname: strin
     ) : null;
 }
 
-/** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the Environments page */
 function GitAheadItem({ handle, value }: { handle: string; value: Extract<GitStatus, { on: true }> }) {
     if (!gitAhead(value) && value.mode !== 'direct') {
         return (

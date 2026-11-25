@@ -7,7 +7,7 @@ CREATE TABLE promotions (
   branch text NOT NULL,
   opened_by text NOT NULL,
   opened_at timestamptz NOT NULL DEFAULT now(),
-  state text NOT NULL CHECK (state IN ('open', 'merged', 'closed')),
+  state text NOT NULL CHECK (state IN ('open', 'broken', 'merged', 'closed')),
   state_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX promotions_workspace ON promotions (workspace_id, opened_at DESC);

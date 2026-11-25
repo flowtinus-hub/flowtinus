@@ -18,7 +18,6 @@ export const connectionsPath = (ws: string) => `/w/${ws}/connections`;
 /** a workspace's secrets and variables (for all its projects) */
 export const secretsPath = (ws: string) => `/w/${ws}/secrets`;
 
-/** with git on: every environment of the topology side by side, as git says, with this server */
 export const environmentsPath = (ws: string) => `/w/${ws}/environments`;
 
 /** a workspace's name, description, icon, color and members */

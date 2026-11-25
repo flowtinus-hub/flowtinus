@@ -1,21 +1,21 @@
 import { z } from 'zod';
-import { connectionFromYaml, repoEntry, repoFlowFromYaml, validateWorkspaceTree, type TreeIssue } from '@flowtinus/core';
+import { connectionFromYaml, repoFlowFromYaml, validateWorkspaceTree, type TreeIssue } from '@flowtinus/core';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { flowsIn } from './environments';
+import { flowsIn, targetAhead } from './environments';
 import { gitAuthorOf, readGitState, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import { fetchHeads, recordHeads } from './git-heads';
 import type { GitRemote } from './git-remote';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
-import { edgeIn, followPromotions, promotionRows, toPromotion, type Promotion } from './promotion-state';
+import { edgeIn, followPromotions, promotionRows, shortSha, toPromotion, type Promotion, type PromotionLinks } from './promotion-state';
 import type { EnvironmentDecl } from './topology';
 import { isChange, workingRows } from './working-copy';
-import type { RepoFiles } from './workspace-export';
+import { flowName, workspaceEntries, type RepoFiles } from './workspace-export';
 import { readBranchWorkspace } from './workspace-import';
 import { readTopology } from './workspace-topology';
 
@@ -58,6 +58,7 @@ export type PreflightWarning = { kind: 'connections' | 'triggers' | 'drafts'; me
 
 export type Preflight = {
     sha: string;
+    branch: string;
     files: FileChange[];
     impact: { flows: FlowImpact[]; scripts: ScriptImpact[] };
     blocks: PreflightBlock[];
@@ -69,9 +70,9 @@ const GRAPH_PAGE = 200;
 const CONTEXT_COMMITS = 3;
 const NO_ENVIRONMENT = { connections: [], secrets: [], variables: [] };
 
-export const promotionBranch = (source: string, sha: string) => `promote/${source}-${sha.slice(0, 12)}`;
+export const promotionBranch = (source: string, sha: string) => `promote/${source}-${shortSha(sha)}`;
 
-export const repairBranch = (target: string, sha: string) => `repair/${target}-${sha.slice(0, 12)}`;
+export const repairBranch = (target: string, sha: string) => `repair/${target}-${shortSha(sha)}`;
 
 type Edge = { source: EnvironmentDecl; target: EnvironmentDecl; sourceTip: string | null; targetTip: string | null };
 
@@ -159,11 +160,11 @@ async function fileChanges(remote: GitRemote, from: string, to: string): Promise
 }
 
 function flowImpact(before: RepoFiles, after: RepoFiles, handle: string): FlowImpact[] {
-    const was = flowsIn(before, handle);
-    const is = flowsIn(after, handle);
+    const inTarget = flowsIn(before, handle);
+    const inResult = flowsIn(after, handle);
     const impact: FlowImpact[] = [];
-    for (const [id, flow] of is) {
-        const old = was.get(id);
+    for (const [id, flow] of inResult) {
+        const old = inTarget.get(id);
         if (!old) {
             impact.push({ id, name: flow.name, changes: ['added'] });
             continue;
@@ -182,43 +183,34 @@ function flowImpact(before: RepoFiles, after: RepoFiles, handle: string): FlowIm
             impact.push({ id, name: flow.name, ...(old.name !== flow.name ? { from: old.name } : {}), changes });
         }
     }
-    for (const [id, flow] of was) {
-        if (!is.has(id)) {
+    for (const [id, flow] of inTarget) {
+        if (!inResult.has(id)) {
             impact.push({ id, name: flow.name, changes: ['removed'] });
         }
     }
     return impact.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function scriptsIn(files: RepoFiles, handle: string): Map<string, string> {
-    const scripts = new Map<string, string>();
-    for (const [path, text] of Object.entries(files)) {
-        const entry = repoEntry(path);
-        if (entry.kind === 'script' && entry.workspace === handle) {
-            scripts.set(`${entry.project}/${entry.path}`, text);
-        }
-    }
-    return scripts;
-}
+const scriptsIn = (files: RepoFiles, handle: string) =>
+    new Map(workspaceEntries(files, handle, 'script').map(({ entry, text }) => [`${entry.project}/${entry.path}`, text]));
 
 function scriptImpact(before: RepoFiles, after: RepoFiles, handle: string): ScriptImpact[] {
-    const was = scriptsIn(before, handle);
-    const is = scriptsIn(after, handle);
+    const inTarget = scriptsIn(before, handle);
+    const inResult = scriptsIn(after, handle);
     const impact: ScriptImpact[] = [
-        ...[...is]
-            .filter(([path, text]) => was.get(path) !== text)
-            .map(([path]) => ({ path, change: was.has(path) ? 'changed' : 'added' }) as const),
-        ...[...was.keys()].filter(path => !is.has(path)).map(path => ({ path, change: 'removed' }) as const),
+        ...[...inResult]
+            .filter(([path, text]) => inTarget.get(path) !== text)
+            .map(([path]) => ({ path, change: inTarget.has(path) ? 'changed' : 'added' }) as const),
+        ...[...inTarget.keys()].filter(path => !inResult.has(path)).map(path => ({ path, change: 'removed' }) as const),
     ];
     return impact.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function connectionsIn(files: RepoFiles, handle: string): Map<string, string> {
     const connections = new Map<string, string>();
-    for (const [path, text] of Object.entries(files)) {
-        const entry = repoEntry(path);
-        const read = entry.kind === 'connection' && entry.workspace === handle ? connectionFromYaml(text) : null;
-        if (entry.kind === 'connection' && read?.ok) {
+    for (const { entry, text } of workspaceEntries(files, handle, 'connection')) {
+        const read = connectionFromYaml(text);
+        if (read.ok) {
             connections.set(read.value.id, entry.name);
         }
     }
@@ -227,16 +219,12 @@ function connectionsIn(files: RepoFiles, handle: string): Map<string, string> {
 
 function triggersIn(files: RepoFiles, handle: string): Map<string, string> {
     const triggers = new Map<string, string>();
-    for (const [path, text] of Object.entries(files)) {
-        const entry = repoEntry(path);
-        if (entry.kind !== 'flow' || entry.workspace !== handle) {
-            continue;
-        }
+    for (const { entry, text } of workspaceEntries(files, handle, 'flow')) {
         const read = repoFlowFromYaml(text, entry.name);
         if (!read.ok) {
             continue;
         }
-        const flow = [entry.project, ...entry.folders, entry.name].join('/');
+        const flow = flowName(entry);
         read.value.schedules.forEach(s => triggers.set(s.id, `${flow}: schedule ${s.cron}`));
         read.value.webhooks.forEach(w => triggers.set(w.id, `${flow}: webhook ${w.name}`));
     }
@@ -252,10 +240,10 @@ const newIn = (result: Map<string, string>, target: Map<string, string>) =>
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, sha: string): Promise<Omit<Preflight, 'open'>> {
-    const none = { sha, files: [], impact: { flows: [], scripts: [] }, warnings: [] };
+    const branch = promotionBranch(edge.source.env, sha);
     if (!edge.targetTip || !edge.sourceTip) {
         const message = `The branch ${edge.target.branch} does not exist: turning git on in ${edge.target.env} creates it.`;
-        return { ...none, blocks: [{ kind: 'no-target', message }] };
+        return { sha, branch, files: [], impact: { flows: [], scripts: [] }, warnings: [], blocks: [{ kind: 'no-target', message }] };
     }
 
     const handle = await workspaceHandle(ctx);
@@ -272,19 +260,15 @@ async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, 
             message: `Merging into ${edge.target.branch} conflicts in ${plural(merged.conflicts.length, 'file', 'files')}: ${merged.conflicts.join(', ')}.`,
         });
     }
-    const backwards = await remote.mergeTree(edge.sourceTip, edge.targetTip);
-    if ((await remote.changedPaths(edge.sourceTip, backwards.tree, [])).length > 0) {
+    if (await targetAhead(remote, edge.sourceTip, edge.targetTip)) {
         blocks.push({
             kind: 'ahead',
             message: `${edge.target.env} is ahead of ${edge.source.env}: merge ${edge.target.branch} into ${edge.source.branch} first.`,
         });
     }
-    const broken = await promotionRows(ctx, `AND p.state = 'broken' AND p.source = $2 AND p.target = $3`, [
-        edge.source.env,
-        edge.target.env,
-    ]);
+    const broken = await promotionRows(ctx, { state: 'broken', edge: { source: edge.source.env, target: edge.target.env } });
     if (broken.length > 0) {
-        const shas = broken.map(row => row.sha.slice(0, 12)).join(', ');
+        const shas = broken.map(row => shortSha(row.sha)).join(', ');
         blocks.push({
             kind: 'broken',
             message: `The lineage into ${edge.target.branch} is broken: ${shas} reached it by a squash or a rebase. Merge a repair first.`,
@@ -301,7 +285,7 @@ async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, 
         }
     }
     if (files.length === 0) {
-        blocks.push({ kind: 'empty', message: `Nothing to promote: ${edge.target.branch} already has every file of ${sha.slice(0, 12)}.` });
+        blocks.push({ kind: 'empty', message: `Nothing to promote: ${edge.target.branch} already has every file of ${shortSha(sha)}.` });
     }
 
     const warnings: PreflightWarning[] = [];
@@ -324,6 +308,7 @@ async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, 
 
     return {
         sha,
+        branch,
         files,
         impact: { flows: flowImpact(before, after, handle), scripts: scriptImpact(before, after, handle) },
         blocks,
@@ -359,6 +344,24 @@ async function gitOff(ctx: UseCaseContext): Promise<UseCaseResult<never> | null>
     return (await readGitState(ctx.db, ctx.workspaceId))?.on ? null : fail('conflict', 'Git is off in this workspace.');
 }
 
+async function fetchAndFollow(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<Map<string, string>> {
+    const heads = await fetchHeads(remote);
+    await recordHeads(ctx, remote, config, heads);
+    await followPromotions(ctx, remote, heads.fetched);
+    return heads.fetched;
+}
+
+const edgeLinks = (edge: Edge, config: GitConfig, provider: Provider | null): PromotionLinks => ({
+    topology: { environments: [edge.source, edge.target] },
+    repository: config.repository,
+    provider,
+});
+
+const openOn = async (ctx: UseCaseContext, edge: Edge, links: PromotionLinks) =>
+    (await promotionRows(ctx, { state: 'open', edge: { source: edge.source.env, target: edge.target.env } })).map(row =>
+        toPromotion(row, links),
+    );
+
 async function preflightOf(
     ctx: UseCaseContext,
     remote: GitRemote,
@@ -370,14 +373,7 @@ async function preflightOf(
         return notOnLine(sha, edge);
     }
     const checked = await runPreflight(ctx, remote, edge, sha);
-    const links = {
-        topology: { environments: [edge.source, edge.target] },
-        repository: config.repository,
-        provider: await providerOf(config.repository),
-    };
-    const open = (
-        await promotionRows(ctx, `AND p.state = 'open' AND p.source = $2 AND p.target = $3`, [edge.source.env, edge.target.env])
-    ).map(row => toPromotion(row, links));
+    const open = await openOn(ctx, edge, edgeLinks(edge, config, await providerOf(config.repository)));
     return success({ ...checked, open });
 }
 
@@ -419,11 +415,8 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
         const { target, sha } = parsed.value;
 
         return onWorkspaceRepository(ctx, this.options, async (remote, config): Promise<UseCaseResult<OpenedPromotion>> => {
-            const heads = await fetchHeads(remote);
-            await recordHeads(ctx, remote, config, heads);
-            await followPromotions(ctx, remote, heads.fetched);
-
-            const edge = await edgeOut(remote, config.environment, target, heads.fetched);
+            const heads = await fetchAndFollow(ctx, remote, config);
+            const edge = await edgeOut(remote, config.environment, target, heads);
             if (!edge.ok) {
                 return edge;
             }
@@ -431,23 +424,21 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
             if (!preflight.ok) {
                 return preflight;
             }
-            const { blocks, open } = preflight.value;
-            if (blocks.length > 0) {
-                return fail('conflict', blocks.map(b => b.message).join(' '));
-            }
-
+            const { blocks, open, branch } = preflight.value;
             const provider = await providerOf(config.repository);
             const same = open.find(p => p.sha === sha);
             if (same) {
                 return success({ promotion: same, reused: true, alsoOpen: open.filter(p => p !== same), provider });
             }
+            if (blocks.length > 0) {
+                return fail('conflict', blocks.map(b => b.message).join(' '));
+            }
 
-            const branch = promotionBranch(edge.value.source.env, sha);
-            const there = heads.fetched.get(branch);
-            if (there && there !== sha) {
+            const pushed = heads.get(branch);
+            if (pushed && pushed !== sha) {
                 return fail('conflict', `The branch ${branch} is in the repository at another commit: delete it, then promote again.`);
             }
-            if (!there) {
+            if (!pushed) {
                 await remote.push(sha, branch, null);
             }
             const id = crypto.randomUUID();
@@ -455,9 +446,13 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
                 `INSERT INTO promotions (id, workspace_id, source, target, sha, branch, opened_by, state) VALUES ($1, $2, $3, $4, $5, $6, $7, 'open')`,
                 [id, ctx.workspaceId, edge.value.source.env, edge.value.target.env, sha, branch, ctx.userId],
             );
-            const links = { topology: { environments: [edge.value.source, edge.value.target] }, repository: config.repository, provider };
-            const [row] = await promotionRows(ctx, 'AND p.id = $2', [id]);
-            return success({ promotion: toPromotion(row!, links), reused: false, alsoOpen: open, provider });
+            const [row] = await promotionRows(ctx, { id });
+            return success({
+                promotion: toPromotion(row!, edgeLinks(edge.value, config, provider)),
+                reused: false,
+                alsoOpen: open,
+                provider,
+            });
         });
     }
 }
@@ -481,18 +476,15 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
         }
 
         return onWorkspaceRepository(ctx, this.options, async (remote, config): Promise<UseCaseResult<OpenedRepair>> => {
-            const heads = await fetchHeads(remote);
-            await recordHeads(ctx, remote, config, heads);
-            await followPromotions(ctx, remote, heads.fetched);
-
-            const [row] = await promotionRows(ctx, 'AND p.id = $2', [parsed.value.id]);
+            const heads = await fetchAndFollow(ctx, remote, config);
+            const [row] = await promotionRows(ctx, { id: parsed.value.id });
             if (!row) {
                 return fail('not-found', 'Promotion not found.');
             }
             if (row.state !== 'broken') {
                 return fail('conflict', `Only a broken lineage takes a repair: this promotion is ${row.state}.`);
             }
-            const edge = await edgeOut(remote, config.environment, row.target, heads.fetched);
+            const edge = await edgeOut(remote, config.environment, row.target, heads);
             if (!edge.ok) {
                 return edge;
             }
@@ -502,18 +494,18 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
             }
 
             const branch = repairBranch(row.target, row.sha);
-            const there = heads.fetched.get(branch);
-            if (there && !(await remote.isAncestor(row.sha, there))) {
+            const pushed = heads.get(branch);
+            if (pushed && !(await remote.isAncestor(row.sha, pushed))) {
                 return fail(
                     'conflict',
-                    `The branch ${branch} is in the repository without ${row.sha.slice(0, 12)}: delete it, then repair again.`,
+                    `The branch ${branch} is in the repository without ${shortSha(row.sha)}: delete it, then repair again.`,
                 );
             }
-            if (!there) {
+            if (!pushed) {
                 const commit = await remote.commit({
                     parent: targetTip,
                     changes: {},
-                    message: `Repair the lineage of ${row.sha.slice(0, 12)} into ${edge.value.target.branch}\n\nA merge that keeps ${edge.value.target.branch}'s tree: it changes no file.`,
+                    message: `Repair the lineage of ${shortSha(row.sha)} into ${edge.value.target.branch}\n\nA merge that keeps ${edge.value.target.branch}'s tree: it changes no file.`,
                     author: await gitAuthorOf(ctx),
                     merge: { tree: targetTip, theirs: row.sha },
                 });
@@ -521,7 +513,7 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
             }
             const provider = await providerOf(config.repository);
             const url = provider ? pullRequestLink(config.repository, provider, branch, edge.value.target.branch) : null;
-            return success({ branch, reused: !!there, url, provider });
+            return success({ branch, reused: !!pushed, url, provider });
         });
     }
 }

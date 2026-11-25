@@ -1,4 +1,4 @@
-import { repoEntry, repoFlowFromYaml } from '@flowtinus/core';
+import { repoFlowFromYaml } from '@flowtinus/core';
 import { contentHash } from '#features/deployments/deployments';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { requireRole } from '#shared/use-cases/require-role';
@@ -10,8 +10,9 @@ import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
 import { brokenPromotions, listPromotions, type Promotion } from './promotion-state';
 import { providerOf } from './pull-request';
+import type { LoggedOutcome } from './reconcile';
 import type { EnvironmentDecl, Mode } from './topology';
-import { exportWorkspace, type RepoFiles } from './workspace-export';
+import { exportWorkspace, flowName, workspaceEntries, type RepoFiles } from './workspace-export';
 import { readBranchWorkspace } from './workspace-import';
 import { readTopology } from './workspace-topology';
 
@@ -51,7 +52,7 @@ export type EnvironmentsView =
           reconciles: ReconcileEntry[];
       };
 
-export type ReconcileEntry = { sha: string; outcome: 'applied' | 'refused'; at: string };
+export type ReconcileEntry = { sha: string; outcome: LoggedOutcome; at: string };
 
 const RECENT_RECONCILES = 20;
 
@@ -63,7 +64,6 @@ async function recentReconciles(ctx: UseCaseContext): Promise<ReconcileEntry[]> 
     return rows.map(r => ({ sha: r.sha, outcome: r.outcome, at: new Date(r.at).toISOString() }));
 }
 
-/** the roots first, each followed by what it promotes to, depth first in the order the topology declares them */
 function pipelineOrder(environments: EnvironmentDecl[]): EnvironmentDecl[] {
     const byName = new Map(environments.map(e => [e.env, e]));
     const targets = new Set(environments.flatMap(e => e.promotesTo));
@@ -94,40 +94,39 @@ async function edgeOf(
     }
 
     const promoted = await remote.mergeTree(to, from);
-    const backwards = await remote.mergeTree(from, to);
     return {
         source,
         target,
         targetExists: true,
         behind: (await remote.changedPaths(to, promoted.tree, [])).length,
-        ahead: (await remote.changedPaths(from, backwards.tree, [])).length > 0,
+        ahead: await targetAhead(remote, from, to),
     };
+}
+
+export async function targetAhead(remote: GitRemote, sourceTip: string, targetTip: string): Promise<boolean> {
+    const backwards = await remote.mergeTree(sourceTip, targetTip);
+    return backwards.conflicts.length > 0 || (await remote.changedPaths(sourceTip, backwards.tree, [])).length > 0;
 }
 
 export type FlowState = { name: string; deployed: boolean; hash: string };
 
 export function flowsIn(files: RepoFiles, handle: string): Map<string, FlowState> {
     const flows = new Map<string, FlowState>();
-    for (const [path, text] of Object.entries(files)) {
-        const entry = repoEntry(path);
-        if (entry.kind !== 'flow' || entry.workspace !== handle) {
-            continue;
-        }
+    for (const { entry, text } of workspaceEntries(files, handle, 'flow')) {
         const read = repoFlowFromYaml(text, entry.name);
         if (read.ok && read.value.flow.id) {
-            const name = [entry.project, ...entry.folders, entry.name].join('/');
-            flows.set(read.value.flow.id, { name, deployed: read.value.deployed, hash: contentHash(read.value.flow) });
+            flows.set(read.value.flow.id, { name: flowName(entry), deployed: read.value.deployed, hash: contentHash(read.value.flow) });
         }
     }
     return flows;
 }
 
-const stateOf = (flow: FlowState | undefined) => (!flow ? 'absent' : flow.deployed ? 'deployed' : 'undeployed');
+const cellState = (flow: FlowState | undefined) => (!flow ? 'absent' : flow.deployed ? 'deployed' : 'undeployed');
 
 function cellOf(flow: FlowState | undefined, here: FlowState | undefined, isHere: boolean): FlowCell {
-    const state = stateOf(flow);
+    const state = cellState(flow);
     const content = isHere || !flow || !here ? null : flow.hash === here.hash ? 'same' : 'other';
-    return { state, content, differs: state !== stateOf(here) || (state === 'deployed' && content === 'other') };
+    return { state, content, differs: state !== cellState(here) || (state === 'deployed' && content === 'other') };
 }
 
 async function runsWhere(ctx: UseCaseContext, remote: GitRemote, pipeline: EnvironmentCard[]): Promise<RunsWhere> {

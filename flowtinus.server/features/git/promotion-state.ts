@@ -44,11 +44,29 @@ const SELECT_PROMOTIONS = `SELECT p.id, p.source, p.target, p.sha, p.branch, p.s
 
 const RECENT_PROMOTIONS = 50;
 
-export async function promotionRows(ctx: UseCaseContext, filter = '', params: unknown[] = []): Promise<PromotionRow[]> {
-    return ctx.db.query<PromotionRow>(`${SELECT_PROMOTIONS} ${filter} ORDER BY p.opened_at DESC LIMIT ${RECENT_PROMOTIONS}`, [
-        ctx.workspaceId,
-        ...params,
-    ]);
+export const shortSha = (sha: string) => sha.slice(0, 12);
+
+export type PromotionQuery = { id?: string; state?: PromotionState; edge?: { source: string; target: string }; limit?: number };
+
+export async function promotionRows(ctx: UseCaseContext, query: PromotionQuery = {}): Promise<PromotionRow[]> {
+    const params: unknown[] = [ctx.workspaceId];
+    const conditions: string[] = [];
+    const where = (column: string, value: string) => {
+        params.push(value);
+        conditions.push(`AND ${column} = $${params.length}`);
+    };
+    if (query.id) {
+        where('p.id', query.id);
+    }
+    if (query.state) {
+        where('p.state', query.state);
+    }
+    if (query.edge) {
+        where('p.source', query.edge.source);
+        where('p.target', query.edge.target);
+    }
+    const limit = query.limit ? ` LIMIT ${query.limit}` : '';
+    return ctx.db.query<PromotionRow>(`${SELECT_PROMOTIONS} ${conditions.join(' ')} ORDER BY p.opened_at DESC${limit}`, params);
 }
 
 export type PromotionLinks = { topology: Topology; repository: string; provider: Provider | null };
@@ -74,18 +92,15 @@ export function toPromotion(row: PromotionRow, links: PromotionLinks): Promotion
 
 export async function listPromotions(ctx: UseCaseContext, topology: Topology, repository: string): Promise<Promotion[]> {
     const links = { topology, repository, provider: await providerOf(repository) };
-    return (await promotionRows(ctx)).map(row => toPromotion(row, links));
+    return (await promotionRows(ctx, { limit: RECENT_PROMOTIONS })).map(row => toPromotion(row, links));
 }
 
 /** every broken row, whatever its age: each blocks its edge until it is merged */
 export async function brokenPromotions(ctx: UseCaseContext, links: PromotionLinks): Promise<Promotion[]> {
-    const rows = await ctx.db.query<PromotionRow>(`${SELECT_PROMOTIONS} AND p.state = 'broken' ORDER BY p.opened_at DESC`, [
-        ctx.workspaceId,
-    ]);
-    return rows.map(row => toPromotion(row, links));
+    return (await promotionRows(ctx, { state: 'broken' })).map(row => toPromotion(row, links));
 }
 
-async function stateOf(
+async function stateInGit(
     remote: GitRemote,
     row: PromotionRow,
     targetTip: string | undefined,
@@ -106,13 +121,12 @@ async function stateOf(
     return 'open';
 }
 
-/** merging the sha into the target would change nothing: the target holds its content, though not the commit */
 async function hasContentOf(remote: GitRemote, targetTip: string, sha: string): Promise<boolean> {
     const merged = await remote.mergeTree(targetTip, sha);
     return merged.tree === (await remote.run(['rev-parse', `${targetTip}^{tree}`])).trim();
 }
 
-/** the open and broken rows of the edges still in the topology, worked out again from the heads just fetched; merged and closed are final, broken ends only as merged */
+/** merged and closed are final; broken ends only as merged */
 export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, heads: Map<string, string>): Promise<void> {
     const rows = await ctx.db.query<PromotionRow>(
         `SELECT id, source, target, sha, branch, state, NULL AS opened_by_name, opened_at FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
@@ -129,7 +143,7 @@ export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, h
         if (!edge) {
             continue;
         }
-        const state = await stateOf(remote, row, heads.get(edge.target.branch), heads);
+        const state = await stateInGit(remote, row, heads.get(edge.target.branch), heads);
         if (state !== row.state) {
             await ctx.db.query(`UPDATE promotions SET state = $2, state_at = now() WHERE id = $1 AND state = $3`, [
                 row.id,

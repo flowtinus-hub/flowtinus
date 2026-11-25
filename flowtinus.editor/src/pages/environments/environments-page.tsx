@@ -3,6 +3,7 @@ import { ArrowRight, GitBranch, Layers, TriangleAlert } from 'lucide-react';
 import { workspaceSettingsPath } from '@/app/paths';
 import { ResourceView } from '@/components/resource-view';
 import { useResource } from '@/data/use-resource';
+import { shortSha } from '@/data/deployments/deployment';
 import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { getEnvironments, getGitStatus, GIT_STATUS_CHANGED, type EnvironmentCard, type EnvironmentEdge, type Environments, type FlowCell, type FlowRow, type GitStatus, type PromotionState } from '@/data/git/git-api';
 import { cn } from '@/lib/utils';
@@ -14,12 +15,6 @@ type On = Extract<Environments, { on: true }>;
 
 const MODE_LABEL = { direct: 'Direct', 'pull-request': 'Pull requests', protected: 'Protected' } as const;
 
-const short = (sha: string) => sha.slice(0, 7);
-
-/**
- * With git on (/w/:ws/environments): every environment of the topology side by side, as its branch says, and this
- * server's own state: the pipeline, this server's git status, and what runs where. Read only; git and this server only.
- */
 export function EnvironmentsPage() {
     const { handle, canEdit, isAdmin } = useWorkspace();
     const environments = useResource(`environments:${handle}`, () => getEnvironments(handle), { refreshOn: GIT_STATUS_CHANGED });
@@ -100,7 +95,6 @@ function Pipeline({ value, here }: { value: On; here: GitStatus | null }) {
     );
 }
 
-/** an environment: its branch's tip; the edge into it (behind, ahead); this server's adds the deploy and a refused commit */
 function EnvironmentCardView({ card, into, here }: { card: EnvironmentCard; into: EnvironmentEdge | null; here: GitStatus | null }) {
     const status = card.here && here?.on ? here : null;
     return (
@@ -124,21 +118,25 @@ function EnvironmentCardView({ card, into, here }: { card: EnvironmentCard; into
             </div>
             <div className="text-xs">
                 <span className="text-muted-foreground">Tip </span>
-                {card.tip ? <span className="font-mono">{short(card.tip)}</span> : <span className="text-muted-foreground">no branch</span>}
+                {card.tip ? (
+                    <span className="font-mono">{shortSha(card.tip)}</span>
+                ) : (
+                    <span className="text-muted-foreground">no branch</span>
+                )}
             </div>
             {status && (
                 <div className="grid gap-1 text-xs">
                     <span>
                         <span className="text-muted-foreground">Deploy at </span>
                         {status.deploy ? (
-                            <span className="font-mono">{short(status.deploy.sha)}</span>
+                            <span className="font-mono">{shortSha(status.deploy.sha)}</span>
                         ) : (
                             <span className="text-muted-foreground">no commit yet</span>
                         )}
                     </span>
                     {status.refused && (
                         <span className="flex items-center gap-1 text-destructive">
-                            <TriangleAlert className="size-3.5" /> Refused <span className="font-mono">{short(status.refused.sha)}</span>
+                            <TriangleAlert className="size-3.5" /> Refused <span className="font-mono">{shortSha(status.refused.sha)}</span>
                         </span>
                     )}
                 </div>
@@ -255,7 +253,6 @@ function FlowLine({ flow, environments, here }: { flow: FlowRow; environments: s
 
 const STATE_TEXT: Record<PromotionState, string> = { open: 'Open', broken: 'Lineage broken', merged: 'Merged', closed: 'Closed' };
 
-/** this server's promotions and its recent reconciles, newest first */
 function Activity({ value }: { value: On }) {
     const events = [
         ...value.promotions.map(p => ({
@@ -266,7 +263,7 @@ function Activity({ value }: { value: On }) {
                     <span className="flex flex-wrap items-center gap-x-2">
                         <span>
                             Promotion {p.source} <ArrowRight className="inline size-3.5" /> {p.target} of{' '}
-                            <span className="font-mono">{short(p.sha)}</span>
+                            <span className="font-mono">{shortSha(p.sha)}</span>
                         </span>
                         <span
                             className={cn(
@@ -300,7 +297,7 @@ function Activity({ value }: { value: On }) {
             at: r.at,
             node: (
                 <span className={cn(r.outcome === 'refused' && 'text-destructive')}>
-                    {r.outcome === 'applied' ? 'Applied' : 'Refused'} <span className="font-mono">{short(r.sha)}</span>
+                    {r.outcome === 'applied' ? 'Applied' : 'Refused'} <span className="font-mono">{shortSha(r.sha)}</span>
                 </span>
             ),
         })),
