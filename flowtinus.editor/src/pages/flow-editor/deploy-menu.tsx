@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CircleCheck, CircleOff, Copy, GitMerge, GitCommitHorizontal, GitCompareArrows, History, LoaderCircle, Rocket, RotateCcw, TriangleAlert, Undo2, Upload } from 'lucide-react';
+import { CircleCheck, CircleOff, Copy, ExternalLink, GitMerge, GitCommitHorizontal, GitCompareArrows, GitPullRequestArrow, History, LoaderCircle, Rocket, RotateCcw, TriangleAlert, Undo2, Upload } from 'lucide-react';
 import { flowChanges, type ComparedNode, type FlowFile } from '@flowtinus/core';
 import { componentInfo } from '@/editor/catalog';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type EmergencyRollback, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
-import { deployFlow, deployVersion, discardDraft, emergencyRollback, endEmergencyRollback, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
+import { deployFlow, deployVersion, discardDraft, emergencyRollback, endEmergencyRollback, getDeployments, makeGitMatch, restoreDraft, undeployFlow, type RollbackFix } from '@/data/deployments/deployments-api';
 import { CHANGES_CHANGED, getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { CommitFiles } from './commit-files';
@@ -103,6 +103,7 @@ export function DeployMenu({
     // a pull-request or protected environment takes the tree's changes only from git
     const pullRequestsOnly = !!git && git.mode !== 'direct';
     const rollback = current.emergencyRollback;
+    const [fix, setFix] = useState<{ flowId: string; versionId: string; value: RollbackFix } | null>(null);
 
     useEffect(() => {
         let gone = false;
@@ -281,6 +282,24 @@ export function DeployMenu({
             onConfirm: () => act(() => endEmergencyRollback(flowId)),
         });
 
+    const matchGit = (rolledBack: EmergencyRollback) =>
+        confirm({
+            title: 'Make git match what runs?',
+            description: pullRequestsOnly
+                ? `Pushes a branch cut from ${target} with v${rolledBack.number}'s content of this flow, and opens its pull request. Once it is merged, the emergency rollback ends: ${environment} runs that content as a new version.`
+                : `Commits v${rolledBack.number}'s content of this flow to ${target}. The emergency rollback ends: ${environment} runs that content as a new version.`,
+            confirmLabel: pullRequestsOnly ? 'Push and open the pull request' : 'Commit',
+            busyLabel: pullRequestsOnly ? 'Pushing…' : 'Committing…',
+            onConfirm: () =>
+                act(async () => {
+                    const result = await makeGitMatch(flowId);
+                    if (result.ok && result.value.fix) {
+                        setFix({ flowId, versionId: rolledBack.versionId, value: result.value.fix });
+                    }
+                    return result;
+                }),
+        });
+
     const restore = (version: FlowVersion) =>
         confirm({
             title: `Restore the draft from v${version.number}?`,
@@ -410,6 +429,8 @@ export function DeployMenu({
                     rollback={rollback}
                     environment={environment}
                     busy={busy || disabled}
+                    fix={fix?.flowId === flowId && fix.versionId === rollback.versionId ? fix.value : null}
+                    onMatchGit={() => matchGit(rollback)}
                     onEnd={() => endRollback(rollback)}
                 />
             )}
@@ -436,13 +457,21 @@ export function DeployMenu({
 }
 
 /** under the canvas's tools while this server runs another version than git's */
-function EmergencyRollbackBanner(props: { rollback: EmergencyRollback; environment: string; busy: boolean; onEnd: () => void }) {
-    const { rollback, environment, busy, onEnd } = props;
+function EmergencyRollbackBanner(props: {
+    rollback: EmergencyRollback;
+    environment: string;
+    busy: boolean;
+    /** the branch the fix was pushed to, in the modes with a review */
+    fix: RollbackFix | null;
+    onMatchGit: () => void;
+    onEnd: () => void;
+}) {
+    const { rollback, environment, busy, fix, onMatchGit, onEnd } = props;
     return (
         <div className="flex basis-full justify-end">
             <div
                 role="status"
-                className="flex max-w-xl items-center gap-3 rounded-md border border-red-500/40 bg-card px-3 py-2 text-sm shadow-md"
+                className="flex max-w-2xl flex-wrap items-center gap-3 rounded-md border border-red-500/40 bg-card px-3 py-2 text-sm shadow-md"
             >
                 <TriangleAlert className="size-4 shrink-0 text-red-600 dark:text-red-400" />
                 <span className="min-w-0">
@@ -452,9 +481,33 @@ function EmergencyRollbackBanner(props: { rollback: EmergencyRollback; environme
                         {rollback.byName ?? rollback.by ?? 'Someone'} · {relativeTime(rollback.at)}
                     </span>
                 </span>
+                <Button variant="outline" size="sm" className="shrink-0" disabled={busy} onClick={onMatchGit}>
+                    <GitCommitHorizontal /> Make git match what runs
+                </Button>
                 <Button variant="outline" size="sm" className="shrink-0" disabled={busy} onClick={onEnd}>
                     <Undo2 /> End the emergency rollback
                 </Button>
+                {fix && (
+                    <span className="flex basis-full flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                        <span>
+                            <GitPullRequestArrow className="mr-1 inline size-4" />
+                            {fix.reused ? 'Already pushed: ' : 'Pushed '}
+                            <span className="font-mono">{fix.branch}</span>, into <span className="font-mono">{fix.target}</span>.
+                        </span>
+                        {fix.url && (
+                            <a
+                                href={fix.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-primary hover:underline"
+                            >
+                                {fix.mergeRequest ? `Pull request #${fix.mergeRequest.number}` : 'Open the pull request'}
+                                <ExternalLink className="size-3.5" />
+                            </a>
+                        )}
+                        {fix.notice && <span className="basis-full text-amber-700 dark:text-amber-400">{fix.notice}</span>}
+                    </span>
+                )}
             </div>
         </div>
     );
