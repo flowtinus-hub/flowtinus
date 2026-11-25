@@ -5,6 +5,7 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { success, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { protectionWarnings } from './branch-protection';
 import { readGitState, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
@@ -16,7 +17,16 @@ import { exportWorkspace, flowName, workspaceEntries, type RepoFiles } from './w
 import { readBranchWorkspace } from './workspace-import';
 import { readTopology } from './workspace-topology';
 
-export type EnvironmentCard = { env: string; label: string; branch: string; mode: Mode; tip: string | null; here: boolean };
+/** warning: where the provider's branch protection disagrees with the mode, with the adapter on */
+export type EnvironmentCard = {
+    env: string;
+    label: string;
+    branch: string;
+    mode: Mode;
+    tip: string | null;
+    here: boolean;
+    warning?: string;
+};
 
 /**
  * behind: the files promoting the source's tip would change; ahead: merging the target into its source would change the source;
@@ -173,14 +183,11 @@ async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, config: 
         tips.set(e.env, await remote.fetch(e.branch, branches));
     }
 
-    const pipeline = ordered.map(({ env, label, branch, mode }) => ({
-        env,
-        label,
-        branch,
-        mode,
-        tip: tips.get(env)!,
-        here: env === environment,
-    }));
+    const protection = await protectionWarnings(ctx, config, ordered);
+    const pipeline = ordered.map(({ env, label, branch, mode }) => {
+        const warning = protection.find(w => w.env === env)?.message;
+        return { env, label, branch, mode, tip: tips.get(env)!, here: env === environment, ...(warning ? { warning } : {}) };
+    });
     const links = { topology, repository: config.repository, provider: await providerOf(config.repository) };
     const [broken, backports] = await Promise.all([brokenPromotions(ctx, links), liveBackports(ctx, links)]);
     const edges: EnvironmentEdge[] = [];

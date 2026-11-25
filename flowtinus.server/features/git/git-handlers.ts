@@ -18,6 +18,7 @@ import { readState } from './reconcile';
 import { fetchAndReconcile } from './git-heads';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { providerAdapter } from './provider-adapter';
+import { protectionWarnings, type ProtectionWarning } from './branch-protection';
 import type { Provider } from './pull-request';
 
 /** with git on, on a provider the app has an adapter for: whether it is on, and why not */
@@ -231,15 +232,20 @@ export async function onWorkspaceRepository<T>(
     }
 }
 
-export class GetTopologyHandler implements UseCaseHandler<{ topology: TopologyView }> {
+/** protection: where the provider's branch protection disagrees with the modes, with the adapter on */
+export type TopologyResult = { topology: TopologyView; protection?: ProtectionWarning[] };
+
+export class GetTopologyHandler implements UseCaseHandler<TopologyResult> {
     constructor(private readonly options: GitOptions) {}
 
-    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ topology: TopologyView }>> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<TopologyResult>> {
         return (
             requireRole(ctx, 'viewer') ??
-            onWorkspaceRepository(ctx, this.options, async (remote, config) =>
-                success({ topology: await readTopology(remote, config.environment) }),
-            )
+            onWorkspaceRepository(ctx, this.options, async (remote, config) => {
+                const topology = await readTopology(remote, config.environment);
+                const protection = topology.exists ? await protectionWarnings(ctx, config, topology.environments) : [];
+                return success({ topology, ...(protection.length ? { protection } : {}) });
+            })
         );
     }
 }

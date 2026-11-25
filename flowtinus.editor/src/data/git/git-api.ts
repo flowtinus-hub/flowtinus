@@ -68,7 +68,16 @@ export const PROVIDERS: Record<Provider, string> = { gitlab: 'GitLab', github: '
 
 export const promotionSha = (sha: string) => sha.slice(0, 12);
 
-export type EnvironmentCard = { env: string; label: string; branch: string; mode: Mode; tip: string | null; here: boolean };
+/** warning: where the provider's branch protection disagrees with the mode, with the adapter on */
+export type EnvironmentCard = {
+    env: string;
+    label: string;
+    branch: string;
+    mode: Mode;
+    tip: string | null;
+    here: boolean;
+    warning?: string;
+};
 
 export type EnvironmentEdge = {
     source: string;
@@ -420,7 +429,10 @@ export const resolveConflict = (ws: string, path: string, revision: number, reso
 
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
 
-export const getTopology = (ws: string) => api<{ topology: Topology }>(`/w/${ws}/git/topology`);
+export type ProtectionWarning = { env: string; branch: string; message: string };
+
+/** protection: where the provider's branch protection disagrees with the modes, with the adapter on */
+export const getTopology = (ws: string) => api<{ topology: Topology; protection?: ProtectionWarning[] }>(`/w/${ws}/git/topology`);
 
 export const createTopology = (ws: string, environment: { label?: string; branch?: string }) =>
     api<{ topology: Topology }>(`/w/${ws}/git/topology`, { method: 'POST', body: { confirm: true, ...environment } });
