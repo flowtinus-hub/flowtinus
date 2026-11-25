@@ -5,9 +5,10 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { success, type UseCaseResult } from '#shared/use-cases/use-case-result';
-import { readGitState, type GitOptions } from './git-config';
+import { readGitState, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
+import { listPromotions, type Promotion } from './promotion-state';
 import type { EnvironmentDecl, Mode } from './topology';
 import { exportWorkspace, type RepoFiles } from './workspace-export';
 import { readBranchWorkspace } from './workspace-import';
@@ -35,7 +36,21 @@ export type EnvironmentsView =
           pipeline: EnvironmentCard[];
           edges: EnvironmentEdge[];
           runsWhere: RunsWhere;
+          promotions: Promotion[];
+          reconciles: ReconcileEntry[];
       };
+
+export type ReconcileEntry = { sha: string; outcome: 'applied' | 'refused'; at: string };
+
+const RECENT_RECONCILES = 20;
+
+async function recentReconciles(ctx: UseCaseContext): Promise<ReconcileEntry[]> {
+    const rows = await ctx.db.query<{ sha: string; outcome: ReconcileEntry['outcome']; at: Date }>(
+        'SELECT sha, outcome, at FROM git_reconciles WHERE workspace_id = $1 ORDER BY at DESC LIMIT $2',
+        [ctx.workspaceId, RECENT_RECONCILES],
+    );
+    return rows.map(r => ({ sha: r.sha, outcome: r.outcome, at: new Date(r.at).toISOString() }));
+}
 
 /** the roots first, each followed by what it promotes to, depth first in the order the topology declares them */
 function pipelineOrder(environments: EnvironmentDecl[]): EnvironmentDecl[] {
@@ -73,9 +88,9 @@ async function edgeOf(remote: GitRemote, source: string, target: string, tips: M
     };
 }
 
-type FlowState = { name: string; deployed: boolean; hash: string };
+export type FlowState = { name: string; deployed: boolean; hash: string };
 
-function flowsIn(files: RepoFiles, handle: string): Map<string, FlowState> {
+export function flowsIn(files: RepoFiles, handle: string): Map<string, FlowState> {
     const flows = new Map<string, FlowState>();
     for (const [path, text] of Object.entries(files)) {
         const entry = repoEntry(path);
@@ -121,12 +136,18 @@ async function runsWhere(ctx: UseCaseContext, remote: GitRemote, pipeline: Envir
     return { environments: pipeline.map(c => c.env), flows: flows.sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
-async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, environment: string): Promise<EnvironmentsView> {
+async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<EnvironmentsView> {
+    const environment = config.environment;
     const branches = await remote.branches();
     const topology = await readTopology(remote, environment, branches);
+    const activity = async (environments: EnvironmentDecl[]) => ({
+        promotions: await listPromotions(ctx, { environments }, config.repository),
+        reconciles: await recentReconciles(ctx),
+    });
     if (!topology.exists) {
         const none = { environments: [], flows: [] };
-        return { on: true, environment, problems: ['The repository has no topology.'], pipeline: [], edges: [], runsWhere: none };
+        const problems = ['The repository has no topology.'];
+        return { on: true, environment, problems, pipeline: [], edges: [], runsWhere: none, ...(await activity([])) };
     }
 
     const ordered = pipelineOrder(topology.environments);
@@ -150,7 +171,15 @@ async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, environm
         }
     }
 
-    return { on: true, environment, problems: topology.problems, pipeline, edges, runsWhere: await runsWhere(ctx, remote, pipeline) };
+    return {
+        on: true,
+        environment,
+        problems: topology.problems,
+        pipeline,
+        edges,
+        runsWhere: await runsWhere(ctx, remote, pipeline),
+        ...(await activity(topology.environments)),
+    };
 }
 
 export class GetEnvironmentsHandler implements UseCaseHandler<EnvironmentsView> {
@@ -165,8 +194,6 @@ export class GetEnvironmentsHandler implements UseCaseHandler<EnvironmentsView> 
             return success({ on: false });
         }
 
-        return onWorkspaceRepository(ctx, this.options, async (remote, config) =>
-            success(await readEnvironments(ctx, remote, config.environment)),
-        );
+        return onWorkspaceRepository(ctx, this.options, async (remote, config) => success(await readEnvironments(ctx, remote, config)));
     }
 }
