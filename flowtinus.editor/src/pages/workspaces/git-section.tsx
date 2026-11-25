@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useLocation } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { CircleCheck, CircleX, Copy, GitBranch, Power, RefreshCw, TriangleAlert } from 'lucide-react';
 import { relativeTime } from '@/lib/relative-time';
 import { ArrivedDisabledPanel } from './arrived-disabled-panel';
-import { GitStatusPanel } from './git-status-panel';
+import { environmentsPath } from '@/app/paths';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,13 +11,12 @@ import { Label } from '@/components/ui/label';
 import { useResource } from '@/data/use-resource';
 import { listSecrets } from '@/data/secrets/secrets-api';
 import type { ApiResult } from '@/lib/api';
-import { CONFIG_BRANCH, createTopology, getGitConfig, getGitStatus, GIT_STATUS_CHANGED, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TriggerChange, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
+import { CONFIG_BRANCH, createTopology, getGitConfig, GIT_STATUS_CHANGED, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TriggerChange, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
 export function GitSection({ handle, readOnly }: { handle: string; readOnly: boolean }) {
     const saved = useResource(`git:${handle}`, () => getGitConfig(handle));
-    const status = useResource(`git-status:${handle}`, () => getGitStatus(handle));
     // the sidebar's link: the section loads after the page, so the browser's own jump to #git finds nothing yet
     const { hash } = useLocation();
     const section = useRef<HTMLElement>(null);
@@ -66,17 +65,14 @@ export function GitSection({ handle, readOnly }: { handle: string; readOnly: boo
                             run={saved.run}
                         />
                     )}
-                    {saved.state.value.on && status.state.status === 'ready' && (
-                        <GitStatusPanel
-                            handle={handle}
-                            status={status.state.value}
-                            readOnly={readOnly}
-                            onChanged={async () => {
-                                // read again in place: a reload would show "Loading" and drop the panel's outcome
-                                const fresh = Promise.resolve({ ok: true as const, value: null });
-                                await Promise.all([status.run(fresh), saved.run(fresh)]);
-                            }}
-                        />
+                    {saved.state.value.on && (
+                        <p className="text-sm text-muted-foreground">
+                            The commit the deploy is on, a refused one and Reconcile now are on the{' '}
+                            <Link className="underline" to={environmentsPath(handle)}>
+                                Environments
+                            </Link>{' '}
+                            page.
+                        </p>
                     )}
                     {saved.state.value.on && <ArrivedDisabledPanel handle={handle} />}
                     {saved.state.value.on && (

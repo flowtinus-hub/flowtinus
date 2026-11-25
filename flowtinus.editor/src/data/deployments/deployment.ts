@@ -23,7 +23,7 @@ export type FlowVersion = {
     commitMessage?: string;
 };
 
-export type DeploymentAction = 'deploy' | 'promote' | 'rollback' | 'undeploy';
+export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy';
 
 /** one change of what is deployed */
 export type DeploymentEvent = {
@@ -103,8 +103,6 @@ export function eventText(event: DeploymentEvent): string {
             return `Undeployed v${event.fromNumber}`;
         case 'rollback':
             return `Rolled back to v${event.toNumber}${was}`;
-        case 'promote':
-            return `Promoted v${event.toNumber}${was}`;
         default:
             return `Deployed v${event.toNumber}${was}`;
     }
