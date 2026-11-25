@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createHotfix } from '@/data/git/git-api';
+import { branchNamePart, createHotfix } from '@/data/git/git-api';
 import type { ApiError } from '@/lib/api';
 import { landAfterSwitch } from './branch-landing';
 
@@ -12,11 +12,12 @@ export function CreateHotfixDialog({ handle, environment, onClose }: { handle: s
     const [name, setName] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
+    const branchName = branchNamePart(name);
 
     const create = async () => {
         setBusy(true);
         setError(null);
-        const result = await createHotfix(handle, name.trim());
+        const result = await createHotfix(handle, branchName);
         if (!result.ok) {
             setBusy(false);
             setError(result.error);
@@ -62,12 +63,17 @@ export function CreateHotfixDialog({ handle, environment, onClose }: { handle: s
                             onChange={event => setName(event.target.value)}
                         />
                     </div>
+                    {branchName !== '' && branchName !== name.trim() && (
+                        <p className="text-xs text-muted-foreground">
+                            The branch will be <span className="font-mono">hotfix/{branchName}</span>.
+                        </p>
+                    )}
                     {(fieldError ?? error?.message) && <p className="text-xs text-destructive">{fieldError ?? error?.message}</p>}
                     <DialogFooter>
                         <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
                             Cancel
                         </Button>
-                        <Button type="submit" disabled={busy || name.trim() === ''}>
+                        <Button type="submit" disabled={busy || branchName === ''}>
                             {busy && <LoaderCircle className="animate-spin" />}
                             Create hotfix
                         </Button>
