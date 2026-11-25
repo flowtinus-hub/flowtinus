@@ -163,6 +163,14 @@ export async function followRunChanges(
     }
 }
 
+/** a version the run ran (its own, or of a flow it called) that an emergency rollback left and that does not run now */
+export type LeftVersion = { flowId: string; name: string; version: number };
+
+/** What to ask before a re-run */
+export function rerunCheck(id: string): Promise<ApiResult<{ leftByEmergencyRollback: LeftVersion[] }>> {
+    return api<{ leftByEmergencyRollback: LeftVersion[] }>(`/runs/${id}/rerun`);
+}
+
 /** Re-run: a failed run queued again (the same snapshot) as a new run; its id */
 export function rerunRun(id: string): Promise<ApiResult<{ id: string }>> {
     return api<{ id: string }>(`/runs/${id}/rerun`, { method: 'POST' });
