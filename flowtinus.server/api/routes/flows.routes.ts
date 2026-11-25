@@ -14,6 +14,8 @@ import { GetPinsHandler, SetPinHandler, UnpinHandler } from '#features/pins/pin-
 import { SetFlowWorkerTagHandler } from '#features/flows/set-flow-worker-tag/set-flow-worker-tag-handler';
 import { DeployFlowHandler } from '#features/deployments/deploy-flow/deploy-flow-handler';
 import { DeployVersionHandler } from '#features/deployments/deploy-version/deploy-version-handler';
+import { EmergencyRollbackChecksHandler, EmergencyRollbackHandler, EndEmergencyRollbackHandler } from '#features/deployments/emergency-rollback/emergency-rollback-handlers';
+import { MakeGitMatchHandler } from '#features/deployments/emergency-rollback/make-git-match-handler';
 import { GetDeploymentsHandler } from '#features/deployments/get-deployments/get-deployments-handler';
 import { RestoreDraftHandler } from '#features/deployments/restore-draft/restore-draft-handler';
 import { UndeployFlowHandler } from '#features/deployments/undeploy-flow/undeploy-flow-handler';
@@ -28,7 +30,7 @@ import { SwitchScheduleHandler } from '#features/schedules/switch-schedule/switc
 import { OverrideScheduleHandler } from '#features/schedules/override-schedule/override-schedule-handler';
 import { CreateWebhookHandler, DeleteWebhookHandler, ListWebhooksHandler, NewWebhookTokenHandler, SwitchWebhookHandler, UpdateWebhookHandler } from '#features/webhooks/manage-webhooks/manage-webhooks-handlers';
 import { GetFlowTriggersHandler, RemoveFileTriggerHandler, SaveFileTriggerHandler } from '#features/flows/flow-triggers/flow-triggers-handlers';
-import { RerunRunHandler } from '#features/runs/rerun-run/rerun-run-handler';
+import { RerunCheckHandler, RerunRunHandler } from '#features/runs/rerun-run/rerun-run-handler';
 import { StartRunHandler } from '#features/runs/start-run/start-run-handler';
 import type { RunProgress, RunRecord } from '@flowtinus/core';
 import { workspaceRunEvents, runEvents, type RunEvent } from '#features/runs/run-events';
@@ -117,6 +119,30 @@ export function flowsRoutes() {
                 c,
                 await new DeployVersionHandler().handle({ id: c.req.param('id'), versionId: c.req.param('versionId') }, c.get('useCase')),
             ),
+        )
+        .get('/:id/versions/:versionId/emergency-rollback', async c =>
+            toHttpResult(
+                c,
+                await new EmergencyRollbackChecksHandler().handle(
+                    { id: c.req.param('id'), versionId: c.req.param('versionId') },
+                    c.get('useCase'),
+                ),
+            ),
+        )
+        .post('/:id/versions/:versionId/emergency-rollback', async c =>
+            toHttpResult(
+                c,
+                await new EmergencyRollbackHandler().handle(
+                    { id: c.req.param('id'), versionId: c.req.param('versionId') },
+                    c.get('useCase'),
+                ),
+            ),
+        )
+        .delete('/:id/emergency-rollback', async c =>
+            toHttpResult(c, await new EndEmergencyRollbackHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
+        )
+        .post('/:id/emergency-rollback/match-git', async c =>
+            toHttpResult(c, await new MakeGitMatchHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
         .post('/:id/undeploy', async c =>
             toHttpResult(c, await new UndeployFlowHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
@@ -250,6 +276,9 @@ export function runsRoutes() {
                 const result = await new GetRunHandler().handle({ id: c.req.param('id') }, c.get('useCase'));
                 return toHttpResult(c, result);
             })
+            .get('/:id/rerun', async c =>
+                toHttpResult(c, await new RerunCheckHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
+            )
             .post('/:id/rerun', async c =>
                 toHttpResult(c, await new RerunRunHandler().handle({ id: c.req.param('id') }, c.get('useCase')), 202),
             )

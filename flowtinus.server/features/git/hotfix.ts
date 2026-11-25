@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
-import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { fail, success, type UseCaseError, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { onClone } from './branch-read';
 import { noteHead } from './branch-write';
@@ -11,6 +11,20 @@ import { gitBranch } from './git-config';
 import { hasWorkingCopy } from './working-copy';
 
 export type CreatedHotfix = { branch: string };
+
+export const existingBranch = (branches: Map<string, string>, name: string) =>
+    [...branches.keys()].find(b => b.toLowerCase() === name.toLowerCase());
+
+export async function newHotfixRefusal(ctx: UseCaseContext, name: string, remedy: string): Promise<UseCaseError | null> {
+    const invalid = gitBranchNameError(name);
+    if (invalid) {
+        return { code: 'validation', message: 'The request has invalid fields.', fields: { name: invalid } };
+    }
+    if (await hasWorkingCopy(ctx.db, ctx.workspaceId, name)) {
+        return { code: 'conflict', message: `This server still has changes on a branch ${name}: ${remedy}.` };
+    }
+    return null;
+}
 
 const CreateHotfixCommand = z.object({ name: z.string().trim().min(1, 'Required') });
 
@@ -32,18 +46,15 @@ export class CreateHotfixHandler implements UseCaseHandler<CreatedHotfix> {
             return fail('conflict', "Only a protected environment's server creates hotfixes: create a branch instead.");
         }
         const name = `${HOTFIX_PREFIX}${parsed.value.name}`;
-        const invalid = gitBranchNameError(name);
-        if (invalid) {
-            return fail('validation', 'The request has invalid fields.', { name: invalid });
-        }
-        if (await hasWorkingCopy(ctx.db, ctx.workspaceId, name)) {
-            return fail('conflict', `This server still has changes on a branch ${name}: pick another name.`);
+        const refused = await newHotfixRefusal(ctx, name, 'pick another name');
+        if (refused) {
+            return { ok: false, error: refused };
         }
 
         const environment = git.branch;
         return onClone(ctx, 'Git could not be reached, no hotfix was created', async remote => {
             const branches = await remote.branches();
-            if ([...branches.keys()].some(b => b.toLowerCase() === name.toLowerCase())) {
+            if (existingBranch(branches, name)) {
                 return fail('conflict', `The branch ${name} already exists.`, { name: 'Already exists' });
             }
             const tip = await remote.fetch(environment, branches);

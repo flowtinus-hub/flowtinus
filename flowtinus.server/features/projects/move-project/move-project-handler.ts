@@ -8,7 +8,7 @@ import { workingScripts, writeScript } from '#features/scripts/script-store';
 import { changeTree } from '#features/git/git-first';
 import { workBranch } from '#features/git/branch-read';
 import { gitBranch } from '#features/git/git-config';
-import { undeployArchived } from '#features/deployments/deployments';
+import { emergencyRollbacks, undeployArchived } from '#features/deployments/deployments';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { flows as flowsTable } from '#features/flows/flow';
 import { projects } from '#features/projects/project';
@@ -69,6 +69,25 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
             .where(and(eq(projects.id, id), eq(projects.workspaceId, ctx.workspaceId), isNull(projects.deletedAt)));
         if (!project) {
             return fail('not-found', 'Project not found.');
+        }
+
+        // the move carries the deployment tables by a fixed list: the rollback's row would be left behind
+        const projectFlows = await new FlowRepository(ctx.db, ctx.workspaceId).findAll(eq(flowsTable.projectId, id));
+        const rolledBack = new Set(
+            (
+                await emergencyRollbacks(
+                    ctx.db,
+                    ctx.workspaceId,
+                    projectFlows.map(f => f.id),
+                )
+            ).map(r => r.flowId),
+        );
+        const [first] = projectFlows
+            .filter(f => rolledBack.has(f.id))
+            .map(f => f.name)
+            .sort();
+        if (first) {
+            return fail('conflict', `End the emergency rollback of ${first} first.`);
         }
 
         const [target] = await ctx.db.orm

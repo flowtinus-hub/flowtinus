@@ -14,6 +14,8 @@ import { mergeRequestDescription, openMergeRequest, pullRequestUrl, workBranchRe
 import { pendingMerge, pendingMergeRefusal } from './pending-merge';
 import { fileChanges, flowImpact } from './promotions';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
+import { endsRollbackMessage } from '#features/deployments/emergency-rollback/emergency-rollback-content';
+import { flowsAfterMerge, rollbacksEndedByAccident } from './emergency-rollback-warnings';
 
 export type Provider = 'gitlab' | 'github';
 
@@ -25,6 +27,7 @@ export type PullRequestView = {
     borrowed: { branch: string; commits: number }[];
     provider: Provider | null;
     url: string | null;
+    endsEmergencyRollback?: string;
 } & OpenedMergeRequest;
 
 const KNOWN_HOSTS: Record<string, Provider> = { 'github.com': 'github', 'www.github.com': 'github', 'gitlab.com': 'gitlab' };
@@ -181,21 +184,23 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
                 }
             }
 
-            if (!adapter) {
-                return success({ pushed, commits, borrowed, description: '' });
-            }
             const merged = await remote.mergeTree(targetTip, tip);
             const [before, after] = await Promise.all([
                 readBranchWorkspace(remote, targetTip, handle),
                 readBranchWorkspace(remote, merged.tree, handle),
             ]);
+            const ended = await rollbacksEndedByAccident(ctx.db, ctx.workspaceId, flowsAfterMerge(before, after, handle));
+            const ends = ended.length > 0 ? { endsEmergencyRollback: endsRollbackMessage(ended, config.environment) } : {};
+            if (!adapter) {
+                return success({ pushed, commits, borrowed, ...ends, description: '' });
+            }
             const description = await mergeRequestDescription(ctx, {
                 notes: borrowed.map(b => `Also brings ${b.commits} commit(s) of ${b.branch}, not merged into ${target} yet.`),
                 files: await fileChanges(remote, targetTip, merged.tree),
                 flows: flowImpact(before, after, handle),
-                warnings,
+                warnings: [...warnings, ...(ends.endsEmergencyRollback ? [{ message: ends.endsEmergencyRollback }] : [])],
             });
-            return success({ pushed, commits, borrowed, description });
+            return success({ pushed, commits, borrowed, ...ends, description });
         });
         if (!checked.ok) {
             return checked;

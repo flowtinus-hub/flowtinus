@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
-import { ArrowRight, GitBranch, Layers, TriangleAlert } from 'lucide-react';
+import { ArrowRight, GitBranch, Layers, TriangleAlert, Undo2 } from 'lucide-react';
 import { workspaceSettingsPath } from '@/app/paths';
+import { EmergencyRollbackBadge } from '@/components/emergency-rollback-badge';
 import { ResourceView } from '@/components/resource-view';
 import { useResource } from '@/data/use-resource';
 import { shortSha } from '@/data/deployments/deployment';
@@ -120,6 +121,12 @@ function EnvironmentCardView({ card, into, here }: { card: EnvironmentCard; into
                 <p className="flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
                     <TriangleAlert className="mt-px size-3.5 shrink-0" />
                     {card.warning}
+                </p>
+            )}
+            {!!card.emergencyRollbacks && (
+                <p className="flex items-center gap-1 text-xs text-red-700 dark:text-red-400">
+                    <Undo2 className="size-3.5 shrink-0" />
+                    {card.emergencyRollbacks === 1 ? '1 flow' : `${card.emergencyRollbacks} flows`} in an emergency rollback
                 </p>
             )}
             <div className="text-xs">
@@ -251,7 +258,13 @@ function FlowLine({ flow, environments, here }: { flow: FlowRow; environments: s
                         )}
                         title={cell?.differs ? `Differs from ${here}` : undefined}
                     >
-                        {cell ? CELL_TEXT(cell) : 'No branch'}
+                        {cell?.emergencyRollback ? (
+                            <EmergencyRollbackBadge {...cell.emergencyRollback} />
+                        ) : cell ? (
+                            CELL_TEXT(cell)
+                        ) : (
+                            'No branch'
+                        )}
                     </td>
                 );
             })}

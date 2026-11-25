@@ -9,8 +9,32 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { CHANNELS, findRun, notifyRunEvent } from '../run-queue';
+import { emergencyRollbackRefusal, ranVersions } from './rollback-versions';
 
 export const RerunRunCommand = z.object({ id: z.uuid('Invalid') });
+
+export type RerunCheck = { leftByEmergencyRollback: { flowId: string; name: string; version: number }[] };
+
+export class RerunCheckHandler implements UseCaseHandler<RerunCheck> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<RerunCheck>> {
+        const parsed = validate(RerunRunCommand, input);
+        if (!parsed.ok) {
+            return parsed;
+        }
+
+        const run = await findRun(ctx.db, parsed.value.id, ctx.workspaceId);
+        if (!run || run.table !== 'runs') {
+            return fail('not-found', 'Run not found.');
+        }
+
+        const ran = await ranVersions(ctx.db, ctx.workspaceId, run);
+        return success({
+            leftByEmergencyRollback: ran
+                .filter(r => r.leftByEmergencyRollback && !r.deployed)
+                .map(r => ({ flowId: r.flowId, name: r.name, version: r.number })),
+        });
+    }
+}
 
 /**
  * Re-run: queues a failed run (Runs page) again, the same thing: its snapshot as it was (the flow or deployed version,
@@ -48,6 +72,11 @@ export class RerunRunHandler implements UseCaseHandler<{ id: string }> {
             );
         if (!active) {
             return fail('validation', 'Its flow was archived or removed: it does not run anymore.');
+        }
+
+        const refusal = emergencyRollbackRefusal(await ranVersions(ctx.db, ctx.workspaceId, run));
+        if (refusal) {
+            return fail('conflict', refusal);
         }
 
         if (!(await hasLiveSupervisor(ctx.db, run.workerTag))) {

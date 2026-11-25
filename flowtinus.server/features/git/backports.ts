@@ -22,6 +22,7 @@ import { fileChanges, flowImpact, type FlowImpact } from './promotions';
 import { providerOf, type Provider } from './pull-request';
 import { hasWorkingCopy } from './working-copy';
 import { readBranchWorkspace } from './workspace-import';
+import { endsRollbackWarning, flowsAfterMerge } from './emergency-rollback-warnings';
 
 export type BackportBlock =
     { kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid'; message: string; issues?: TreeIssue[] } | MergeSettingsBlock;
@@ -71,7 +72,10 @@ async function runBackportPreflight(ctx: UseCaseContext, remote: GitRemote, edge
         blocks.push(invalid);
     }
 
-    const warnings = arrivalWarnings(handle, before, after, edge.source.env);
+    const warnings = [
+        ...arrivalWarnings(handle, before, after, edge.source.env),
+        ...(await endsRollbackWarning(ctx.db, ctx.workspaceId, flowsAfterMerge(before, after, handle), edge.source.env)),
+    ];
     const flows = flowImpact(before, after, handle);
     return { sha, branch, conflicts: merged.conflicts, blocks, warnings, tree: merged.tree, flows };
 }

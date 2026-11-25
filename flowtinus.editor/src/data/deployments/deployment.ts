@@ -21,9 +21,12 @@ export type FlowVersion = {
     /** with git: the commit it came from, and its message */
     commit?: string | null;
     commitMessage?: string;
+    endsEmergencyRollback?: string;
+    /** with git on: what choosing it in an emergency rollback does (git's content ends the rollback); absent, not offered */
+    emergencyRollbackOffer?: 'roll-back' | 'end';
 };
 
-export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy';
+export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy' | 'emergency-rollback' | 'end-emergency-rollback';
 
 /** one change of what is deployed */
 export type DeploymentEvent = {
@@ -57,6 +60,18 @@ export type FlowDeployments = {
     /** with git on: the changed scripts the draft imports (directly or through another script), offered to its Commit */
     changedScripts?: string[];
     triggersChanged?: true;
+    /** with git on: this server runs an older version than git's, until a commit changes the flow's content or it is ended */
+    emergencyRollback?: EmergencyRollback;
+};
+
+export type EmergencyRollback = {
+    versionId: string;
+    number: number;
+    gitVersionId: string;
+    gitNumber: number;
+    by: string | null;
+    byName?: string;
+    at: Date;
 };
 
 /** a commit as the editor shows it */
@@ -74,15 +89,19 @@ export const deployedVersion = (deployments: FlowDeployments): FlowVersion | und
 /** the same flow for a deploy (core's deployContent): moving components, groups or pins is not a change */
 export const sameFlow = (a: FlowFile, b: FlowFile) => deployContent(a) === deployContent(b);
 
-/** the draft against what is deployed: only what the flow does counts (see sameFlow) */
+/** the draft against what is deployed (git's version during an emergency rollback): only what the flow does counts (see sameFlow) */
 export function deployState(deployments: FlowDeployments, draft: FlowFile | null): DeployState {
     const version = deployedVersion(deployments);
     if (!version) {
         return { kind: 'not-deployed', lastNumber: deployments.versions[0]?.number ?? null };
     }
 
-    return { kind: 'deployed', version, changed: draft !== null && !sameFlow(draft, version.definition) };
+    const base = gitVersion(deployments) ?? version;
+    return { kind: 'deployed', version, changed: draft !== null && !sameFlow(draft, base.definition) };
 }
+
+export const gitVersion = (deployments: FlowDeployments): FlowVersion | undefined =>
+    deployments.versions.find(v => v.id === (deployments.emergencyRollback?.gitVersionId ?? deployments.deployed?.versionId));
 
 export function nextNumber(deployments: FlowDeployments, draft: FlowFile | null): number {
     const newest = deployments.versions[0];
@@ -103,6 +122,15 @@ export function eventText(event: DeploymentEvent): string {
             return `Undeployed v${event.fromNumber}`;
         case 'rollback':
             return `Rolled back to v${event.toNumber}${was}`;
+        case 'emergency-rollback':
+            return `Emergency rollback to v${event.toNumber}${was}`;
+        case 'end-emergency-rollback':
+            if (event.toNumber !== null) {
+                return `Ended the emergency rollback of v${event.fromNumber}: back to git's v${event.toNumber}`;
+            }
+            return event.commit
+                ? `Emergency rollback of v${event.fromNumber} ended by commit ${shortSha(event.commit)}`
+                : `Emergency rollback of v${event.fromNumber} ended: git turned off`;
         default:
             return `Deployed v${event.toNumber}${was}`;
     }

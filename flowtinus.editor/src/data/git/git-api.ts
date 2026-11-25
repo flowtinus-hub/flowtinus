@@ -74,6 +74,7 @@ export type EnvironmentCard = {
     tip: string | null;
     here: boolean;
     warning?: string;
+    emergencyRollbacks?: number;
 };
 
 export type EnvironmentEdge = {
@@ -86,7 +87,12 @@ export type EnvironmentEdge = {
     backports: Promotion[];
 };
 
-export type FlowCell = { state: 'deployed' | 'undeployed' | 'absent'; content: 'same' | 'other' | null; differs: boolean };
+export type FlowCell = {
+    state: 'deployed' | 'undeployed' | 'absent';
+    content: 'same' | 'other' | null;
+    differs: boolean;
+    emergencyRollback?: { number: number; gitNumber: number };
+};
 
 export type FlowRow = { id: string; name: string; cells: Record<string, FlowCell | null> };
 
@@ -162,7 +168,8 @@ export type Preflight = {
         message: string;
         issues?: TreeIssue[];
     }[];
-    warnings: { kind: 'connections' | 'triggers' | 'drafts'; message: string; items: string[] }[];
+    /** emergency-rollback: a flow it carries runs another version here, in an emergency rollback */
+    warnings: { kind: 'connections' | 'triggers' | 'drafts' | 'emergency-rollback'; message: string; items: string[] }[];
     open: Promotion[];
 };
 
@@ -183,7 +190,7 @@ export type BackportPreflight = {
         message: string;
         issues?: TreeIssue[];
     }[];
-    warnings: { kind: 'connections' | 'triggers'; message: string; items: string[] }[];
+    warnings: { kind: 'connections' | 'triggers' | 'ends-emergency-rollback'; message: string; items: string[] }[];
     open: Promotion[];
 };
 
@@ -256,6 +263,7 @@ export type PullRequest = {
     borrowed: { branch: string; commits: number }[];
     provider: Provider | null;
     url: string | null;
+    endsEmergencyRollback?: string;
 } & OpenedMergeRequest;
 
 export const openPullRequest = (ws: string, title?: string) =>
@@ -312,6 +320,7 @@ export type WorkingChange = {
     mine: boolean;
     conflict?: string;
     requires: { path: string; reason: string }[];
+    endsEmergencyRollback?: string;
 };
 
 /** the files a commit of `chosen` has to take along (a folder's file, a script a flow imports), with why */

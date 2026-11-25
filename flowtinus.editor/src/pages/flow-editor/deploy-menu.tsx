@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CircleCheck, CircleOff, Copy, GitMerge, GitCommitHorizontal, GitCompareArrows, History, LoaderCircle, Rocket, RotateCcw, TriangleAlert, Undo2, Upload } from 'lucide-react';
+import { CircleCheck, CircleOff, Copy, ExternalLink, GitMerge, GitCommitHorizontal, GitCompareArrows, GitPullRequestArrow, History, LoaderCircle, Rocket, RotateCcw, TriangleAlert, Undo2, Upload } from 'lucide-react';
 import { flowChanges, type ComparedNode, type FlowFile } from '@flowtinus/core';
 import { componentInfo } from '@/editor/catalog';
 import type { ConfirmTarget } from '@/components/confirm-dialog';
@@ -7,8 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
-import { deployFlow, deployVersion, discardDraft, getDeployments, restoreDraft, undeployFlow } from '@/data/deployments/deployments-api';
+import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type EmergencyRollback, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
+import { deployFlow, deployVersion, discardDraft, emergencyRollback, emergencyRollbackChecks, endEmergencyRollback, getDeployments, makeGitMatch, restoreDraft, undeployFlow, type GitMatchBranch } from '@/data/deployments/deployments-api';
+import { EmergencyRollbackBadge } from '@/components/emergency-rollback-badge';
+import { Link } from 'react-router';
+import { RUNS_PATH } from '@/app/paths';
 import { CHANGES_CHANGED, getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { CommitFiles } from './commit-files';
@@ -22,9 +25,13 @@ import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
 
 /** the chip on the Deploy button */
-export function DeployBadge({ state }: { state: DeployState }) {
+export function DeployBadge({ state, emergencyRollback }: { state: DeployState; emergencyRollback?: EmergencyRollback }) {
     if (state.kind === 'not-deployed') {
         return <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Not deployed</span>;
+    }
+
+    if (emergencyRollback) {
+        return <EmergencyRollbackBadge {...emergencyRollback} small />;
     }
 
     return (
@@ -91,6 +98,8 @@ export function DeployMenu({
     const target = git ? (git.branch ?? 'git') : environment;
     // a pull-request or protected environment takes the tree's changes only from git
     const pullRequestsOnly = !!git && git.mode !== 'direct';
+    const rollback = current.emergencyRollback;
+    const [pushed, setPushed] = useState<{ flowId: string; versionId: string; value: GitMatchBranch } | null>(null);
 
     useEffect(() => {
         let gone = false;
@@ -231,7 +240,16 @@ export function DeployMenu({
         if (git) {
             confirm({
                 title: version.number < newest ? `Commit a revert to v${version.number}?` : `Commit v${version.number} to ${target}?`,
-                description: `A commit to ${target} of v${version.number}'s content, deployed as a new version.${deployed ? ` Replaces v${deployed.number}.` : ''}`,
+                description: (
+                    <>
+                        {`A commit to ${target} of v${version.number}'s content, deployed as a new version.${deployed ? ` Replaces v${deployed.number}.` : ''}`}
+                        {version.endsEmergencyRollback && (
+                            <span className="mt-2 flex gap-1.5 text-amber-700 dark:text-amber-400">
+                                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" /> {version.endsEmergencyRollback}
+                            </span>
+                        )}
+                    </>
+                ),
                 confirmLabel: 'Commit',
                 busyLabel: 'Committing…',
                 onConfirm: () => act(() => deployVersion(flowId, version.id)),
@@ -248,6 +266,86 @@ export function DeployMenu({
             onConfirm: () => act(() => deployVersion(flowId, version.id)),
         });
     };
+
+    const runsOf = (status: 'running' | 'queued') => `${RUNS_PATH}?${new URLSearchParams({ workspace, status, flow: flowId })}`;
+
+    const rollBackTo = async (version: FlowVersion) => {
+        setBusy(true);
+        const checks = await emergencyRollbackChecks(flowId, version.id);
+        setBusy(false);
+        // checks that could not be read: the rollback itself checks again and says why it is refused
+        const { errors, warnings } = checks.ok ? checks.value : { errors: [], warnings: [] };
+        confirm({
+            title: `Emergency rollback to v${version.number}?`,
+            description: (
+                <>
+                    {environment} runs v{version.number} instead of git's v{rollback?.gitNumber ?? deployed?.number}, without a commit,
+                    until a commit changes this flow's content or the rollback is ended. Only the nodes and edges go back: the scripts stay
+                    the last applied commit's, and the triggers are not part of the content. Runs in progress and queued keep their version,
+                    as do the flows they call: stop them by hand if needed (
+                    <Link className="underline" to={runsOf('running')}>
+                        running
+                    </Link>
+                    ,{' '}
+                    <Link className="underline" to={runsOf('queued')}>
+                        queued
+                    </Link>
+                    ).
+                </>
+            ),
+            ...(errors.length || warnings.length
+                ? {
+                      warning: (
+                          <ul className="list-disc space-y-1 pl-4">
+                              {errors.map(error => (
+                                  <li key={error} className="text-destructive">
+                                      Refused: {error}
+                                  </li>
+                              ))}
+                              {warnings.map(warning => (
+                                  <li key={warning}>{warning}</li>
+                              ))}
+                          </ul>
+                      ),
+                  }
+                : {}),
+            confirmLabel: 'Roll back',
+            busyLabel: 'Rolling back…',
+            destructive: true,
+            onConfirm: () => act(() => emergencyRollback(flowId, version.id)),
+        });
+    };
+
+    const endRollback = (ended: EmergencyRollback) =>
+        confirm({
+            title: 'End the emergency rollback?',
+            description: `${environment} runs git's v${ended.gitNumber} again, instead of v${ended.number}.`,
+            confirmLabel: 'End the emergency rollback',
+            busyLabel: 'Ending…',
+            destructive: true,
+            onConfirm: () => act(() => endEmergencyRollback(flowId)),
+        });
+
+    const matchGit = (rolledBack: EmergencyRollback) =>
+        confirm({
+            title: 'Make git match what runs?',
+            description: pullRequestsOnly
+                ? `Pushes a branch cut from ${target} with v${rolledBack.number}'s content of this flow, and opens its pull request. Once it is merged, the emergency rollback ends: ${environment} runs that content as a new version.`
+                : `Commits v${rolledBack.number}'s content of this flow to ${target}. The emergency rollback ends: ${environment} runs that content as a new version.`,
+            confirmLabel: pullRequestsOnly ? 'Push and open the pull request' : 'Commit',
+            busyLabel: pullRequestsOnly ? 'Pushing…' : 'Committing…',
+            onConfirm: () =>
+                act(async () => {
+                    await flush();
+                    const result = await makeGitMatch(flowId);
+                    if (result.ok && result.value.pushed) {
+                        setPushed({ flowId, versionId: rolledBack.versionId, value: result.value.pushed });
+                    } else if (result.ok) {
+                        onDraftReplaced();
+                    }
+                    return result;
+                }),
+        });
 
     const restore = (version: FlowVersion) =>
         confirm({
@@ -300,13 +398,18 @@ export function DeployMenu({
                                 Conflict
                             </span>
                         ) : (
-                            <DeployBadge state={state} />
+                            <DeployBadge state={state} emergencyRollback={rollback} />
                         )}
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-72">
                     <DropdownMenuLabel className="font-normal text-muted-foreground">
-                        {deployed && current.deployed ? (
+                        {deployed && current.deployed && rollback ? (
+                            <>
+                                <span className="font-medium text-foreground">v{deployed.number}</span> runs on {environment} · {target} has
+                                v{rollback.gitNumber}
+                            </>
+                        ) : deployed && current.deployed ? (
                             <>
                                 <span className="font-medium text-foreground">v{deployed.number}</span> {git ? 'on' : 'in'} {target} ·{' '}
                                 <span title={formatDateTime(current.deployed.deployedAt)}>{relativeTime(current.deployed.deployedAt)}</span>
@@ -370,8 +473,20 @@ export function DeployMenu({
                 deployments={current}
                 busy={busy}
                 onSwitch={pullRequestsOnly ? undefined : switchTo}
+                onEmergencyRollback={git ? rollBackTo : undefined}
+                onEndEmergencyRollback={rollback ? () => endRollback(rollback) : undefined}
                 onRestore={restore}
             />
+            {rollback && (
+                <EmergencyRollbackBanner
+                    rollback={rollback}
+                    environment={environment}
+                    busy={busy || disabled}
+                    pushed={pushed?.flowId === flowId && pushed.versionId === rollback.versionId ? pushed.value : null}
+                    onMatchGit={() => matchGit(rollback)}
+                    onEnd={() => endRollback(rollback)}
+                />
+            )}
             {deployed && compareOpen && <CompareDialog onClose={() => setCompareOpen(false)} version={deployed} draft={draftNow()} />}
             {committing && (
                 <CommitDialog
@@ -391,6 +506,61 @@ export function DeployMenu({
                 <ConflictDialog handle={workspace} path={resolving} onClose={() => setResolving(null)} onResolved={() => void resolved()} />
             )}
         </>
+    );
+}
+
+function EmergencyRollbackBanner(props: {
+    rollback: EmergencyRollback;
+    environment: string;
+    busy: boolean;
+    pushed: GitMatchBranch | null;
+    onMatchGit: () => void;
+    onEnd: () => void;
+}) {
+    const { rollback, environment, busy, pushed, onMatchGit, onEnd } = props;
+    return (
+        <div className="flex basis-full justify-end">
+            <div
+                role="status"
+                className="flex max-w-2xl flex-wrap items-center gap-3 rounded-md border border-red-500/40 bg-card px-3 py-2 text-sm shadow-md"
+            >
+                <TriangleAlert className="size-4 shrink-0 text-red-600 dark:text-red-400" />
+                <span className="min-w-0">
+                    <span className="font-medium">Emergency rollback:</span> {environment} runs v{rollback.number}, git has v
+                    {rollback.gitNumber}.{' '}
+                    <span className="text-muted-foreground" title={formatDateTime(rollback.at)}>
+                        {rollback.byName ?? rollback.by ?? 'Someone'} · {relativeTime(rollback.at)}
+                    </span>
+                </span>
+                <Button variant="outline" size="sm" className="shrink-0" disabled={busy} onClick={onMatchGit}>
+                    <GitCommitHorizontal /> Make git match what runs
+                </Button>
+                <Button variant="outline" size="sm" className="shrink-0" disabled={busy} onClick={onEnd}>
+                    <Undo2 /> End the emergency rollback
+                </Button>
+                {pushed && (
+                    <span className="flex basis-full flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                        <span>
+                            <GitPullRequestArrow className="mr-1 inline size-4" />
+                            {pushed.reused ? 'Already pushed: ' : 'Pushed '}
+                            <span className="font-mono">{pushed.branch}</span>, into <span className="font-mono">{pushed.target}</span>.
+                        </span>
+                        {pushed.url && (
+                            <a
+                                href={pushed.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-primary hover:underline"
+                            >
+                                {pushed.mergeRequest ? `Pull request #${pushed.mergeRequest.number}` : 'Open the pull request'}
+                                <ExternalLink className="size-3.5" />
+                            </a>
+                        )}
+                        {pushed.notice && <span className="basis-full text-amber-700 dark:text-amber-400">{pushed.notice}</span>}
+                    </span>
+                )}
+            </div>
+        </div>
     );
 }
 
@@ -514,14 +684,16 @@ export function VersionsDialog(props: {
     busy: boolean;
     /** absent: versions cannot be deployed from here (an environment that only takes pull requests) */
     onSwitch?: (version: FlowVersion) => void;
+    onEmergencyRollback?: (version: FlowVersion) => void;
+    onEndEmergencyRollback?: () => void;
     onRestore: (version: FlowVersion) => void;
 }) {
-    const { open, onClose, deployments, busy, onSwitch, onRestore } = props;
+    const { open, onClose, deployments, busy, onSwitch, onEmergencyRollback, onEndEmergencyRollback, onRestore } = props;
     const deployed = deployedVersion(deployments);
 
     return (
         <Dialog open={open} onOpenChange={isOpen => !isOpen && onClose()}>
-            <DialogContent className="sm:max-w-xl">
+            <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>Versions</DialogTitle>
                 </DialogHeader>
@@ -530,9 +702,9 @@ export function VersionsDialog(props: {
                         const isDeployed = version.id === deployed?.id;
                         const action = switchAction(deployments, version);
                         return (
-                            <li key={version.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                            <li key={version.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
                                 <span className="w-10 font-mono font-medium">v{version.number}</span>
-                                <span className="grid min-w-0 flex-1 text-muted-foreground">
+                                <span className="grid min-w-40 flex-1 basis-40 text-muted-foreground">
                                     {version.commit && (
                                         <span className="truncate text-foreground" title={version.commitMessage}>
                                             <span className="font-mono text-xs text-muted-foreground">{shortSha(version.commit)}</span>{' '}
@@ -544,31 +716,55 @@ export function VersionsDialog(props: {
                                         {version.createdByName && ` · ${version.createdByName}`}
                                     </span>
                                 </span>
-                                {isDeployed ? (
-                                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                                        Deployed
-                                    </span>
-                                ) : (
-                                    <Button variant="ghost" size="sm" disabled={busy || !onSwitch} onClick={() => onSwitch?.(version)}>
-                                        {action === 'rollback' ? <Undo2 /> : deployments.git ? <GitCommitHorizontal /> : <Rocket />}
-                                        {action === 'rollback'
-                                            ? deployments.git
-                                                ? 'Revert'
-                                                : 'Roll back'
-                                            : deployments.git
-                                              ? 'Commit'
-                                              : 'Deploy'}
+                                <span className="ml-auto flex shrink-0 items-center gap-1">
+                                    {version.emergencyRollbackOffer === 'end' && onEndEmergencyRollback && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={busy}
+                                            onClick={onEndEmergencyRollback}
+                                            title="This is git's content: going back to it ends the emergency rollback"
+                                        >
+                                            <Undo2 /> End the emergency rollback
+                                        </Button>
+                                    )}
+                                    {version.emergencyRollbackOffer === 'roll-back' && onEmergencyRollback && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={busy}
+                                            onClick={() => onEmergencyRollback(version)}
+                                            title="Run this version here now, without a commit"
+                                        >
+                                            <TriangleAlert /> Emergency rollback
+                                        </Button>
+                                    )}
+                                    {isDeployed ? (
+                                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                            {deployments.emergencyRollback ? 'Runs here' : 'Deployed'}
+                                        </span>
+                                    ) : version.emergencyRollbackOffer === 'end' ? null : (
+                                        <Button variant="ghost" size="sm" disabled={busy || !onSwitch} onClick={() => onSwitch?.(version)}>
+                                            {action === 'rollback' ? <Undo2 /> : deployments.git ? <GitCommitHorizontal /> : <Rocket />}
+                                            {action === 'rollback'
+                                                ? deployments.git
+                                                    ? 'Revert'
+                                                    : 'Roll back'
+                                                : deployments.git
+                                                  ? 'Commit'
+                                                  : 'Deploy'}
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        disabled={busy}
+                                        onClick={() => onRestore(version)}
+                                        title="Replace the draft by this version"
+                                    >
+                                        <RotateCcw /> Restore draft
                                     </Button>
-                                )}
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    disabled={busy}
-                                    onClick={() => onRestore(version)}
-                                    title="Replace the draft by this version"
-                                >
-                                    <RotateCcw /> Restore draft
-                                </Button>
+                                </span>
                             </li>
                         );
                     })}
@@ -581,7 +777,7 @@ export function VersionsDialog(props: {
                                 <li key={i} className="flex items-center gap-3 px-3 py-1.5 text-sm">
                                     <span className="min-w-0 flex-1 truncate">
                                         {eventText(event)}
-                                        {event.commit && (
+                                        {event.commit && event.action !== 'end-emergency-rollback' && (
                                             <span className="font-mono text-xs text-muted-foreground"> · {shortSha(event.commit)}</span>
                                         )}
                                     </span>

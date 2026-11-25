@@ -5,6 +5,7 @@ import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { flowPath, runPath } from '@/app/paths';
 import { descendants, findIn, flatten, isOpen, isProblem, shortId, type RunNode } from '@/data/runs/run-history';
+import { rerunCheck } from '@/data/runs/runs-api';
 import type { ApiResult } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
@@ -63,7 +64,9 @@ export function RunOverview({ root, selected, treeSize = 0, onSelect, onStop, on
             destructive: true,
             onConfirm: () => onStop([selected.id]),
         });
-    const rerunThis = () =>
+    const rerunThis = async () => {
+        const check = await rerunCheck(selected.id);
+        const left = check.ok ? check.value.leftByEmergencyRollback : [];
         setConfirm({
             title: (
                 <>
@@ -73,10 +76,22 @@ export function RunOverview({ root, selected, treeSize = 0, onSelect, onStop, on
             description: selected.version
                 ? `The same as it ran: v${selected.version}, its parameters and input.`
                 : 'The same as it ran: the flow as it was then, its parameters and input.',
+            ...(left.length > 0
+                ? {
+                      warning: (
+                          <>
+                              An emergency rollback left {left.map(l => `${l.name} v${l.version}`).join(', ')}: it runs{' '}
+                              {left.length > 1 ? 'those versions' : 'that version'} again, not the one deployed now.
+                          </>
+                      ),
+                      destructive: true,
+                  }
+                : {}),
             confirmLabel: 'Re-run',
             busyLabel: 'Queuing...',
             onConfirm: () => onRerun!(selected.id),
         });
+    };
     const stopBelow = () =>
         setConfirm({
             title: `Stop ${going.length} run(s) still going?`,

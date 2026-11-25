@@ -80,6 +80,9 @@ export async function listRuns(filter: RunFilter, before?: string, limit = 20): 
     if (filter.projectId) {
         query.set('project', filter.projectId);
     }
+    if (filter.flowId) {
+        query.set('flow', filter.flowId);
+    }
     if (filter.trigger !== 'all') {
         query.set('trigger', filter.trigger);
     }
@@ -161,6 +164,12 @@ export async function followRunChanges(
         clearInterval(watchdog);
         signal.removeEventListener('abort', stop);
     }
+}
+
+export type LeftVersion = { flowId: string; name: string; version: number };
+
+export function rerunCheck(id: string): Promise<ApiResult<{ leftByEmergencyRollback: LeftVersion[] }>> {
+    return api<{ leftByEmergencyRollback: LeftVersion[] }>(`/runs/${id}/rerun`);
 }
 
 /** Re-run: a failed run queued again (the same snapshot) as a new run; its id */

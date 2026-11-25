@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { checkFlowYaml, type FlowCheck, type FlowIssue } from '@flowtinus/core';
 import type { ApiScope } from '#features/api-tokens/api-tokens';
+import type { EmergencyRollbackState } from '#features/deployments/deployments';
 import type { RunScope } from '#features/api-tokens/run-scope';
 import { GetDraftHandler } from '#features/flows/get-draft/get-draft-handler';
 import { GetFlowHandler } from '#features/flows/get-flow/get-flow-handler';
@@ -131,3 +132,10 @@ export const defineTool = <S extends z.ZodRawShape>(tool: {
 }): McpTool => tool as McpTool;
 
 export const workspaceArg = z.string().describe("the workspace's handle, from list_workspaces or resolve_url");
+
+export const mcpEmergencyRollback = (rollback: EmergencyRollbackState) => ({
+    runningVersion: rollback.number,
+    gitVersion: rollback.gitNumber,
+    by: rollback.byName ?? null,
+    at: rollback.at,
+});

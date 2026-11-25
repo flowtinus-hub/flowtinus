@@ -1,5 +1,5 @@
 import { api, type ApiResult } from '@/lib/api';
-import { toArrived, type ArrivedDisabledDto } from '@/data/git/git-api';
+import { toArrived, type ArrivedDisabledDto, type OpenedMergeRequest, type Provider } from '@/data/git/git-api';
 import type { FlowDeployments } from './deployment';
 
 /*
@@ -19,6 +19,7 @@ type DeploymentsDto = {
     draftConflict?: string;
     changedScripts?: string[];
     triggersChanged?: true;
+    emergencyRollback?: Omit<NonNullable<FlowDeployments['emergencyRollback']>, 'at'> & { at: string };
 };
 
 export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
@@ -32,6 +33,7 @@ export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
     ...(dto.draftConflict ? { draftConflict: dto.draftConflict } : {}),
     ...(dto.changedScripts ? { changedScripts: dto.changedScripts } : {}),
     ...(dto.triggersChanged ? { triggersChanged: dto.triggersChanged } : {}),
+    ...(dto.emergencyRollback ? { emergencyRollback: { ...dto.emergencyRollback, at: new Date(dto.emergencyRollback.at) } } : {}),
 });
 
 async function deployments(path: string, method = 'POST', body?: unknown): Promise<ApiResult<FlowDeployments>> {
@@ -51,6 +53,31 @@ export const deployFlow = (flowId: string, message?: string, scripts?: string[])
 
 /** makes an existing version the deployed one (an older one: a rollback) */
 export const deployVersion = (flowId: string, versionId: string) => deployments(`/flows/${flowId}/versions/${versionId}/deploy`);
+
+export const emergencyRollback = (flowId: string, versionId: string) =>
+    deployments(`/flows/${flowId}/versions/${versionId}/emergency-rollback`);
+
+export const emergencyRollbackChecks = (flowId: string, versionId: string) =>
+    api<{ errors: string[]; warnings: string[] }>(`/flows/${flowId}/versions/${versionId}/emergency-rollback`);
+
+export const endEmergencyRollback = (flowId: string) => deployments(`/flows/${flowId}/emergency-rollback`, 'DELETE');
+
+export type GitMatchBranch = {
+    branch: string;
+    target: string;
+    reused: boolean;
+    provider: Provider | null;
+    url: string | null;
+} & OpenedMergeRequest;
+
+export async function makeGitMatch(flowId: string): Promise<ApiResult<FlowDeployments & { pushed?: GitMatchBranch }>> {
+    const result = await api<DeploymentsDto & { pushed?: GitMatchBranch }>(`/flows/${flowId}/emergency-rollback/match-git`, {
+        method: 'POST',
+    });
+    return result.ok
+        ? { ok: true, value: { ...toDeployments(result.value), ...(result.value.pushed ? { pushed: result.value.pushed } : {}) } }
+        : result;
+}
 
 /** nothing deployed anymore (its versions stay) */
 export const undeployFlow = (flowId: string) => deployments(`/flows/${flowId}/undeploy`);

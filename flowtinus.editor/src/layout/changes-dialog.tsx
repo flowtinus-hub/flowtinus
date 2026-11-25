@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, CircleCheck, File, FileCode2, Folder, FolderKanban, GitCommitHorizontal, Lock, LoaderCircle, Plug, TriangleAlert, Undo2, Workflow, type LucideIcon } from 'lucide-react';
 import { ArrivedDisabledList } from '@/components/arrived-disabled-list';
+import { WarningLine } from '@/components/warning-line';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -88,6 +89,7 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
     // a pending merge is committed whole: every file, whatever is checked
     const all = merge ? (changes ?? []).map(c => c.path) : [...chosen, ...locked.keys()];
     const conflicted = (changes ?? []).filter(c => c.conflict && all.includes(c.path));
+    const endings = (changes ?? []).flatMap(c => (c.endsEmergencyRollback && all.includes(c.path) ? [c.endsEmergencyRollback] : []));
     const pickable = (changes ?? []).filter(c => !c.conflict && !locked.has(c.path)).map(c => c.path);
     const pickedCount = pickable.filter(path => chosen.has(path)).length;
     const allPicked: boolean | 'indeterminate' =
@@ -316,13 +318,18 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
                                 Discard changes, or create a branch of your own and take yours there.
                             </p>
                         ) : (
-                            <Input
-                                aria-label="Commit message"
-                                placeholder="Commit message"
-                                value={message}
-                                disabled={busy}
-                                onChange={e => setMessage(e.target.value)}
-                            />
+                            <>
+                                {endings.map(ending => (
+                                    <WarningLine key={ending}>{ending}</WarningLine>
+                                ))}
+                                <Input
+                                    aria-label="Commit message"
+                                    placeholder="Commit message"
+                                    value={message}
+                                    disabled={busy}
+                                    onChange={e => setMessage(e.target.value)}
+                                />
+                            </>
                         )}
                     </>
                 )}
