@@ -29,7 +29,7 @@ import { SwitchScheduleHandler } from '#features/schedules/switch-schedule/switc
 import { OverrideScheduleHandler } from '#features/schedules/override-schedule/override-schedule-handler';
 import { CreateWebhookHandler, DeleteWebhookHandler, ListWebhooksHandler, NewWebhookTokenHandler, SwitchWebhookHandler, UpdateWebhookHandler } from '#features/webhooks/manage-webhooks/manage-webhooks-handlers';
 import { GetFlowTriggersHandler, RemoveFileTriggerHandler, SaveFileTriggerHandler } from '#features/flows/flow-triggers/flow-triggers-handlers';
-import { RerunRunHandler } from '#features/runs/rerun-run/rerun-run-handler';
+import { RerunCheckHandler, RerunRunHandler } from '#features/runs/rerun-run/rerun-run-handler';
 import { StartRunHandler } from '#features/runs/start-run/start-run-handler';
 import type { RunProgress, RunRecord } from '@flowtinus/core';
 import { workspaceRunEvents, runEvents, type RunEvent } from '#features/runs/run-events';
@@ -272,6 +272,9 @@ export function runsRoutes() {
                 const result = await new GetRunHandler().handle({ id: c.req.param('id') }, c.get('useCase'));
                 return toHttpResult(c, result);
             })
+            .get('/:id/rerun', async c =>
+                toHttpResult(c, await new RerunCheckHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
+            )
             .post('/:id/rerun', async c =>
                 toHttpResult(c, await new RerunRunHandler().handle({ id: c.req.param('id') }, c.get('useCase')), 202),
             )
