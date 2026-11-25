@@ -88,6 +88,13 @@ describe("backporting an environment ahead of its source: a merge of its tip cut
             git(repo, 'update-ref', `refs/heads/${into}`, commit);
             return commit;
         };
+        const squashInto = (into: string, from: string) => {
+            const tree = git(repo, 'merge-tree', '--write-tree', into, from);
+            const who = ['-c', 'user.name=Someone', '-c', 'user.email=someone@example.com'];
+            const commit = git(repo, ...who, 'commit-tree', tree, '-p', tip(into), '-m', `Squash ${from} into ${into}`);
+            git(repo, 'update-ref', `refs/heads/${into}`, commit);
+            return commit;
+        };
         const deleteBranch = (branch: string) => git(repo, 'update-ref', '-d', `refs/heads/${branch}`);
         const poll = () => call('POST', '/git/reconcile');
         const promotions = async () => (await call('GET', '/git/environments')).body.promotions;
@@ -120,6 +127,7 @@ describe("backporting an environment ahead of its source: a merge of its tip cut
             write,
             addFile,
             mergeInto,
+            squashInto,
             deleteBranch,
             poll,
             promotions,
@@ -321,6 +329,76 @@ describe("backporting an environment ahead of its source: a merge of its tip cut
         const edge = (await qa('GET', '/git/environments')).body.edges.find((e: { target: string }) => e.target === 'PROD');
         expect(edge.ahead).toBe(true);
         expect((await qa('GET', '/git/backports/preflight?target=PROD')).body.blocks).toEqual([]);
+    });
+
+    test('a squashed backport is found as a broken lineage and stays broken through a revert; it blocks neither the promotion nor another backport', async () => {
+        const { call, repo, filesOf, tip, branchAt, addFile, squashInto, deleteBranch, poll, promotions, backport, backportPreflight } =
+            await newWorkspace();
+        branchAt('qa', 'dev');
+        addFile('dev', 'work.txt');
+        const sha = addFile('qa', 'hotfix.txt');
+        const opened = (await backport()).body.promotion;
+        const before = filesOf('dev');
+
+        squashInto('dev', opened.branch);
+        deleteBranch(opened.branch);
+        await poll();
+        expect(states(await promotions())).toEqual([[sha, 'broken']]);
+
+        const preflight = await call('GET', `/git/promotions/preflight?target=QA&sha=${tip('dev')}`);
+        expect(preflight.body.blocks).toEqual([]);
+        expect((await call('POST', '/git/promotions', { target: 'QA', sha: tip('dev') })).status).toBe(200);
+        const promoted = (await promotions()).find((p: { kind: string }) => p.kind === 'promotion');
+
+        commitFiles(repo, 'dev', before, 'Revert the squash');
+        await poll();
+        expect(states(await promotions())).toEqual([
+            [promoted.sha, 'open'],
+            [sha, 'broken'],
+        ]);
+
+        const next = addFile('qa', 'second-fix.txt');
+        expect((await backportPreflight()).body).toMatchObject({ sha: next, blocks: [], open: [] });
+        expect((await backport()).body).toMatchObject({ reused: false, alsoOpen: [], promotion: { sha: next, state: 'open' } });
+
+        const edge = (await call('GET', '/git/environments')).body.edges.find((e: { target: string }) => e.target === 'QA');
+        expect(edge.ahead).toBe(true);
+        expect(edge.broken).toEqual([]);
+        expect(states(edge.backports)).toEqual([
+            [next, 'open'],
+            [sha, 'broken'],
+        ]);
+    });
+
+    test("the repair of a broken backport: an admin's merge of the sha that keeps the source's tree; once merged, the row is merged", async () => {
+        const { id, call, callAs, repo, tip, has, branchAt, addFile, squashInto, mergeInto, poll, promotions, backport } =
+            await newWorkspace();
+        branchAt('qa', 'dev');
+        addFile('dev', 'work.txt');
+        const sha = addFile('qa', 'hotfix.txt');
+        const opened = (await backport()).body.promotion;
+        squashInto('dev', opened.branch);
+        await poll();
+        const repair = (as = call) => as('POST', `/git/promotions/${opened.id}/repair`);
+        const branch = `repair/DEV-${short(sha)}`;
+
+        const editor = await insertMember(db, id, { name: 'Eve', role: 'editor' });
+        expect((await repair(callAs(editor))).status).toBe(403);
+        expect(has(branch)).toBe(false);
+
+        const pushed = await repair();
+        expect(pushed.status).toBe(200);
+        expect(pushed.body).toMatchObject({ branch, reused: false, url: null, provider: null });
+        expect(git(repo, 'rev-list', '--parents', '-n', '1', branch).split(' ').slice(1)).toEqual([tip('dev'), sha]);
+        expect(git(repo, 'rev-parse', `${branch}^{tree}`)).toBe(git(repo, 'rev-parse', 'dev^{tree}'));
+        expect((await repair()).body).toMatchObject({ branch, reused: true });
+
+        mergeInto('dev', branch);
+        await poll();
+        expect(states(await promotions())).toEqual([[sha, 'merged']]);
+        const edge = (await call('GET', '/git/environments')).body.edges.find((e: { target: string }) => e.target === 'QA');
+        expect(edge.backports).toEqual([]);
+        expect((await repair()).status).toBe(409);
     });
 
     test("the branch is shared on the source's server, whatever its mode, and read only on every other server", async () => {

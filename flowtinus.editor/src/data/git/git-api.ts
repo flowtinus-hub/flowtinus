@@ -73,7 +73,7 @@ export type EnvironmentEdge = {
     behind: number | null;
     ahead: boolean | null;
     broken: Promotion[];
-    /** this server's open backports from the target into the source */
+    /** this server's open and broken backports from the target into the source, which block nothing */
     backports: Promotion[];
 };
 

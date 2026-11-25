@@ -64,7 +64,7 @@ export const shortSha = (sha: string) => sha.slice(0, 12);
 export type PromotionQuery = {
     id?: string;
     kind?: PromotionKind;
-    state?: PromotionState;
+    states?: PromotionState[];
     edge?: { source: string; target: string };
     limit?: number;
 };
@@ -82,8 +82,9 @@ export async function promotionRows(ctx: UseCaseContext, query: PromotionQuery =
     if (query.kind) {
         where('p.kind', query.kind);
     }
-    if (query.state) {
-        where('p.state', query.state);
+    if (query.states) {
+        params.push(query.states);
+        conditions.push(`AND p.state = ANY($${params.length})`);
     }
     if (query.edge) {
         where('p.source', query.edge.source);
@@ -122,11 +123,12 @@ export async function listPromotions(ctx: UseCaseContext, topology: Topology, re
 
 /** every broken promotion, whatever its age: each blocks its edge until it is merged */
 export async function brokenPromotions(ctx: UseCaseContext, links: PromotionLinks): Promise<Promotion[]> {
-    return (await promotionRows(ctx, { kind: 'promotion', state: 'broken' })).map(row => toPromotion(row, links));
+    return (await promotionRows(ctx, { kind: 'promotion', states: ['broken'] })).map(row => toPromotion(row, links));
 }
 
-export async function openBackports(ctx: UseCaseContext, links: PromotionLinks): Promise<Promotion[]> {
-    return (await promotionRows(ctx, { kind: 'backport', state: 'open' })).map(row => toPromotion(row, links));
+/** open and broken backports, which block nothing */
+export async function liveBackports(ctx: UseCaseContext, links: PromotionLinks): Promise<Promotion[]> {
+    return (await promotionRows(ctx, { kind: 'backport', states: ['open', 'broken'] })).map(row => toPromotion(row, links));
 }
 
 async function stateInGit(
@@ -141,7 +143,7 @@ async function stateInGit(
     if (row.state === 'broken') {
         return 'broken';
     }
-    if (row.kind === 'promotion' && targetTip && (await hasContentOf(remote, targetTip, row.sha))) {
+    if (targetTip && (await hasContentOf(remote, targetTip, row.sha))) {
         return 'broken';
     }
     if (!heads.has(row.branch)) {

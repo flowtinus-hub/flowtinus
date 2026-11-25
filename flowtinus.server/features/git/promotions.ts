@@ -268,7 +268,7 @@ async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, 
     }
     const broken = await promotionRows(ctx, {
         kind: 'promotion',
-        state: 'broken',
+        states: ['broken'],
         edge: { source: edge.source.env, target: edge.target.env },
     });
     if (broken.length > 0) {
@@ -362,8 +362,8 @@ export const edgeLinks = (edge: Edge, config: GitConfig, provider: Provider | nu
 });
 
 const openOn = async (ctx: UseCaseContext, edge: Edge, links: PromotionLinks) =>
-    (await promotionRows(ctx, { kind: 'promotion', state: 'open', edge: { source: edge.source.env, target: edge.target.env } })).map(row =>
-        toPromotion(row, links),
+    (await promotionRows(ctx, { kind: 'promotion', states: ['open'], edge: { source: edge.source.env, target: edge.target.env } })).map(
+        row => toPromotion(row, links),
     );
 
 async function preflightOf(
@@ -488,16 +488,19 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
             if (row.state !== 'broken') {
                 return fail('conflict', `Only a broken lineage takes a repair: this promotion is ${row.state}.`);
             }
-            const edge = await edgeOut(remote, config.environment, row.target, heads);
+            // a backport runs against its edge: its row's target is this server's environment, the edge's source
+            const backport = row.kind === 'backport';
+            const edge = await edgeOut(remote, config.environment, backport ? row.source : row.target, heads);
             if (!edge.ok) {
                 return edge;
             }
-            const targetTip = edge.value.targetTip;
-            if (!targetTip) {
-                return fail('conflict', `The branch ${edge.value.target.branch} does not exist.`);
+            const into = backport ? edge.value.source : edge.value.target;
+            const intoTip = backport ? edge.value.sourceTip : edge.value.targetTip;
+            if (!intoTip) {
+                return fail('conflict', `The branch ${into.branch} does not exist.`);
             }
 
-            const branch = repairBranch(row.target, row.sha);
+            const branch = repairBranch(into.env, row.sha);
             const pushed = heads.get(branch);
             if (pushed && !(await remote.isAncestor(row.sha, pushed))) {
                 return fail(
@@ -507,16 +510,16 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
             }
             if (!pushed) {
                 const commit = await remote.commit({
-                    parent: targetTip,
+                    parent: intoTip,
                     changes: {},
-                    message: `Repair the lineage of ${shortSha(row.sha)} into ${edge.value.target.branch}\n\nA merge that keeps ${edge.value.target.branch}'s tree: it changes no file.`,
+                    message: `Repair the lineage of ${shortSha(row.sha)} into ${into.branch}\n\nA merge that keeps ${into.branch}'s tree: it changes no file.`,
                     author: await gitAuthorOf(ctx),
-                    merge: { tree: targetTip, theirs: row.sha },
+                    merge: { tree: intoTip, theirs: row.sha },
                 });
                 await remote.push(commit, branch, null);
             }
             const provider = await providerOf(config.repository);
-            const url = provider ? pullRequestLink(config.repository, provider, branch, edge.value.target.branch) : null;
+            const url = provider ? pullRequestLink(config.repository, provider, branch, into.branch) : null;
             return success({ branch, reused: !!pushed, url, provider });
         });
     }

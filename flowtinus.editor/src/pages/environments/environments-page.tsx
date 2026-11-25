@@ -165,7 +165,8 @@ function EdgeLine({ edge, branch }: { edge: EnvironmentEdge; branch: string }) {
                     </span>
                     <span className={cn(edge.ahead && 'text-amber-700 dark:text-amber-400')}>
                         Ahead: {edge.ahead ? `yes, it has changes ${edge.source} lacks` : 'no'}
-                        {edge.ahead && edge.backports.length > 0 && ' · backport open'}
+                        {edge.ahead && edge.backports.some(p => p.state === 'open') && ' · backport open'}
+                        {edge.ahead && edge.backports.some(p => p.state === 'broken') && ' · backport broken'}
                     </span>
                     {edge.broken.length > 0 && <span className="text-destructive">Lineage broken: blocked until a repair is merged</span>}
                 </>
