@@ -12,6 +12,7 @@ import { targetAhead } from './environments';
 import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
+import { mergeSettingsBlocks, type MergeSettingsBlock } from './merge-settings';
 import { holdMerge, inScope, pendingMerge } from './pending-merge';
 import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMerge, openAlong, type Edge, type PreflightWarning } from './promotion-edge';
 import { promotionRows, toPromotion, type Promotion } from './promotion-state';
@@ -19,7 +20,8 @@ import { providerOf, type Provider } from './pull-request';
 import { hasWorkingCopy } from './working-copy';
 import { readBranchWorkspace } from './workspace-import';
 
-export type BackportBlock = { kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid'; message: string; issues?: TreeIssue[] };
+export type BackportBlock =
+    { kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid'; message: string; issues?: TreeIssue[] } | MergeSettingsBlock;
 
 /** sha: the target's tip, the only commit a backport takes; conflicts: left as a pending merge, they do not block */
 export type BackportPreflight = {
@@ -72,6 +74,11 @@ async function runBackportPreflight(ctx: UseCaseContext, remote: GitRemote, edge
 
 async function preflightOf(ctx: UseCaseContext, remote: GitRemote, config: GitConfig, edge: Edge) {
     const { tree, ...checked } = await runBackportPreflight(ctx, remote, edge);
+    if (checked.sha) {
+        // the backport's commit is cut from the tip of the branch it goes into: a fast-forward is possible until that moves
+        const fastForward = () => Promise.resolve(true);
+        checked.blocks.push(...(await mergeSettingsBlocks(ctx, config, { branch: edge.source.branch, fastForward })));
+    }
     const open = await openAlong(ctx, config, edge, { kind: 'backport', source: edge.target.env, target: edge.source.env });
     return { checked: { ...checked, open }, tree };
 }
