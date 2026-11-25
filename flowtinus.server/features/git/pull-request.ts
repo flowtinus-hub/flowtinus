@@ -95,7 +95,7 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
         const target = git.branch;
         const editor = await editorOf(ctx.db, ctx.workspaceId, ctx.userId);
         const { kind } = branchKind(branch, [...editor.environments, target]);
-        if (git.mode === 'protected' && kind !== 'backport') {
+        if (git.mode === 'protected' && kind !== 'hotfix' && kind !== 'backport') {
             return fail('conflict', `${target} is protected: its server opens no pull request from a work branch.`);
         }
         if (branch === target) {
@@ -120,7 +120,8 @@ export class OpenPullRequestHandler implements UseCaseHandler<PullRequestView> {
             // only forward: a remote that moved past or away from the tip here is followed by the poll, not overwritten
             const pushed = !!here && here !== there && (await remote.hasCommit(here)) && (!there || (await remote.isAncestor(there, here)));
             const proposed = pushed ? here : there;
-            if (kind === 'backport' && proposed) {
+            // a backport's tip is checked even when it is on the remote already: the app pushed it from a merge
+            if (proposed && (pushed || kind === 'backport')) {
                 const { errors } = await validateImport(
                     ctx.db,
                     ctx.workspaceId,

@@ -268,11 +268,7 @@ describe('pull-request servers offer Create branch; the MCP acts on the current 
         expect((await call('POST', `/flows/${orders}/deploy`)).status).toBe(409);
 
         const listed = (await call('GET', '/git/branches')).body.branches as { name: string; editable: boolean }[];
-        expect(listed.map(b => [b.name, b.editable])).toEqual([
-            ['dev', true],
-            [`users/${ana}/try`, false],
-            ['fix/shared', false],
-        ]);
+        expect(listed.map(b => [b.name, b.editable])).toEqual([['dev', true]]);
         const refused = await call('POST', '/git/branches', { name: `users/${ana}/new` });
         expect(refused.status).toBe(409);
 

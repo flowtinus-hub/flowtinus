@@ -37,18 +37,23 @@ export async function currentBranch(db: Database, workspaceId: string, userId: s
     return row?.branch ?? git.branch;
 }
 
-export type BranchKind = 'environment' | 'app' | 'backport' | 'user' | 'shared';
+export type BranchKind = 'environment' | 'app' | 'hotfix' | 'backport' | 'user' | 'shared';
+
+export const HOTFIX_PREFIX = 'hotfix/';
 
 /** from: a backport's environment, the one ahead it merges from */
 export function branchKind(name: string, environments: string[]): { kind: BranchKind; owner?: string; from?: string } {
     if (environments.includes(name)) {
         return { kind: 'environment' };
     }
+    if (name.startsWith(HOTFIX_PREFIX)) {
+        return { kind: 'hotfix' };
+    }
     const backport = /^backport\/(.+)-[0-9a-f]{12}$/.exec(name);
     if (backport) {
         return { kind: 'backport', from: backport[1]! };
     }
-    if (/^(promote|repair|backport|hotfix|flowtinus)\//.test(name)) {
+    if (/^(promote|repair|backport|flowtinus)\//.test(name)) {
         return { kind: 'app' };
     }
     const user = /^users\/([^/]+)\/./.exec(name);
@@ -69,11 +74,19 @@ export function canEditBranch(branch: string | null, environment: string | null,
     if (kind === 'backport') {
         return editor.targets.includes(from!);
     }
-    if (editor.mode === 'protected') {
-        return false;
-    }
-    return kind === 'shared' || (kind === 'user' && owner === editor.handle);
+    return sharedHere(kind, editor) || (editor.mode !== 'protected' && kind === 'user' && owner === editor.handle);
 }
+
+/** a work branch of this kind that every editor of this server writes: a protected server's are its hotfixes */
+export const sharedHere = (kind: BranchKind, editor: Pick<Editor, 'mode'>) =>
+    editor.mode === 'protected' ? kind === 'hotfix' : kind === 'shared';
+
+/**
+ * the branches this server's picker offers, a backport only where it may be edited: a protected server's own branch, its
+ * hotfixes and the backports into it only
+ */
+export const listedHere = (name: string, kind: BranchKind, environment: string | null, editor: Pick<Editor, 'mode'>) =>
+    editor.mode === 'protected' ? name === environment || kind === 'hotfix' || kind === 'backport' : kind !== 'app' && kind !== 'hotfix';
 
 export async function editorOf(db: Database, workspaceId: string, userId: string): Promise<Editor> {
     const [[me], heads, git] = await Promise.all([
