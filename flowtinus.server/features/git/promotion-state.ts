@@ -3,6 +3,8 @@ import type { GitRemote } from './git-remote';
 import { CONFIG_BRANCH, parseTopology, type EnvironmentDecl } from './topology';
 import { topologyAt } from './workspace-topology';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
+import { mergeRequestsOfRows, recordMergeRequest } from './merge-request';
+import type { ProviderAdapter, ProviderPullRequest } from './provider-adapter';
 
 export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
 
@@ -158,8 +160,13 @@ async function hasContentOf(remote: GitRemote, targetTip: string, sha: string): 
     return merged.tree === (await remote.run(['rev-parse', `${targetTip}^{tree}`])).trim();
 }
 
-/** merged and closed are final; broken ends only as merged */
-export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, heads: Map<string, string>): Promise<void> {
+/** merged and closed are final; broken ends only as merged; adapter: the open rows' merge requests add their numbers and "closed" */
+export async function followPromotions(
+    ctx: UseCaseContext,
+    remote: GitRemote,
+    heads: Map<string, string>,
+    adapter?: () => Promise<ProviderAdapter | null>,
+): Promise<void> {
     const rows = await ctx.db.query<PromotionRow>(
         `SELECT id, kind, source, target, sha, branch, state, NULL AS opened_by_name, opened_at, pull_request_number, pull_request_url FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
         [ctx.workspaceId],
@@ -170,12 +177,23 @@ export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, h
         return;
     }
     const topology = parseTopology(text);
+    const open = rows.flatMap(row => {
+        const edge = row.state === 'open' ? rowEdge(topology, row) : null;
+        return edge ? [{ row, into: edge.into.branch }] : [];
+    });
+    const reached = open.length > 0 && adapter ? await adapter() : null;
+    const mergeRequests = reached ? await mergeRequestsOfRows(ctx, reached, open) : new Map<string, ProviderPullRequest>();
     for (const row of rows) {
         const edge = rowEdge(topology, row);
         if (!edge) {
             continue;
         }
-        const state = await stateInGit(remote, row, heads.get(edge.into.branch), heads);
+        const mergeRequest = mergeRequests.get(row.id);
+        if (mergeRequest && row.pull_request_number === null) {
+            await recordMergeRequest(ctx, row.id, mergeRequest);
+        }
+        const inGit = await stateInGit(remote, row, heads.get(edge.into.branch), heads);
+        const state = inGit === 'open' && mergeRequest?.state === 'closed' ? 'closed' : inGit;
         if (state !== row.state) {
             await ctx.db.query(`UPDATE promotions SET state = $2, state_at = now() WHERE id = $1 AND state = $3`, [
                 row.id,

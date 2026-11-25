@@ -4,10 +4,12 @@ import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { branchKind, canEditBranch, currentBranch, listedHere, type BranchKind } from './current-branch';
-import { gitBranch, type GitOptions } from './git-config';
+import { gitBranch, readGitConfig, type GitOptions } from './git-config';
 import type { Mode } from './topology';
 import { onWorkspaceRepository } from './git-handlers';
 import { readHeads, recordHeads } from './git-heads';
+import { adapterOf, type MergeRequestLink } from './merge-request';
+import { ProviderError, type ProviderPullRequest } from './provider-adapter';
 import { ENVIRONMENT_BRANCH, type WorkingRow } from './working-copy';
 import { changeCount } from './working-copy-changes';
 
@@ -24,6 +26,7 @@ export type BranchView = {
     changes: number;
     removed?: true;
     lostTip?: true;
+    mergeRequest?: MergeRequestLink;
 };
 
 export type BranchesView = {
@@ -48,6 +51,20 @@ async function changesPerBranch(db: Database, workspaceId: string, environment: 
         }
     }
     return new Map([...byBranch].map(([name, list]) => [name, changeCount(list)]));
+}
+
+async function openMergeRequestsInto(ctx: UseCaseContext, environment: string | null): Promise<Map<string, MergeRequestLink>> {
+    const config = environment ? await readGitConfig(ctx.db, ctx.workspaceId) : null;
+    const adapter = config ? await adapterOf(ctx, config) : null;
+    let open: ProviderPullRequest[] = [];
+    try {
+        open = adapter && environment ? await adapter.openPullRequestsInto(environment) : [];
+    } catch (e) {
+        if (!(e instanceof ProviderError)) {
+            throw e;
+        }
+    }
+    return new Map(open.map(m => [m.source, { number: m.number, url: m.url }]));
 }
 
 const KIND_ORDER = { environment: 0, hotfix: 1, user: 2, shared: 3, backport: 4 };
@@ -77,10 +94,11 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
         }
 
         const environment = git.branch ?? heads.environment;
-        const [current, counts, [me]] = await Promise.all([
+        const [current, counts, [me], mergeRequests] = await Promise.all([
             currentBranch(ctx.db, ctx.workspaceId, ctx.userId),
             changesPerBranch(ctx.db, ctx.workspaceId, environment),
             ctx.db.query<{ handle: string }>('SELECT handle FROM users WHERE id::text = $1', [ctx.userId]),
+            openMergeRequestsInto(ctx, environment),
         ]);
         const owners = new Map<string, string>();
         const handles = heads.heads.flatMap(h => branchKind(h.name, heads.environments).owner ?? []);
@@ -100,6 +118,7 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 continue;
             }
             const changes = counts.get(head.name) ?? 0;
+            const mergeRequest = mergeRequests.get(head.name);
             branches.push({
                 name: head.name,
                 kind,
@@ -110,6 +129,7 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 changes,
                 ...(head.removed ? { removed: true as const } : {}),
                 ...(head.lostTip ? { lostTip: true as const } : {}),
+                ...(mergeRequest ? { mergeRequest } : {}),
             });
         }
         branches.sort(

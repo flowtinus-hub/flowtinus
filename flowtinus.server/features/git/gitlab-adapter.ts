@@ -130,6 +130,15 @@ class GitLabClient implements ProviderAdapter {
         );
     }
 
+    async pullRequestsInto(target: string, openedSince: Date): Promise<ProviderPullRequest[]> {
+        return (
+            await this.list<MergeRequest>(`${this.project}/merge_requests`, {
+                target_branch: target,
+                created_after: openedSince.toISOString(),
+            })
+        ).map(toPullRequest);
+    }
+
     async pullRequest(number: number): Promise<ProviderPullRequest> {
         return toPullRequest((await this.call<MergeRequest>('GET', `${this.project}/merge_requests/${number}`)).value);
     }

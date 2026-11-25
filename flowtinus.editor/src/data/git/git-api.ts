@@ -238,6 +238,8 @@ export type BranchInfo = {
     changes: number;
     removed?: true;
     lostTip?: true;
+    /** its open merge request into the environment's branch, with the adapter on */
+    mergeRequest?: MergeRequestLink;
 };
 
 export const REMOVED_BRANCH = 'Removed on the remote: create a branch with its changes, or discard them.';

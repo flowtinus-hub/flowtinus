@@ -32,6 +32,8 @@ export interface ProviderAdapter {
     openPullRequest(request: NewPullRequest): Promise<ProviderPullRequest>;
     findOpenPullRequest(source: string, target: string): Promise<ProviderPullRequest | null>;
     openPullRequestsInto(target: string): Promise<ProviderPullRequest[]>;
+    /** in every state */
+    pullRequestsInto(target: string, openedSince: Date): Promise<ProviderPullRequest[]>;
     pullRequest(number: number): Promise<ProviderPullRequest>;
     mergeSettings(): Promise<MergeSettings>;
     branchProtections(): Promise<BranchProtection[]>;
