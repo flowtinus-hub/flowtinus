@@ -168,6 +168,7 @@ function EdgeLine({ edge, branch }: { edge: EnvironmentEdge; branch: string }) {
                     <span className={cn(edge.ahead && 'text-amber-700 dark:text-amber-400')}>
                         Ahead: {edge.ahead ? `yes, it has changes ${edge.source} lacks` : 'no'}
                     </span>
+                    {edge.broken.length > 0 && <span className="text-destructive">Lineage broken: blocked until a repair is merged</span>}
                 </>
             )}
         </div>
@@ -252,7 +253,7 @@ function FlowLine({ flow, environments, here }: { flow: FlowRow; environments: s
     );
 }
 
-const STATE_TEXT: Record<PromotionState, string> = { open: 'Open', merged: 'Merged', closed: 'Closed' };
+const STATE_TEXT: Record<PromotionState, string> = { open: 'Open', broken: 'Lineage broken', merged: 'Merged', closed: 'Closed' };
 
 /** this server's promotions and its recent reconciles, newest first */
 function Activity({ value }: { value: On }) {
@@ -270,7 +271,13 @@ function Activity({ value }: { value: On }) {
                         <span
                             className={cn(
                                 'rounded-full px-2 py-0.5 text-xs',
-                                p.state === 'open' ? 'bg-primary/15' : p.state === 'merged' ? 'bg-emerald-500/15' : 'bg-muted',
+                                p.state === 'open'
+                                    ? 'bg-primary/15'
+                                    : p.state === 'merged'
+                                      ? 'bg-emerald-500/15'
+                                      : p.state === 'broken'
+                                        ? 'bg-destructive/15 text-destructive'
+                                        : 'bg-muted',
                             )}
                         >
                             {STATE_TEXT[p.state]}

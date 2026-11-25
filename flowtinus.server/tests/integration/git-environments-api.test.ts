@@ -97,8 +97,8 @@ describe('the Environments page: every environment of the topology, as git says,
             { env: 'PROD', label: 'Production', branch: 'main', mode: 'protected', tip: null, here: false },
         ]);
         expect(page.edges).toEqual([
-            { source: 'DEV', target: 'QA', targetExists: true, behind: 0, ahead: false },
-            { source: 'QA', target: 'PROD', targetExists: false, behind: null, ahead: null },
+            { source: 'DEV', target: 'QA', targetExists: true, behind: 0, ahead: false, broken: [] },
+            { source: 'QA', target: 'PROD', targetExists: false, behind: null, ahead: null, broken: [] },
         ]);
     });
 

@@ -8,7 +8,8 @@ import { success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { readGitState, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
-import { listPromotions, type Promotion } from './promotion-state';
+import { brokenPromotions, listPromotions, type Promotion } from './promotion-state';
+import { providerOf } from './pull-request';
 import type { EnvironmentDecl, Mode } from './topology';
 import { exportWorkspace, type RepoFiles } from './workspace-export';
 import { readBranchWorkspace } from './workspace-import';
@@ -16,8 +17,18 @@ import { readTopology } from './workspace-topology';
 
 export type EnvironmentCard = { env: string; label: string; branch: string; mode: Mode; tip: string | null; here: boolean };
 
-/** behind: the files promoting the source's tip would change; ahead: merging the target into its source would change the source */
-export type EnvironmentEdge = { source: string; target: string; targetExists: boolean; behind: number | null; ahead: boolean | null };
+/**
+ * behind: the files promoting the source's tip would change; ahead: merging the target into its source would change the source;
+ * broken: this server's promotions along the edge whose lineage is broken, which block it until a repair is merged
+ */
+export type EnvironmentEdge = {
+    source: string;
+    target: string;
+    targetExists: boolean;
+    behind: number | null;
+    ahead: boolean | null;
+    broken: Promotion[];
+};
 
 /** content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here */
 export type FlowCell = { state: 'deployed' | 'undeployed' | 'absent'; content: 'same' | 'other' | null; differs: boolean };
@@ -70,7 +81,12 @@ function pipelineOrder(environments: EnvironmentDecl[]): EnvironmentDecl[] {
     return ordered;
 }
 
-async function edgeOf(remote: GitRemote, source: string, target: string, tips: Map<string, string | null>): Promise<EnvironmentEdge> {
+async function edgeOf(
+    remote: GitRemote,
+    source: string,
+    target: string,
+    tips: Map<string, string | null>,
+): Promise<Omit<EnvironmentEdge, 'broken'>> {
     const from = tips.get(source) ?? null;
     const to = tips.get(target) ?? null;
     if (!from || !to) {
@@ -164,10 +180,13 @@ async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, config: 
         tip: tips.get(env)!,
         here: env === environment,
     }));
+    const links = { topology, repository: config.repository, provider: await providerOf(config.repository) };
+    const broken = await brokenPromotions(ctx, links);
     const edges: EnvironmentEdge[] = [];
     for (const e of ordered) {
         for (const target of e.promotesTo.filter(t => tips.has(t))) {
-            edges.push(await edgeOf(remote, e.env, target, tips));
+            const along = broken.filter(p => p.source === e.env && p.target === target);
+            edges.push({ ...(await edgeOf(remote, e.env, target, tips)), broken: along });
         }
     }
 

@@ -4,7 +4,7 @@ import { CONFIG_BRANCH, parseTopology, type EnvironmentDecl } from './topology';
 import { topologyAt } from './workspace-topology';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
 
-export type PromotionState = 'open' | 'merged' | 'closed';
+export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
 
 /** url: the provider's page for a new pull request, while it is open; inTopology: its edge is still in the topology */
 export type Promotion = {
@@ -77,6 +77,14 @@ export async function listPromotions(ctx: UseCaseContext, topology: Topology, re
     return (await promotionRows(ctx)).map(row => toPromotion(row, links));
 }
 
+/** every broken row, whatever its age: each blocks its edge until it is merged */
+export async function brokenPromotions(ctx: UseCaseContext, links: PromotionLinks): Promise<Promotion[]> {
+    const rows = await ctx.db.query<PromotionRow>(`${SELECT_PROMOTIONS} AND p.state = 'broken' ORDER BY p.opened_at DESC`, [
+        ctx.workspaceId,
+    ]);
+    return rows.map(row => toPromotion(row, links));
+}
+
 async function stateOf(
     remote: GitRemote,
     row: PromotionRow,
@@ -86,16 +94,28 @@ async function stateOf(
     if (targetTip && (await remote.isAncestor(row.sha, targetTip))) {
         return 'merged';
     }
+    if (row.state === 'broken') {
+        return 'broken';
+    }
+    if (targetTip && (await hasContentOf(remote, targetTip, row.sha))) {
+        return 'broken';
+    }
     if (!heads.has(row.branch)) {
         return 'closed';
     }
     return 'open';
 }
 
-/** the open rows of the edges still in the topology, worked out again from the heads just fetched; merged and closed are final */
+/** merging the sha into the target would change nothing: the target holds its content, though not the commit */
+async function hasContentOf(remote: GitRemote, targetTip: string, sha: string): Promise<boolean> {
+    const merged = await remote.mergeTree(targetTip, sha);
+    return merged.tree === (await remote.run(['rev-parse', `${targetTip}^{tree}`])).trim();
+}
+
+/** the open and broken rows of the edges still in the topology, worked out again from the heads just fetched; merged and closed are final, broken ends only as merged */
 export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, heads: Map<string, string>): Promise<void> {
     const rows = await ctx.db.query<PromotionRow>(
-        `SELECT id, source, target, sha, branch, state, NULL AS opened_by_name, opened_at FROM promotions WHERE workspace_id = $1 AND state = 'open'`,
+        `SELECT id, source, target, sha, branch, state, NULL AS opened_by_name, opened_at FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
         [ctx.workspaceId],
     );
     const configTip = heads.get(CONFIG_BRANCH);
@@ -111,7 +131,11 @@ export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, h
         }
         const state = await stateOf(remote, row, heads.get(edge.target.branch), heads);
         if (state !== row.state) {
-            await ctx.db.query(`UPDATE promotions SET state = $2, state_at = now() WHERE id = $1 AND state = 'open'`, [row.id, state]);
+            await ctx.db.query(`UPDATE promotions SET state = $2, state_at = now() WHERE id = $1 AND state = $3`, [
+                row.id,
+                state,
+                row.state,
+            ]);
         }
     }
 }
