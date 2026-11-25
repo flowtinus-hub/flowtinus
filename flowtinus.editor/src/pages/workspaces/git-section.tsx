@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { useResource } from '@/data/use-resource';
 import { listSecrets } from '@/data/secrets/secrets-api';
 import type { ApiResult } from '@/lib/api';
-import { CONFIG_BRANCH, createTopology, getGitConfig, GIT_STATUS_CHANGED, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type GitConfig, type Topology, type TreeIssue, type TriggerChange, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
+import { CONFIG_BRANCH, createTopology, getGitConfig, GIT_STATUS_CHANGED, getTopology, getTurnOnPlan, removeGitConfig, renewHookToken, saveGitConfig, testGitAccess, turnGitOn, type AccessTest, type LastPoll, type FileChange, type ProtectionWarning, type GitConfig, type Topology, type TreeIssue, type TriggerChange, type TurnOnPlan, type TurnOnResult } from '@/data/git/git-api';
 
 const EMPTY: GitConfig = { repository: '', tokenSecret: '', environment: '' };
 
@@ -72,6 +72,13 @@ export function GitSection({ handle, readOnly }: { handle: string; readOnly: boo
                                 Environments
                             </Link>{' '}
                             page.
+                        </p>
+                    )}
+                    {saved.state.value.adapter?.notice && (
+                        <p className="flex gap-1.5 text-sm text-amber-700 dark:text-amber-400" role="status">
+                            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                            {saved.state.value.adapter.notice} Meanwhile the app pushes each pull request&apos;s branch and links to the
+                            provider&apos;s page.
                         </p>
                     )}
                     {saved.state.value.on && <ArrivedDisabledPanel handle={handle} />}
@@ -391,7 +398,7 @@ function AccessTestResult({ test, environment }: { test: AccessTest; environment
         <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm" role="status">
             <p className="font-medium">{test.ok ? 'The access works.' : 'The access does not work.'}</p>
             {test.checks.map(check => (
-                <Check key={check.step} ok={check.ok}>
+                <Check key={check.step} ok={check.step === 'api' && !check.ok ? 'warn' : check.ok}>
                     {check.message}
                 </Check>
             ))}
@@ -461,14 +468,26 @@ function TopologyPanel({ handle, config, readOnly }: { handle: string; config: G
                 </div>
             )}
             {topology.state.status === 'ready' && topology.state.value.topology.exists && (
-                <TopologyTable topology={topology.state.value.topology} environment={config.environment} />
+                <TopologyTable
+                    topology={topology.state.value.topology}
+                    environment={config.environment}
+                    protection={topology.state.value.protection ?? []}
+                />
             )}
             <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
         </div>
     );
 }
 
-function TopologyTable({ topology, environment }: { topology: Extract<Topology, { exists: true }>; environment: string }) {
+function TopologyTable({
+    topology,
+    environment,
+    protection,
+}: {
+    topology: Extract<Topology, { exists: true }>;
+    environment: string;
+    protection: ProtectionWarning[];
+}) {
     return (
         <div className="grid gap-2">
             <div className="overflow-x-auto rounded-lg border">
@@ -503,6 +522,12 @@ function TopologyTable({ topology, environment }: { topology: Extract<Topology, 
             {topology.environment && !topology.branchExists && (
                 <p className="text-sm text-muted-foreground">The branch {topology.environment.branch} does not exist yet.</p>
             )}
+            {protection.map(w => (
+                <p key={w.env} className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+                    <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                    {w.message}
+                </p>
+            ))}
             {topology.problems.map(problem => (
                 <p key={problem} className="flex items-start gap-2 text-sm text-destructive">
                     <TriangleAlert className="mt-0.5 size-4 shrink-0" />

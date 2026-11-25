@@ -3,13 +3,15 @@ import type { GitRemote } from './git-remote';
 import { CONFIG_BRANCH, parseTopology, type EnvironmentDecl } from './topology';
 import { topologyAt } from './workspace-topology';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
+import { mergeRequestsOfRows, recordMergeRequest, type MergeRequestLink } from './merge-request';
+import type { ProviderAdapter, ProviderPullRequest } from './provider-adapter';
 
 export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
 
 /** a backport runs against its edge: from the environment ahead (source) into the one it is promoted from (target) */
 export type PromotionKind = 'promotion' | 'backport';
 
-/** url: the provider's page for a new pull request, while it is open; inTopology: its edge is still in the topology */
+/** url: while it is open, its merge request's page, or the provider's page for a new pull request; inTopology: its edge is still in the topology */
 export type Promotion = {
     id: string;
     kind: PromotionKind;
@@ -21,6 +23,7 @@ export type Promotion = {
     openedBy: string | null;
     openedAt: string;
     inTopology: boolean;
+    number: number | null;
     url: string | null;
 };
 
@@ -36,6 +39,8 @@ export type PromotionRow = {
     state: PromotionState;
     opened_by_name: string | null;
     opened_at: Date;
+    pull_request_number: number | null;
+    pull_request_url: string | null;
 };
 
 export const edgeIn = (topology: Topology, source: string, target: string) => {
@@ -53,7 +58,8 @@ export function rowEdge(topology: Topology, row: Pick<PromotionRow, 'kind' | 'so
     return edge && { ...edge, into: edge.target };
 }
 
-const SELECT_PROMOTIONS = `SELECT p.id, p.kind, p.source, p.target, p.sha, p.branch, p.state, u.name AS opened_by_name, p.opened_at
+const SELECT_PROMOTIONS = `SELECT p.id, p.kind, p.source, p.target, p.sha, p.branch, p.state, u.name AS opened_by_name, p.opened_at,
+  p.pull_request_number, p.pull_request_url
   FROM promotions p LEFT JOIN users u ON u.id::text = p.opened_by WHERE p.workspace_id = $1`;
 
 const RECENT_PROMOTIONS = 50;
@@ -91,6 +97,24 @@ export async function promotionRows(ctx: UseCaseContext, query: PromotionQuery =
     return ctx.db.query<PromotionRow>(`${SELECT_PROMOTIONS} ${conditions.join(' ')} ORDER BY p.opened_at DESC${limit}`, params);
 }
 
+export type NewPromotion = { kind: PromotionKind; source: string; target: string; sha: string; branch: string };
+
+export async function insertPromotion(
+    ctx: UseCaseContext,
+    promotion: NewPromotion,
+    mergeRequest?: MergeRequestLink,
+): Promise<PromotionRow> {
+    const id = crypto.randomUUID();
+    const { kind, source, target, sha, branch } = promotion;
+    await ctx.db.query(
+        `INSERT INTO promotions (id, workspace_id, kind, source, target, sha, branch, opened_by, state, pull_request_number, pull_request_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10)`,
+        [id, ctx.workspaceId, kind, source, target, sha, branch, ctx.userId, mergeRequest?.number ?? null, mergeRequest?.url ?? null],
+    );
+    const [row] = await promotionRows(ctx, { id });
+    return row!;
+}
+
 export type PromotionLinks = { topology: Topology; repository: string; provider: Provider | null };
 
 export function toPromotion(row: PromotionRow, links: PromotionLinks): Promotion {
@@ -106,9 +130,10 @@ export function toPromotion(row: PromotionRow, links: PromotionLinks): Promotion
         openedBy: row.opened_by_name,
         openedAt: new Date(row.opened_at).toISOString(),
         inTopology: !!edge,
+        number: row.pull_request_number,
         url:
             edge && links.provider && row.state === 'open'
-                ? pullRequestLink(links.repository, links.provider, row.branch, edge.into.branch)
+                ? (row.pull_request_url ?? pullRequestLink(links.repository, links.provider, row.branch, edge.into.branch))
                 : null,
     };
 }
@@ -153,10 +178,15 @@ async function hasContentOf(remote: GitRemote, targetTip: string, sha: string): 
     return merged.tree === (await remote.run(['rev-parse', `${targetTip}^{tree}`])).trim();
 }
 
-/** merged and closed are final; broken ends only as merged */
-export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, heads: Map<string, string>): Promise<void> {
+/** merged and closed are final; broken ends only as merged; adapter: the open rows' merge requests add their numbers and "closed" */
+export async function followPromotions(
+    ctx: UseCaseContext,
+    remote: GitRemote,
+    heads: Map<string, string>,
+    adapter?: () => Promise<ProviderAdapter | null>,
+): Promise<void> {
     const rows = await ctx.db.query<PromotionRow>(
-        `SELECT id, kind, source, target, sha, branch, state, NULL AS opened_by_name, opened_at FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
+        `SELECT id, kind, source, target, sha, branch, state, NULL AS opened_by_name, opened_at, pull_request_number, pull_request_url FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
         [ctx.workspaceId],
     );
     const configTip = heads.get(CONFIG_BRANCH);
@@ -165,12 +195,23 @@ export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, h
         return;
     }
     const topology = parseTopology(text);
+    const open = rows.flatMap(row => {
+        const edge = row.state === 'open' ? rowEdge(topology, row) : null;
+        return edge ? [{ row, into: edge.into.branch }] : [];
+    });
+    const adapterOn = open.length > 0 && adapter ? await adapter() : null;
+    const mergeRequests = adapterOn ? await mergeRequestsOfRows(ctx, adapterOn, open) : new Map<string, ProviderPullRequest>();
     for (const row of rows) {
         const edge = rowEdge(topology, row);
         if (!edge) {
             continue;
         }
-        const state = await stateInGit(remote, row, heads.get(edge.into.branch), heads);
+        const mergeRequest = mergeRequests.get(row.id);
+        if (mergeRequest && row.pull_request_number === null) {
+            await recordMergeRequest(ctx, row.id, mergeRequest);
+        }
+        const inGit = await stateInGit(remote, row, heads.get(edge.into.branch), heads);
+        const state = inGit === 'open' && mergeRequest?.state === 'closed' ? 'closed' : inGit;
         if (state !== row.state) {
             await ctx.db.query(`UPDATE promotions SET state = $2, state_at = now() WHERE id = $1 AND state = $3`, [
                 row.id,

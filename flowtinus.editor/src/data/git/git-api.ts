@@ -28,16 +28,18 @@ export type Topology =
 
 export type AccessTest = {
     ok: boolean;
-    checks: { step: 'read' | 'write'; ok: boolean; message: string }[];
+    checks: { step: 'read' | 'write' | 'api'; ok: boolean; message: string }[];
     topology: Topology | null;
     note: string;
 };
 
 export const CONFIG_BRANCH = 'flowtinus/config';
 
+export type AdapterView = { provider: Provider; on: boolean; notice?: string };
+
 /** hook (admins): the webhook's path on the server (git/hook/<workspace>/<token>) */
 export const getGitConfig = (ws: string) =>
-    api<{ config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll }>(`/w/${ws}/git`);
+    api<{ config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll; adapter?: AdapterView }>(`/w/${ws}/git`);
 
 export type GitCommitView = { sha: string; message?: string; author?: string; at?: string };
 
@@ -64,7 +66,15 @@ export const PROVIDERS: Record<Provider, string> = { gitlab: 'GitLab', github: '
 
 export const promotionSha = (sha: string) => sha.slice(0, 12);
 
-export type EnvironmentCard = { env: string; label: string; branch: string; mode: Mode; tip: string | null; here: boolean };
+export type EnvironmentCard = {
+    env: string;
+    label: string;
+    branch: string;
+    mode: Mode;
+    tip: string | null;
+    here: boolean;
+    warning?: string;
+};
 
 export type EnvironmentEdge = {
     source: string;
@@ -108,6 +118,7 @@ export type Promotion = {
     openedBy: string | null;
     openedAt: string;
     inTopology: boolean;
+    number: number | null;
     url: string | null;
 };
 
@@ -146,7 +157,11 @@ export type Preflight = {
         flows: { id: string; name: string; from?: string; changes: FlowChange[] }[];
         scripts: { path: string; change: 'added' | 'changed' | 'removed' }[];
     };
-    blocks: { kind: 'no-target' | 'conflicts' | 'ahead' | 'broken' | 'invalid' | 'empty'; message: string; issues?: TreeIssue[] }[];
+    blocks: {
+        kind: 'no-target' | 'conflicts' | 'ahead' | 'broken' | 'invalid' | 'empty' | 'squash' | 'merge-method';
+        message: string;
+        issues?: TreeIssue[];
+    }[];
     warnings: { kind: 'connections' | 'triggers' | 'drafts'; message: string; items: string[] }[];
     open: Promotion[];
 };
@@ -154,7 +169,7 @@ export type Preflight = {
 export const getPreflight = (ws: string, target: string, sha: string) =>
     api<Preflight>(`/w/${ws}/git/promotions/preflight?${new URLSearchParams({ target, sha })}`);
 
-export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: Provider | null };
+export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: Provider | null; notice?: string };
 
 export const openPromotion = (ws: string, target: string, sha: string) =>
     api<OpenedPromotion>(`/w/${ws}/git/promotions`, { method: 'POST', body: { target, sha } });
@@ -163,7 +178,11 @@ export type BackportPreflight = {
     sha: string | null;
     branch: string | null;
     conflicts: string[];
-    blocks: { kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid'; message: string; issues?: TreeIssue[] }[];
+    blocks: {
+        kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid' | 'squash' | 'merge-method';
+        message: string;
+        issues?: TreeIssue[];
+    }[];
     warnings: { kind: 'connections' | 'triggers'; message: string; items: string[] }[];
     open: Promotion[];
 };
@@ -177,12 +196,17 @@ export type OpenedBackport = {
     alsoOpen: Promotion[];
     conflicts: string[];
     provider: Provider | null;
+    notice?: string;
 };
 
 export const openBackport = (ws: string, target: string) =>
     api<OpenedBackport>(`/w/${ws}/git/backports`, { method: 'POST', body: { target } });
 
-export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null };
+export type MergeRequestLink = { number: number; url: string };
+
+export type OpenedMergeRequest = { mergeRequest?: MergeRequestLink; notice?: string };
+
+export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null } & OpenedMergeRequest;
 
 export const openRepair = (ws: string, promotion: string) =>
     api<OpenedRepair>(`/w/${ws}/git/promotions/${promotion}/repair`, { method: 'POST' });
@@ -209,6 +233,7 @@ export type BranchInfo = {
     changes: number;
     removed?: true;
     lostTip?: true;
+    mergeRequest?: MergeRequestLink;
 };
 
 export const REMOVED_BRANCH = 'Removed on the remote: create a branch with its changes, or discard them.';
@@ -231,9 +256,10 @@ export type PullRequest = {
     borrowed: { branch: string; commits: number }[];
     provider: Provider | null;
     url: string | null;
-};
+} & OpenedMergeRequest;
 
-export const openPullRequest = (ws: string) => api<PullRequest>(`/w/${ws}/git/pull-request`, { method: 'POST' });
+export const openPullRequest = (ws: string, title?: string) =>
+    api<PullRequest>(`/w/${ws}/git/pull-request`, { method: 'POST', body: title === undefined ? {} : { title } });
 
 export const createBranch = (ws: string, name: string, draft?: { flowId: string; flow: FlowFile }) =>
     api<{ branch: string; taken: string[]; cutFrom?: string; draft?: { revision: number } | { error: string } }>(`/w/${ws}/git/branches`, {
@@ -408,7 +434,9 @@ export const resolveConflict = (ws: string, path: string, revision: number, reso
 
 export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(`/w/${ws}/git/test`, { method: 'POST', body: config });
 
-export const getTopology = (ws: string) => api<{ topology: Topology }>(`/w/${ws}/git/topology`);
+export type ProtectionWarning = { env: string; branch: string; message: string };
+
+export const getTopology = (ws: string) => api<{ topology: Topology; protection?: ProtectionWarning[] }>(`/w/${ws}/git/topology`);
 
 export const createTopology = (ws: string, environment: { label?: string; branch?: string }) =>
     api<{ topology: Topology }>(`/w/${ws}/git/topology`, { method: 'POST', body: { confirm: true, ...environment } });

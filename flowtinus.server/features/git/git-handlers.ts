@@ -17,9 +17,27 @@ import { readLastPoll, recordPoll, type LastPoll } from './git-poll-state';
 import { readState } from './reconcile';
 import { fetchAndReconcile } from './git-heads';
 import { workspaceHandle } from '#features/folders/project-tree';
+import { providerAdapter } from './adapter-status';
+import { protectionWarnings, type ProtectionWarning } from './branch-protection';
+import type { Provider } from './pull-request';
+
+/** with git on, on a provider the app has an adapter for: whether it is on, and why not */
+export type AdapterView = { provider: Provider; on: boolean; notice?: string };
 
 /** hook (admins): the webhook's path on the server; lastPoll: the last fetch of the environment's branch, and why it could not reconcile */
-export type GitConfigView = { config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll };
+export type GitConfigView = { config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll; adapter?: AdapterView };
+
+async function adapterView(ctx: UseCaseContext, config: GitConfig): Promise<AdapterView | null> {
+    const access = await gitAccess(ctx, config);
+    if (!access.ok) {
+        return null;
+    }
+    const { provider, adapter, notice } = await providerAdapter(access.value);
+    if (!provider || (!adapter && !notice)) {
+        return null;
+    }
+    return adapter ? { provider, on: true } : { provider, on: false, notice: notice! };
+}
 
 export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<GitConfigView>> {
@@ -31,11 +49,13 @@ export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
         const state = await readGitState(ctx.db, ctx.workspaceId);
         const token = ctx.role === 'admin' ? await readHookToken(ctx.db, ctx.workspaceId) : null;
         const lastPoll = state?.on ? await readLastPoll(ctx.db, ctx.workspaceId) : null;
+        const adapter = state?.on ? await adapterView(ctx, state.config) : null;
         return success({
             config: state?.config ?? null,
             on: state?.on ?? false,
             ...(token ? { hook: hookPath(await workspaceHandle(ctx), token) } : {}),
             ...(lastPoll ? { lastPoll } : {}),
+            ...(adapter ? { adapter } : {}),
         });
     }
 }
@@ -84,7 +104,8 @@ export class SaveGitConfigHandler implements UseCaseHandler<{ config: GitConfig;
     }
 }
 
-export type AccessCheck = { step: 'read' | 'write'; ok: boolean; message: string };
+/** api: the provider's API, for the adapter; its failure leaves git working, so the access still works */
+export type AccessCheck = { step: 'read' | 'write' | 'api'; ok: boolean; message: string };
 
 export type AccessTestResult = { ok: boolean; checks: AccessCheck[]; topology: TopologyView | null; note: string };
 
@@ -112,13 +133,24 @@ export class TestGitAccessHandler implements UseCaseHandler<AccessTestResult> {
             return access;
         }
 
+        let result: AccessTestResult;
         try {
-            return success(
-                await withThrowawayClone(this.options.clonesDir, access.value, remote => testAccess(remote, config.value.environment)),
-            );
+            result = await withThrowawayClone(this.options.clonesDir, access.value, remote => testAccess(remote, config.value.environment));
         } catch (e) {
             return fail('unavailable', `The clone could not be made: ${reason(e)}`);
         }
+
+        const status = await providerAdapter(access.value);
+        if (status.adapter) {
+            result.checks.push({
+                step: 'api',
+                ok: true,
+                message: 'The API answers with this token: the app opens the pull requests itself.',
+            });
+        } else if (status.notice) {
+            result.checks.push({ step: 'api', ok: false, message: status.notice });
+        }
+        return success(result);
     }
 }
 
@@ -200,15 +232,20 @@ export async function onWorkspaceRepository<T>(
     }
 }
 
-export class GetTopologyHandler implements UseCaseHandler<{ topology: TopologyView }> {
+/** protection: where the provider's branch protection disagrees with the modes, with the adapter on */
+export type TopologyResult = { topology: TopologyView; protection?: ProtectionWarning[] };
+
+export class GetTopologyHandler implements UseCaseHandler<TopologyResult> {
     constructor(private readonly options: GitOptions) {}
 
-    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ topology: TopologyView }>> {
+    async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<TopologyResult>> {
         return (
             requireRole(ctx, 'viewer') ??
-            onWorkspaceRepository(ctx, this.options, async (remote, config) =>
-                success({ topology: await readTopology(remote, config.environment) }),
-            )
+            onWorkspaceRepository(ctx, this.options, async (remote, config) => {
+                const topology = await readTopology(remote, config.environment);
+                const protection = topology.exists ? await protectionWarnings(ctx, config, topology.environments) : [];
+                return success({ topology, ...(protection.length ? { protection } : {}) });
+            })
         );
     }
 }

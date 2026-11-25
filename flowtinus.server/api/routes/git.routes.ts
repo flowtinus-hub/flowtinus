@@ -61,7 +61,7 @@ export function gitRoutes(options: GitOptions) {
             toHttpResult(c, await new GetConflictHandler().handle({ path: c.req.query('path') }, c.get('useCase'))),
         )
         .post('/conflict', async c => toHttpResult(c, await new ResolveConflictHandler().handle(await jsonBody(c), c.get('useCase'))))
-        .post('/pull-request', async c => toHttpResult(c, await new OpenPullRequestHandler().handle({}, c.get('useCase'))))
+        .post('/pull-request', async c => toHttpResult(c, await new OpenPullRequestHandler().handle(await jsonBody(c), c.get('useCase'))))
         .post('/reconcile', async c => toHttpResult(c, await new ReconcileHandler(options).handle({}, c.get('useCase'))))
         .delete('/', async c => toHttpResult(c, await new RemoveGitConfigHandler().handle({}, c.get('useCase'))));
 }

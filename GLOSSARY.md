@@ -186,6 +186,14 @@ _Avoid_: Patch, emergency fix, quick fix
 The pull request that brings an environment ahead of its source into that source, one hop at a time, always a merge, from `backport/<environment>-<sha>` opened on the source's server. Once merged, the source may be ahead of its own source in turn, up to the root.
 _Avoid_: Cherry-pick, reverse promotion, downstream merge
 
+**Pull request**:
+A request, on the git provider, to merge one branch into an environment's branch, reviewed and merged there. The app opens one for a work branch, a hotfix, a promotion, a backport and a repair.
+_Avoid_: Merge request (except when quoting GitLab's screens), MR, PR
+
+**Provider adapter**:
+What the app does through the git provider's API that plain git cannot: opening a pull request, reading its state, the project's merge settings and the branches' protection. Optional: it turns on when the provider is known and the token can use its API; without it the app pushes the branch and links to the provider's page, and git alone tells the state.
+_Avoid_: Integration, connector (a connection is something else in the app), plugin
+
 ### Scripts
 
 **Handle**:

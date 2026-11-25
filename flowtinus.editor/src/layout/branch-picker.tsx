@@ -1,8 +1,8 @@
 import { Check, ChevronsUpDown, Flame, GitBranch, GitBranchPlus, GitMerge, GitPullRequestArrow, Lock, TriangleAlert } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, opensIntoEnvironment, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type Mode } from '@/data/git/git-api';
+import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, opensIntoEnvironment, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type MergeRequestLink, type Mode } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,21 @@ const GROUPS: { kind: BranchKind; label: string }[] = [
     { kind: 'shared', label: 'Shared branches' },
     { kind: 'backport', label: 'Backports' },
 ];
+
+function MergeRequestBadge({ mergeRequest }: { mergeRequest: MergeRequestLink }) {
+    return (
+        <a
+            className="shrink-0 font-mono text-xs text-muted-foreground underline hover:text-foreground"
+            href={mergeRequest.url}
+            target="_blank"
+            rel="noreferrer"
+            title={`Open merge request !${mergeRequest.number}`}
+            onClick={event => event.stopPropagation()}
+        >
+            !{mergeRequest.number}
+        </a>
+    );
+}
 
 function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: string | null; onPick: (name: string) => void }) {
     const who = branch.kind === 'user' ? (branch.mine ? 'yours' : (branch.ownerName ?? branch.owner)) : undefined;
@@ -37,6 +52,7 @@ function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: 
             {branch.removed && <span className="shrink-0 text-xs text-destructive">removed</span>}
             {who && <span className="shrink-0 text-xs text-muted-foreground">{who}</span>}
             {branch.merged && <span className="shrink-0 text-xs text-muted-foreground">merged</span>}
+            {branch.mergeRequest && <MergeRequestBadge mergeRequest={branch.mergeRequest} />}
             {branch.changes > 0 && (
                 <span className="shrink-0 text-xs text-muted-foreground" title={`${branch.changes} uncommitted on this server`}>
                     {branch.changes}
@@ -57,6 +73,7 @@ export function BranchPicker({ handle }: { handle: string }) {
         mode?: Mode;
         error?: string;
     } | null>(null);
+    const listedOnMount = useRef<string | null>(null);
     const [showMerged, setShowMerged] = useState(false);
     const [error, setError] = useState('');
     const [creating, setCreating] = useState(false);
@@ -79,6 +96,20 @@ export function BranchPicker({ handle }: { handle: string }) {
         };
     }, [handle]);
 
+    useEffect(() => {
+        let gone = false;
+        listedOnMount.current = handle;
+        void listBranches(handle).then(
+            result =>
+                !gone &&
+                result.ok &&
+                setBranches({ handle, list: result.value.branches, environment: result.value.environment, mode: result.value.mode }),
+        );
+        return () => {
+            gone = true;
+        };
+    }, [handle]);
+
     const value = current?.handle === handle ? current.value : null;
     if (!value?.branch) {
         return null;
@@ -89,6 +120,10 @@ export function BranchPicker({ handle }: { handle: string }) {
             return;
         }
         setError('');
+        if (listedOnMount.current === handle) {
+            listedOnMount.current = null;
+            return;
+        }
         void listBranches(handle).then(result =>
             setBranches(
                 result.ok
@@ -122,6 +157,7 @@ export function BranchPicker({ handle }: { handle: string }) {
     const updatable = canEdit && environment && work?.editable ? work : null;
     const pushable = work?.removed && (work.kind === 'shared' || work.mine) ? work : null;
     const protectedHere = branches?.handle === handle && branches.mode === 'protected';
+    const reviewing = list.find(b => b.name === value.branch)?.mergeRequest;
     const proposable = canEdit && environment && (!protectedHere || opensIntoEnvironment(work?.kind)) ? (updatable ?? pushable) : null;
 
     return (
@@ -196,6 +232,13 @@ export function BranchPicker({ handle }: { handle: string }) {
                                 <GitMerge />
                                 Merged into {environment}
                             </DropdownMenuItem>
+                        ) : reviewing ? (
+                            <DropdownMenuItem asChild>
+                                <a href={reviewing.url} target="_blank" rel="noreferrer">
+                                    <GitPullRequestArrow />
+                                    Merge request !{reviewing.number} to {environment}
+                                </a>
+                            </DropdownMenuItem>
                         ) : (
                             <DropdownMenuItem onSelect={() => setProposing(true)}>
                                 <GitPullRequestArrow />
@@ -216,6 +259,7 @@ export function BranchPicker({ handle }: { handle: string }) {
                     )}
                 </DropdownMenuContent>
             </DropdownMenu>
+            {reviewing && <MergeRequestBadge mergeRequest={reviewing} />}
             {error && (
                 <span className="max-w-64 truncate text-xs text-destructive" title={error}>
                     {error}
