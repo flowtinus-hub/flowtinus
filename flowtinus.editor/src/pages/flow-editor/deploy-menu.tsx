@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { deployedVersion, deployState, endsEmergencyRollback, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type EmergencyRollback, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
-import { deployFlow, deployVersion, discardDraft, emergencyRollback, emergencyRollbackChecks, endEmergencyRollback, getDeployments, makeGitMatch, restoreDraft, undeployFlow, type RollbackFix } from '@/data/deployments/deployments-api';
+import { deployedVersion, deployState, eventText, nextNumber, NO_DEPLOYMENTS, shortSha, switchAction, type DeployState, type EmergencyRollback, type FlowDeployments, type FlowVersion } from '@/data/deployments/deployment';
+import { deployFlow, deployVersion, discardDraft, emergencyRollback, emergencyRollbackChecks, endEmergencyRollback, getDeployments, makeGitMatch, restoreDraft, undeployFlow, type GitMatchBranch } from '@/data/deployments/deployments-api';
+import { EmergencyRollbackBadge } from '@/components/emergency-rollback-badge';
 import { Link } from 'react-router';
 import { RUNS_PATH } from '@/app/paths';
 import { CHANGES_CHANGED, getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
@@ -23,23 +24,14 @@ import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
 
-const endsRollbackText = (flowName: string, environment: string) => `This ends the emergency rollback of ${flowName} on ${environment}.`;
-
 /** the chip on the Deploy button */
-export function DeployBadge({ state, emergencyRollback = false }: { state: DeployState; emergencyRollback?: boolean }) {
+export function DeployBadge({ state, emergencyRollback }: { state: DeployState; emergencyRollback?: EmergencyRollback }) {
     if (state.kind === 'not-deployed') {
         return <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Not deployed</span>;
     }
 
     if (emergencyRollback) {
-        return (
-            <span
-                className="rounded-full bg-red-500/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-red-700 dark:text-red-400"
-                title={`v${state.version.number} runs here instead of git's version: an emergency rollback`}
-            >
-                v{state.version.number} · emergency rollback
-            </span>
-        );
+        return <EmergencyRollbackBadge {...emergencyRollback} small />;
     }
 
     return (
@@ -107,7 +99,7 @@ export function DeployMenu({
     // a pull-request or protected environment takes the tree's changes only from git
     const pullRequestsOnly = !!git && git.mode !== 'direct';
     const rollback = current.emergencyRollback;
-    const [fix, setFix] = useState<{ flowId: string; versionId: string; value: RollbackFix } | null>(null);
+    const [pushed, setPushed] = useState<{ flowId: string; versionId: string; value: GitMatchBranch } | null>(null);
 
     useEffect(() => {
         let gone = false;
@@ -205,11 +197,7 @@ export function DeployMenu({
 
         const latest = fresh?.ok ? fresh.value : current;
         const before = deployedVersion(latest);
-        const draft = draftNow();
-        const warnings = [
-            ...(latest.warnings ?? []),
-            ...(draft && endsEmergencyRollback(latest, draft) ? [endsRollbackText(draft.name, environment)] : []),
-        ];
+        const warnings = latest.warnings ?? [];
         if (latest.git) {
             setCommitting({
                 number: nextNumber(latest, draftNow()),
@@ -250,16 +238,14 @@ export function DeployMenu({
         const action = switchAction(current, version);
         const newest = current.versions[0]?.number ?? version.number;
         if (git) {
-            const ends = endsEmergencyRollback(current, version.definition);
             confirm({
                 title: version.number < newest ? `Commit a revert to v${version.number}?` : `Commit v${version.number} to ${target}?`,
                 description: (
                     <>
                         {`A commit to ${target} of v${version.number}'s content, deployed as a new version.${deployed ? ` Replaces v${deployed.number}.` : ''}`}
-                        {ends && (
+                        {version.endsEmergencyRollback && (
                             <span className="mt-2 flex gap-1.5 text-amber-700 dark:text-amber-400">
-                                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />{' '}
-                                {endsRollbackText(version.definition.name, environment)}
+                                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" /> {version.endsEmergencyRollback}
                             </span>
                         )}
                     </>
@@ -281,8 +267,7 @@ export function DeployMenu({
         });
     };
 
-    const runsOf = (status: 'running' | 'queued') =>
-        `${RUNS_PATH}?${new URLSearchParams({ workspace, status, q: draftNow()?.name ?? '' })}`;
+    const runsOf = (status: 'running' | 'queued') => `${RUNS_PATH}?${new URLSearchParams({ workspace, status, flow: flowId })}`;
 
     const rollBackTo = async (version: FlowVersion) => {
         setBusy(true);
@@ -352,8 +337,8 @@ export function DeployMenu({
             onConfirm: () =>
                 act(async () => {
                     const result = await makeGitMatch(flowId);
-                    if (result.ok && result.value.fix) {
-                        setFix({ flowId, versionId: rolledBack.versionId, value: result.value.fix });
+                    if (result.ok && result.value.pushed) {
+                        setPushed({ flowId, versionId: rolledBack.versionId, value: result.value.pushed });
                     }
                     return result;
                 }),
@@ -410,7 +395,7 @@ export function DeployMenu({
                                 Conflict
                             </span>
                         ) : (
-                            <DeployBadge state={state} emergencyRollback={!!rollback} />
+                            <DeployBadge state={state} emergencyRollback={rollback} />
                         )}
                     </Button>
                 </DropdownMenuTrigger>
@@ -488,7 +473,7 @@ export function DeployMenu({
                     rollback={rollback}
                     environment={environment}
                     busy={busy || disabled}
-                    fix={fix?.flowId === flowId && fix.versionId === rollback.versionId ? fix.value : null}
+                    pushed={pushed?.flowId === flowId && pushed.versionId === rollback.versionId ? pushed.value : null}
                     onMatchGit={() => matchGit(rollback)}
                     onEnd={() => endRollback(rollback)}
                 />
@@ -515,17 +500,15 @@ export function DeployMenu({
     );
 }
 
-/** under the canvas's tools while this server runs another version than git's */
 function EmergencyRollbackBanner(props: {
     rollback: EmergencyRollback;
     environment: string;
     busy: boolean;
-    /** the branch the fix was pushed to, in the modes with a review */
-    fix: RollbackFix | null;
+    pushed: GitMatchBranch | null;
     onMatchGit: () => void;
     onEnd: () => void;
 }) {
-    const { rollback, environment, busy, fix, onMatchGit, onEnd } = props;
+    const { rollback, environment, busy, pushed, onMatchGit, onEnd } = props;
     return (
         <div className="flex basis-full justify-end">
             <div
@@ -546,25 +529,25 @@ function EmergencyRollbackBanner(props: {
                 <Button variant="outline" size="sm" className="shrink-0" disabled={busy} onClick={onEnd}>
                     <Undo2 /> End the emergency rollback
                 </Button>
-                {fix && (
+                {pushed && (
                     <span className="flex basis-full flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
                         <span>
                             <GitPullRequestArrow className="mr-1 inline size-4" />
-                            {fix.reused ? 'Already pushed: ' : 'Pushed '}
-                            <span className="font-mono">{fix.branch}</span>, into <span className="font-mono">{fix.target}</span>.
+                            {pushed.reused ? 'Already pushed: ' : 'Pushed '}
+                            <span className="font-mono">{pushed.branch}</span>, into <span className="font-mono">{pushed.target}</span>.
                         </span>
-                        {fix.url && (
+                        {pushed.url && (
                             <a
-                                href={fix.url}
+                                href={pushed.url}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1 text-primary hover:underline"
                             >
-                                {fix.mergeRequest ? `Pull request #${fix.mergeRequest.number}` : 'Open the pull request'}
+                                {pushed.mergeRequest ? `Pull request #${pushed.mergeRequest.number}` : 'Open the pull request'}
                                 <ExternalLink className="size-3.5" />
                             </a>
                         )}
-                        {fix.notice && <span className="basis-full text-amber-700 dark:text-amber-400">{fix.notice}</span>}
+                        {pushed.notice && <span className="basis-full text-amber-700 dark:text-amber-400">{pushed.notice}</span>}
                     </span>
                 )}
             </div>
@@ -692,7 +675,6 @@ export function VersionsDialog(props: {
     busy: boolean;
     /** absent: versions cannot be deployed from here (an environment that only takes pull requests) */
     onSwitch?: (version: FlowVersion) => void;
-    /** with git on: run a version that ran here, without git */
     onEmergencyRollback?: (version: FlowVersion) => void;
     onRestore: (version: FlowVersion) => void;
 }) {

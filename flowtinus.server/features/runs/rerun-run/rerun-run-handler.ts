@@ -15,10 +15,6 @@ export const RerunRunCommand = z.object({ id: z.uuid('Invalid') });
 
 export type RerunCheck = { leftByEmergencyRollback: { flowId: string; name: string; version: number }[] };
 
-/**
- * What to ask before a re-run: the versions it ran, its own or of a flow it called, that an emergency rollback left and
- * that do not run now. The rerun of what a rollback undid would bring it back.
- */
 export class RerunCheckHandler implements UseCaseHandler<RerunCheck> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<RerunCheck>> {
         const parsed = validate(RerunRunCommand, input);

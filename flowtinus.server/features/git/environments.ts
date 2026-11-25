@@ -1,5 +1,5 @@
 import { repoFlowFromYaml } from '@flowtinus/core';
-import { contentHash, emergencyRollbacks, type EmergencyRollback } from '#features/deployments/deployments';
+import { contentHash, emergencyRollbacks, type EmergencyRollback, type EmergencyRollbackState } from '#features/deployments/deployments';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -26,7 +26,6 @@ export type EnvironmentCard = {
     tip: string | null;
     here: boolean;
     warning?: string;
-    /** this server's environment: how many flows run an emergency rollback */
     emergencyRollbacks?: number;
 };
 
@@ -45,15 +44,12 @@ export type EnvironmentEdge = {
     backports: Promotion[];
 };
 
-/**
- * content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here;
- * emergencyRollback: on this server's column, the version that runs instead of git's
- */
+/** content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here */
 export type FlowCell = {
     state: 'deployed' | 'undeployed' | 'absent';
     content: 'same' | 'other' | null;
     differs: boolean;
-    emergencyRollback?: { number: number; gitNumber: number };
+    emergencyRollback?: Pick<EmergencyRollbackState, 'number' | 'gitNumber'>;
 };
 
 /** name: the flow's path in its project, from this server unless it is absent here; a cell is null where the branch does not exist */

@@ -1,4 +1,5 @@
 import { deployContent, flowChanges } from '@flowtinus/core';
+import { gitVersionOf } from '#features/deployments/deployments';
 import { GetDeploymentsHandler } from '#features/deployments/get-deployments/get-deployments-handler';
 import { defineTool, failed, id, mcpEmergencyRollback, ok } from './tool';
 
@@ -19,8 +20,7 @@ export const getDeployments = defineTool({
         }
         const { versions, deployed, warnings, emergencyRollback: rollback } = result.value;
         const version = deployed ? versions.find(v => v.id === deployed.versionId) : undefined;
-        // the draft's base is git's version: an emergency rollback runs another one
-        const base = rollback ? versions.find(v => v.id === rollback.gitVersionId) : version;
+        const base = gitVersionOf(result.value);
         const changes = base ? flowChanges(base.definition, found.value.draft.flow) : null;
         return ok({
             deployedVersion: version?.number ?? null,

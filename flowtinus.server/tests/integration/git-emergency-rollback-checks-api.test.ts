@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { repoFlowToYaml, type FlowFile, type FlowFileNode } from '@flowtinus/core';
+import { connectionToYaml, repoFlowToYaml, type FlowFile, type FlowFileNode } from '@flowtinus/core';
 import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
@@ -70,8 +70,8 @@ describe("the emergency rollback's checks: the tree with the old version swapped
             return repoFlowToYaml(file, { deployed: flow.deployed ?? true });
         };
         // the whole of the project's flows and scripts as git has them after this commit, reconciled
-        const push = async (flows: Flows, scripts: Record<string, string> = {}) => {
-            const files = { ...base };
+        const push = async (flows: Flows, scripts: Record<string, string> = {}, others: Record<string, string> = {}) => {
+            const files = { ...base, ...others };
             for (const [name, flow] of Object.entries(flows)) {
                 files[`${handle}/projects/Sales/flows/${name}.flow.yaml`] = fileOf(name, flow);
             }
@@ -130,6 +130,36 @@ describe("the emergency rollback's checks: the tree with the old version swapped
         ]);
         const refused = await rollBack(id.orders, v1);
         expect([refused.status, refused.body.error.message]).toEqual([400, errors.join(' ')]);
+    });
+
+    test('a called flow, script or connection that does not exist blocks, even when the running version has it too', async () => {
+        const { handle, push, scriptRef, version, check, rollBack } = await workspace();
+        const id = ids();
+        const connection = crypto.randomUUID();
+        const warehouse = { [`${handle}/connections/Warehouse.yaml`]: connectionToYaml({ id: connection, type: 'sqlserver' }) };
+        const lib = { lib: 'export function fn() { return 1; }\n' };
+        const defects = (label: string) => [
+            callTo(id.billing),
+            { id: 'fn', type: 'script', config: { function: scriptRef('lib#fn') } },
+            { id: 'read', type: 'sqlserver', config: { connection, query: 'SELECT 1' } },
+            { id: 'log', type: 'log', config: { message: label } },
+        ];
+        const now = { id: id.orders, nodes: [{ id: 'log', type: 'log', config: { message: 'v3' } }] };
+        await push({ Orders: { id: id.orders, nodes: defects('v1') }, Billing: { id: id.billing } }, lib, warehouse);
+        await push({ Orders: { id: id.orders, nodes: defects('v2') }, Billing: { id: id.billing } }, lib, warehouse);
+        await push({ Orders: now, Billing: { id: id.billing } }, lib, warehouse);
+        expect((await rollBack(id.orders, await version(id.orders, 2))).status).toBe(200);
+        // git's Orders is untouched: the rollback stays, and v2 runs with all three gone
+        await push({ Orders: now });
+        const v1 = await version(id.orders, 1);
+
+        const { errors } = await check(id.orders, v1);
+        expect(errors).toEqual([
+            `Node "call" calls the flow "${id.billing}", which is not in the workspace.`,
+            `Node "fn" uses the script "${scriptRef('lib')}", which is not in the workspace.`,
+            `Node "read" uses the connection "${connection}", which is not declared in ${handle}/connections.`,
+        ]);
+        expect((await rollBack(id.orders, v1)).status).toBe(400);
     });
 
     test('blocks on a called flow not deployed here, unless the running version calls it too', async () => {

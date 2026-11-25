@@ -17,7 +17,8 @@ import { abortMerge, commitPendingMerge } from './update';
 import { ENVIRONMENT_BRANCH, followGit, hasWorkingCopy, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
 import { committedFlowText, exportTree, flowName, flowsInRepo, type GitChanges, type RepoFiles } from './workspace-export';
 import { flowsIn } from './environments';
-import { endsRollbackMessage, rollbacksEndedByAccident, type FlowAfter } from './emergency-rollback-warnings';
+import { endsRollbackMessage } from '#features/deployments/emergency-rollback/emergency-rollback-content';
+import { rollbacksEndedByAccident, type FlowAfter } from './emergency-rollback-warnings';
 import { importStructure, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed';
@@ -35,7 +36,6 @@ export type WorkingChange = {
     mine: boolean;
     conflict?: string;
     requires: Requirement[];
-    /** committed, it would end an emergency rollback of this environment by accident */
     endsEmergencyRollback?: string;
 };
 

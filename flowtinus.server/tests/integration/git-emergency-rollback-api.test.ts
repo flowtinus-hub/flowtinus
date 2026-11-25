@@ -107,7 +107,25 @@ describe('the emergency rollback: an environment runs an older version of one fl
         if (mode !== 'direct') {
             await setMode(mode);
         }
-        return { id, as, call, projectId, orders, v1, v2, v3, repo, ordersPath, show, pushOrders, relabelled, deployments, runs, relabel };
+        return {
+            id,
+            as,
+            call,
+            projectId,
+            orders,
+            v1,
+            v2,
+            v3,
+            repo,
+            ordersPath,
+            show,
+            filesOf,
+            pushOrders,
+            relabelled,
+            deployments,
+            runs,
+            relabel,
+        };
     }
 
     const rollBack = (call: (method: string, path: string) => Promise<{ status: number; body: any }>, flowId: string, version: Version) =>
@@ -323,6 +341,30 @@ describe('the emergency rollback: an environment runs an older version of one fl
         expect((await call('GET', `/flows/${orders}/draft`)).body.flow.nodes.find((n: { type: string }) => n.type === 'start').label).toBe(
             'Three',
         );
+    });
+
+    test("a flow git brought, with no draft here: during a rollback its draft and the working copy are git's version", async () => {
+        const { call, repo, ordersPath, filesOf, relabelled } = await workspace();
+        const billing = crypto.randomUUID();
+        const path = ordersPath.replace('Orders.flow.yaml', 'Billing.flow.yaml');
+        const pushBilling = async (label: string) => {
+            const files = filesOf('dev');
+            const read = repoFlowFromYaml(files[ordersPath]!, 'Orders');
+            if (!read.ok) {
+                throw new Error(read.errors.join(' '));
+            }
+            const flow = relabelled({ ...read.value.flow, id: billing, name: 'Billing' }, label);
+            commitFiles(repo, 'dev', { ...files, [path]: repoFlowToYaml(flow, { deployed: true }) }, 'From git');
+            expect((await call('POST', '/git/reconcile')).body.outcome).toBe('applied');
+        };
+        await pushBilling('One');
+        await pushBilling('Two');
+        const v1 = (await call('GET', `/flows/${billing}/deployments`)).body.versions.find((v: Version) => v.number === 1);
+        expect((await rollBack(call, billing, v1)).status).toBe(200);
+
+        const draft = (await call('GET', `/flows/${billing}/draft`)).body.flow;
+        expect(draft.nodes.find((n: { type: string }) => n.type === 'start').label).toBe('Two');
+        expect((await call('GET', '/git/changes')).body.changes).toEqual([]);
     });
 
     test('turning git off ends the rollback: the flow stays at the rolled-back version, an ordinary deployment', async () => {

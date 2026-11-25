@@ -67,8 +67,8 @@ export const committedFlowText = (flowId: string, inRepo: Omit<FlowInRepo, 'flow
 
 export type Tree = { files: RepoFiles; ids: Record<string, string> };
 
-/** 'deployed': git's version of each flow with the scripts the last applied commit deployed, no draft of a script */
-export async function exportTree(db: Database, workspaceId: string, mode: 'working' | 'committed' | 'deployed' = 'working'): Promise<Tree> {
+/** 'git': git's version of each flow (not the one an emergency rollback runs) with the scripts the last applied commit deployed, no draft of a script */
+export async function exportTree(db: Database, workspaceId: string, mode: 'working' | 'committed' | 'git' = 'working'): Promise<Tree> {
     const [workspace, connections, projects, flowVersions, deployedScripts, scriptFolders, rows] = await Promise.all([
         workspaceHandleIn(db, workspaceId),
         db.query<{ id: string; name: string; type: ConnectionTypeName }>(
@@ -141,7 +141,7 @@ export async function exportTree(db: Database, workspaceId: string, mode: 'worki
 
         const scripts = new Map(deployedScripts.filter(s => s.project_id === project.id).map(s => [s.path, s.content]));
         const prefix = scriptFileId(project.id, '');
-        for (const [fileId, row] of mode === 'deployed' ? [] : best) {
+        for (const [fileId, row] of mode === 'git' ? [] : best) {
             if (fileId.startsWith(prefix)) {
                 const path = fileId.slice(prefix.length);
                 if (row.deleted) {

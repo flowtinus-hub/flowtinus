@@ -139,6 +139,26 @@ describe('the warnings around an emergency rollback: before a change ends it by 
         expect(await warningOf(at('flows/Orders.flow.yaml'))).toBeUndefined();
     });
 
+    test("the canvas's Deploy and Revert to vN warn when they end the rollback by accident: not git's version, nor what runs", async () => {
+        const { call, orders, v1, relabel, rollBack } = await workspace();
+        await rollBack(orders, v1);
+        const ends = 'This ends the emergency rollback of Orders on DEV.';
+        const view = async () => (await call('GET', `/flows/${orders}/deployments`)).body;
+
+        const { versions, warnings } = await view();
+        expect(versions.map((v: { number: number; endsEmergencyRollback?: string }) => [v.number, v.endsEmergencyRollback])).toEqual([
+            [3, undefined],
+            [2, ends],
+            [1, undefined],
+        ]);
+        expect(warnings).toEqual([]);
+
+        await relabel(orders, 'Four');
+        expect((await view()).warnings).toEqual([ends]);
+        await relabel(orders, 'One');
+        expect((await view()).warnings).toEqual([]);
+    });
+
     test('a pull request into this environment warns when it ends the rollback by accident, not when it carries what runs', async () => {
         const { call, orders, v1, relabel, rollBack } = await workspace();
         await rollBack(orders, v1);

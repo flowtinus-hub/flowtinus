@@ -4,6 +4,8 @@
  * A flow has only a name: the project's icon and color stand for its flows.
  */
 
+import type { EmergencyRollback } from '@/data/deployments/deployment';
+
 export { NAME_MAX, validateName } from '@flowtinus/core';
 
 export type Folder = {
@@ -39,7 +41,7 @@ export type Flow = {
     /** the number of its deployed version in this environment: null when not deployed (known in the project's lists) */
     deployedVersion?: number | null;
     /** with git on: deployedVersion runs here instead of git's version (known in the project's lists) */
-    emergencyRollback?: { number: number; gitNumber: number; byName?: string };
+    emergencyRollback?: Pick<EmergencyRollback, 'number' | 'gitNumber' | 'byName'>;
     /** how many schedules it has, and how many are on (known in the project's lists; null: none) */
     schedules?: { total: number; on: number } | null;
     /** how many webhooks it has, and how many are on (known in the project's lists; null: none) */
