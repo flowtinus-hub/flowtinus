@@ -100,7 +100,7 @@ _Avoid_: Run result, run record (the summary is shrunk from it)
 
 **Environment**:
 One server's place in the topology, with the branch it deploys from and the environments it promotes to.
-_Avoid_: Stage, instance (the server itself), target
+_Avoid_: Stage, instance (the server itself), target (except as the end of a promotion)
 
 **Topology**:
 The environments of a repository and how flows are promoted between them, kept on a branch of its own outside the pipeline.
@@ -139,7 +139,7 @@ The uncommitted changes of one branch on one server: changed files in the repo f
 _Avoid_: Draft (with git on), stash, local changes
 
 **Work branch**:
-Any branch that is not an environment's branch and not one of the app's own (`promote/`, `backport/`, `hotfix/`): a user's branch or a shared one.
+Any branch that is not an environment's branch and not one of the app's own (`promote/`, `repair/`, `backport/`, `hotfix/`): a user's branch or a shared one.
 _Avoid_: Feature branch, dev branch
 
 **User branch**:
@@ -153,6 +153,30 @@ _Avoid_: Handle (alone, it is a workspace's or a project's), username
 **Pending merge**:
 An Update that met conflicts: the conflicted files marked in the working copy and the second parent kept, until it is committed whole or aborted.
 _Avoid_: Merge in progress, unfinished update
+
+**Promotion**:
+A pull request that carries everything committed on an environment's branch up to one of its first-parent commits into an environment it promotes to, opened by the source's server. Never squashed or rebased.
+_Avoid_: Deploy, release, sync (between environments)
+
+**Promotion branch**:
+The branch `promote/<source>-<sha>` a promotion is opened from: it points at the chosen commit, so the pull request stays what was chosen.
+_Avoid_: Release branch
+
+**Pre-flight**:
+The checks shown before a promotion is opened, and run again when it is: those that block it and those that only warn.
+_Avoid_: Dry run, preview
+
+**Ahead of its source**:
+The state of an environment whose branch, merged into its source's branch, would change the source's tree. While it lasts, the promotion from that source into it is blocked.
+_Avoid_: Git ahead (the server behind its own branch), diverged
+
+**Broken lineage**:
+The state of a promotion whose content reached the target but whose commit did not (a squash or a rebase on the provider). While it lasts, promotions along that edge are blocked.
+_Avoid_: Diverged history, bad merge
+
+**Repair**:
+The pull request that ends a broken lineage: a merge of the promoted commit into the target that keeps the target's tree, from `repair/<target>-<sha>`. It changes no file and deploys nothing.
+_Avoid_: Fix, re-promotion
 
 ### Scripts
 

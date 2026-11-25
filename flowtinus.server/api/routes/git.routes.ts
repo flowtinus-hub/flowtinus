@@ -5,6 +5,8 @@ import { GetCurrentBranchHandler, SetCurrentBranchHandler } from '#features/git/
 import { ListBranchesHandler } from '#features/git/branches';
 import { OpenPullRequestHandler } from '#features/git/pull-request';
 import { GetFileDiffHandler } from '#features/git/file-diff';
+import { GetEnvironmentsHandler } from '#features/git/environments';
+import { GetCommitGraphHandler, GetPreflightHandler, OpenPromotionHandler, OpenRepairHandler } from '#features/git/promotions';
 import { ListArrivedDisabledHandler } from '#features/git/arrived-disabled';
 import { CommitChangesHandler, CreateBranchHandler, DiscardChangesHandler, GetChangesHandler, GetConflictHandler, GetUpdateHandler, ResolveConflictHandler, UpdateBranchHandler } from '#features/git/working-copy-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
@@ -23,6 +25,19 @@ export function gitRoutes(options: GitOptions) {
         .get('/on', async c => toHttpResult(c, await new GetTurnOnPlanHandler(options).handle({}, c.get('useCase'))))
         .post('/on', async c => toHttpResult(c, await new TurnGitOnHandler(options).handle(await jsonBody(c), c.get('useCase'))))
         .get('/status', async c => toHttpResult(c, await new GetGitStatusHandler().handle({}, c.get('useCase'))))
+        .get('/environments', async c => toHttpResult(c, await new GetEnvironmentsHandler(options).handle({}, c.get('useCase'))))
+        .get('/promotions/graph', async c =>
+            toHttpResult(c, await new GetCommitGraphHandler(options).handle(c.req.query(), c.get('useCase'))),
+        )
+        .get('/promotions/preflight', async c =>
+            toHttpResult(c, await new GetPreflightHandler(options).handle(c.req.query(), c.get('useCase'))),
+        )
+        .post('/promotions', async c =>
+            toHttpResult(c, await new OpenPromotionHandler(options).handle(await jsonBody(c), c.get('useCase'))),
+        )
+        .post('/promotions/:id/repair', async c =>
+            toHttpResult(c, await new OpenRepairHandler(options).handle({ id: c.req.param('id') }, c.get('useCase'))),
+        )
         .get('/arrived-disabled', async c => toHttpResult(c, await new ListArrivedDisabledHandler().handle({}, c.get('useCase'))))
         .get('/branches', async c => toHttpResult(c, await new ListBranchesHandler(options).handle({}, c.get('useCase'))))
         .post('/branches', async c => toHttpResult(c, await new CreateBranchHandler().handle(await jsonBody(c), c.get('useCase')), 201))

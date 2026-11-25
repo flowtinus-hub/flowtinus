@@ -18,6 +18,8 @@ export const connectionsPath = (ws: string) => `/w/${ws}/connections`;
 /** a workspace's secrets and variables (for all its projects) */
 export const secretsPath = (ws: string) => `/w/${ws}/secrets`;
 
+export const environmentsPath = (ws: string) => `/w/${ws}/environments`;
+
 /** a workspace's name, description, icon, color and members */
 export const workspaceSettingsPath = (ws: string) => `/w/${ws}/settings`;
 

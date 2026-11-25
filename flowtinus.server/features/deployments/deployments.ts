@@ -34,7 +34,7 @@ export type FlowVersionView = {
     commitMessage?: string;
 };
 
-export type DeploymentAction = 'deploy' | 'promote' | 'rollback' | 'undeploy';
+export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy';
 
 export type DeploymentEventView = {
     action: DeploymentAction;
