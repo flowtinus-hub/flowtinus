@@ -23,6 +23,7 @@ describe('database', () => {
                     'deployment_history',
                     'deployed_scripts',
                     'deployments',
+                    'emergency_rollbacks',
                     'flow_schedules',
                     'flow_versions',
                     'flow_webhooks',

@@ -23,7 +23,7 @@ export type FlowVersion = {
     commitMessage?: string;
 };
 
-export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy';
+export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy' | 'emergency-rollback' | 'end-emergency-rollback';
 
 /** one change of what is deployed */
 export type DeploymentEvent = {
@@ -57,6 +57,18 @@ export type FlowDeployments = {
     /** with git on: the changed scripts the draft imports (directly or through another script), offered to its Commit */
     changedScripts?: string[];
     triggersChanged?: true;
+    /** with git on: this server runs an older version than git's, until a commit changes the flow's content or it is ended */
+    emergencyRollback?: EmergencyRollback;
+};
+
+export type EmergencyRollback = {
+    versionId: string;
+    number: number;
+    gitVersionId: string;
+    gitNumber: number;
+    by: string | null;
+    byName?: string;
+    at: Date;
 };
 
 /** a commit as the editor shows it */
@@ -103,6 +115,15 @@ export function eventText(event: DeploymentEvent): string {
             return `Undeployed v${event.fromNumber}`;
         case 'rollback':
             return `Rolled back to v${event.toNumber}${was}`;
+        case 'emergency-rollback':
+            return `Emergency rollback to v${event.toNumber}${was}`;
+        case 'end-emergency-rollback':
+            if (event.toNumber !== null) {
+                return `Ended the emergency rollback of v${event.fromNumber}: back to git's v${event.toNumber}`;
+            }
+            return event.commit
+                ? `Emergency rollback of v${event.fromNumber} ended by commit ${shortSha(event.commit)}`
+                : `Emergency rollback of v${event.fromNumber} ended: git turned off`;
         default:
             return `Deployed v${event.toNumber}${was}`;
     }
