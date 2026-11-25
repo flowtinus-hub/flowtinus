@@ -336,9 +336,12 @@ export function DeployMenu({
             busyLabel: pullRequestsOnly ? 'Pushing…' : 'Committing…',
             onConfirm: () =>
                 act(async () => {
+                    await flush();
                     const result = await makeGitMatch(flowId);
                     if (result.ok && result.value.pushed) {
                         setPushed({ flowId, versionId: rolledBack.versionId, value: result.value.pushed });
+                    } else if (result.ok) {
+                        onDraftReplaced();
                     }
                     return result;
                 }),
