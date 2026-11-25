@@ -1,10 +1,10 @@
-import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, CirclePause } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, CirclePause, Layers } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { arrivedCount, CHANGES_CHANGED, getGitStatus, GIT_STATUS_CHANGED, gitAhead, listArrivedDisabled, ONLY_PULL_REQUESTS, TRIGGERS_SWITCHED, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
-import { connectionsPath, projectsPath, RUNS_PATH, secretsPath, WORKERS_PATH, workspaceSettingsPath, WORKSPACES_PATH } from '@/app/paths';
+import { connectionsPath, environmentsPath, projectsPath, RUNS_PATH, secretsPath, WORKERS_PATH, workspaceSettingsPath, WORKSPACES_PATH } from '@/app/paths';
 import { mockUser } from '@/auth/mock-user';
 import { useMe, useMenuWorkspace } from '@/data/workspaces/use-workspace';
 import { ROLE_LABEL, type Membership } from '@/data/workspaces/workspace';
@@ -74,9 +74,13 @@ function WorkspaceSwitcher({
 /** looked at again on this interval, and on each page */
 const GIT_STATUS_MS = 60_000;
 
-function GitItems({ handle, pathname }: { handle: string; pathname: string }) {
+/** the workspace's git status, read on each page, on this interval and when it changed here; null until it answers */
+function useGitStatus(handle: string | null, pathname: string): GitStatus | null {
     const [status, setStatus] = useState<{ handle: string; value: GitStatus } | null>(null);
     useEffect(() => {
+        if (!handle) {
+            return;
+        }
         let gone = false;
         const read = () => void getGitStatus(handle).then(result => !gone && result.ok && setStatus({ handle, value: result.value }));
         read();
@@ -89,7 +93,10 @@ function GitItems({ handle, pathname }: { handle: string; pathname: string }) {
         };
     }, [handle, pathname]);
 
-    const value = status?.handle === handle ? status.value : null;
+    return status?.handle === handle ? status.value : null;
+}
+
+function GitItems({ handle, pathname, value }: { handle: string; pathname: string; value: GitStatus | null }) {
     return value?.on ? (
         <>
             <GitAheadItem handle={handle} value={value} />
@@ -98,13 +105,13 @@ function GitItems({ handle, pathname }: { handle: string; pathname: string }) {
     ) : null;
 }
 
-/** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the git section */
+/** with git on, when git is ahead of the deploy (a refused commit, or unreachable): a line to the Environments page */
 function GitAheadItem({ handle, value }: { handle: string; value: Extract<GitStatus, { on: true }> }) {
     if (!gitAhead(value) && value.mode !== 'direct') {
         return (
             <SidebarMenuItem>
                 <SidebarMenuButton tooltip={ONLY_PULL_REQUESTS} asChild className="text-muted-foreground">
-                    <NavLink to={`${workspaceSettingsPath(handle)}?tab=git#git`} title={ONLY_PULL_REQUESTS}>
+                    <NavLink to={environmentsPath(handle)} title={ONLY_PULL_REQUESTS}>
                         <GitPullRequest />
                         <span>Pull requests only</span>
                     </NavLink>
@@ -119,7 +126,7 @@ function GitAheadItem({ handle, value }: { handle: string; value: Extract<GitSta
     return (
         <SidebarMenuItem>
             <SidebarMenuButton tooltip={label} asChild className="text-amber-700 dark:text-amber-400">
-                <NavLink to={`${workspaceSettingsPath(handle)}?tab=git#git`}>
+                <NavLink to={environmentsPath(handle)}>
                     <TriangleAlert />
                     <span>{label}</span>
                 </NavLink>
@@ -167,6 +174,7 @@ export function AppSidebar() {
     const { state } = useMe();
     const workspaces = state.status === 'ready' ? state.me.workspaces : [];
     const current = useMenuWorkspace(workspaces);
+    const git = useGitStatus(current?.handle ?? null, pathname);
 
     // the current workspace's pages; the environment's at the bottom
     const workspaceItems = current
@@ -174,6 +182,7 @@ export function AppSidebar() {
               { to: projectsPath(current.handle), label: 'Projects', icon: FolderKanban },
               { to: connectionsPath(current.handle), label: 'Connections', icon: Plug },
               { to: secretsPath(current.handle), label: 'Secrets and Variables', icon: KeyRound },
+              ...(git?.on ? [{ to: environmentsPath(current.handle), label: 'Environments', icon: Layers }] : []),
               { to: workspaceSettingsPath(current.handle), label: 'Settings', icon: Settings },
           ]
         : [];
@@ -206,7 +215,7 @@ export function AppSidebar() {
                     // with git off every item renders nothing: the group and its lines go too
                     <SidebarGroup className="mx-2 w-auto border-y border-sidebar-border px-0 has-[>ul:empty]:hidden">
                         <SidebarMenu>
-                            <GitItems handle={current.handle} pathname={pathname} />
+                            <GitItems handle={current.handle} pathname={pathname} value={git} />
                         </SidebarMenu>
                     </SidebarGroup>
                 )}

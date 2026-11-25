@@ -11,12 +11,13 @@ import { SecretsPage } from '@/pages/workspace-secrets/secrets-page';
 import { WorkersPage } from '@/pages/workers/workers-page';
 import { TokensPage } from '@/pages/tokens/tokens-page';
 import { WorkspaceSettingsPage } from '@/pages/workspaces/workspace-settings-page';
+import { EnvironmentsPage } from '@/pages/environments/environments-page';
 import { WorkspacesPage } from '@/pages/workspaces/workspaces-page';
 import { HomeRedirect, WorkspaceScope } from './workspace-scope';
 
 /**
  * The pages inside the shell (sidebar + top bar): a new page is a new child here and an item in app-sidebar.tsx.
- * A workspace's pages are under /w/:ws (its projects, connections, secrets and variables, settings); a project has
+ * A workspace's pages are under /w/:ws (its projects, connections, secrets and variables, environments, settings); a project has
  * tabs: flows, scripts, files. The runs, the workers, the list of workspaces and the user's access tokens are the environment's. The flow editor
  * has the whole screen (its own top bar, no sidebar), so it sits outside the shell. URLs in paths.ts.
  */
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
                     { path: 'projects/:projectId/files', element: <Navigate to="../flows" relative="path" replace /> },
                     { path: 'connections', element: <ConnectionsPage /> },
                     { path: 'secrets', element: <SecretsPage /> },
+                    { path: 'environments', element: <EnvironmentsPage /> },
                     { path: 'settings', element: <WorkspaceSettingsPage /> },
                 ],
             },

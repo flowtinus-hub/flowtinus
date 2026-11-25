@@ -58,6 +58,31 @@ export type GitStatus =
 
 export const getGitStatus = (ws: string) => api<GitStatus>(`/w/${ws}/git/status`);
 
+/** an environment of the topology as its branch says; here: this server's */
+export type EnvironmentCard = { env: string; label: string; branch: string; mode: Mode; tip: string | null; here: boolean };
+
+/** behind: the files promoting the source's tip would change; ahead: merging the target into its source would change the source */
+export type EnvironmentEdge = { source: string; target: string; targetExists: boolean; behind: number | null; ahead: boolean | null };
+
+/** content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here */
+export type FlowCell = { state: 'deployed' | 'undeployed' | 'absent'; content: 'same' | 'other' | null; differs: boolean };
+
+/** a flow by id, named by its path in its project; a cell per environment, null where its branch does not exist */
+export type FlowRow = { id: string; name: string; cells: Record<string, FlowCell | null> };
+
+export type Environments =
+    | { on: false }
+    | {
+          on: true;
+          environment: string;
+          problems: string[];
+          pipeline: EnvironmentCard[];
+          edges: EnvironmentEdge[];
+          runsWhere: { environments: string[]; flows: FlowRow[] };
+      };
+
+export const getEnvironments = (ws: string) => api<Environments>(`/w/${ws}/git/environments`);
+
 export type CurrentBranch = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: boolean };
 
 export const getCurrentBranch = (ws: string) => api<CurrentBranch>(`/w/${ws}/git/current-branch`);
