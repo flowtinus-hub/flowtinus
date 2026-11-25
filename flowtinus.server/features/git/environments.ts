@@ -1,5 +1,5 @@
 import { repoFlowFromYaml } from '@flowtinus/core';
-import { contentHash } from '#features/deployments/deployments';
+import { contentHash, emergencyRollbacks, type EmergencyRollback } from '#features/deployments/deployments';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -26,6 +26,8 @@ export type EnvironmentCard = {
     tip: string | null;
     here: boolean;
     warning?: string;
+    /** this server's environment: how many flows run an emergency rollback */
+    emergencyRollbacks?: number;
 };
 
 /**
@@ -43,8 +45,16 @@ export type EnvironmentEdge = {
     backports: Promotion[];
 };
 
-/** content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here */
-export type FlowCell = { state: 'deployed' | 'undeployed' | 'absent'; content: 'same' | 'other' | null; differs: boolean };
+/**
+ * content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here;
+ * emergencyRollback: on this server's column, the version that runs instead of git's
+ */
+export type FlowCell = {
+    state: 'deployed' | 'undeployed' | 'absent';
+    content: 'same' | 'other' | null;
+    differs: boolean;
+    emergencyRollback?: { number: number; gitNumber: number };
+};
 
 /** name: the flow's path in its project, from this server unless it is absent here; a cell is null where the branch does not exist */
 export type FlowRow = { id: string; name: string; cells: Record<string, FlowCell | null> };
@@ -141,9 +151,22 @@ function cellOf(flow: FlowState | undefined, here: FlowState | undefined, isHere
     return { state, content, differs: state !== cellState(here) || (state === 'deployed' && content === 'other') };
 }
 
-async function runsWhere(ctx: UseCaseContext, remote: GitRemote, pipeline: EnvironmentCard[]): Promise<RunsWhere> {
+async function runsWhere(
+    ctx: UseCaseContext,
+    remote: GitRemote,
+    pipeline: EnvironmentCard[],
+    rollbacks: EmergencyRollback[],
+): Promise<RunsWhere> {
     const handle = await workspaceHandle(ctx);
     const here = flowsIn(await exportWorkspace(ctx.db, ctx.workspaceId), handle);
+    // the export is git's version: this server's column reads the version that runs
+    const rolledBack = new Map(rollbacks.map(r => [r.flowId, r]));
+    for (const [id, flow] of here) {
+        const rollback = rolledBack.get(id);
+        if (rollback) {
+            here.set(id, { ...flow, hash: rollback.hash });
+        }
+    }
     const columns = new Map<string, Map<string, FlowState> | null>();
     for (const card of pipeline) {
         columns.set(card.env, card.here ? here : card.tip ? flowsIn(await readBranchWorkspace(remote, card.tip, handle), handle) : null);
@@ -156,7 +179,12 @@ async function runsWhere(ctx: UseCaseContext, remote: GitRemote, pipeline: Envir
         cells: Object.fromEntries(
             pipeline.map(card => {
                 const flows = columns.get(card.env);
-                return [card.env, flows ? cellOf(flows.get(id), here.get(id), card.here) : null];
+                const rollback = card.here ? rolledBack.get(id) : undefined;
+                const cell = flows ? cellOf(flows.get(id), here.get(id), card.here) : null;
+                return [
+                    card.env,
+                    cell && rollback ? { ...cell, emergencyRollback: { number: rollback.number, gitNumber: rollback.git.number } } : cell,
+                ];
             }),
         ),
     }));
@@ -184,9 +212,20 @@ async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, config: 
     }
 
     const protection = await protectionWarnings(ctx, config, ordered);
+    const rollbacks = await emergencyRollbacks(ctx.db, ctx.workspaceId);
     const pipeline = ordered.map(({ env, label, branch, mode }) => {
         const warning = protection.find(w => w.env === env)?.message;
-        return { env, label, branch, mode, tip: tips.get(env)!, here: env === environment, ...(warning ? { warning } : {}) };
+        const here = env === environment;
+        return {
+            env,
+            label,
+            branch,
+            mode,
+            tip: tips.get(env)!,
+            here,
+            ...(warning ? { warning } : {}),
+            ...(here && rollbacks.length ? { emergencyRollbacks: rollbacks.length } : {}),
+        };
     });
     const links = { topology, repository: config.repository, provider: await providerOf(config.repository) };
     const [broken, backports] = await Promise.all([brokenPromotions(ctx, links), liveBackports(ctx, links)]);
@@ -205,7 +244,7 @@ async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, config: 
         problems: topology.problems,
         pipeline,
         edges,
-        runsWhere: await runsWhere(ctx, remote, pipeline),
+        runsWhere: await runsWhere(ctx, remote, pipeline, rollbacks),
         ...(await activity(topology.environments)),
     };
 }

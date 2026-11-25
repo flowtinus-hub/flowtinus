@@ -74,7 +74,10 @@ export function CardsView({ contents, projectId, folderId, actions }: Props) {
                                 </Link>
                             </CardTitle>
                             <div className="flex min-w-0 items-center gap-2">
-                                <DeployedChip version={flow.archivedAt ? undefined : flow.deployedVersion} />
+                                <DeployedChip
+                                    version={flow.archivedAt ? undefined : flow.deployedVersion}
+                                    emergencyRollback={flow.emergencyRollback}
+                                />
                                 {!flow.archivedAt && <SchedulesChip schedules={flow.schedules} />}
                                 {!flow.archivedAt && <WebhooksChip webhooks={flow.webhooks} />}
                                 <WorkerTagChip tag={flow.workerTag} color={colors[flow.workerTag]} />

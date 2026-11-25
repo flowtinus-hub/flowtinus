@@ -38,6 +38,8 @@ export type Flow = {
     offersBranch?: boolean;
     /** the number of its deployed version in this environment: null when not deployed (known in the project's lists) */
     deployedVersion?: number | null;
+    /** with git on: deployedVersion runs here instead of git's version (known in the project's lists) */
+    emergencyRollback?: { number: number; gitNumber: number; byName?: string };
     /** how many schedules it has, and how many are on (known in the project's lists; null: none) */
     schedules?: { total: number; on: number } | null;
     /** how many webhooks it has, and how many are on (known in the project's lists; null: none) */

@@ -205,32 +205,69 @@ export async function currentDeployment(
 
 type DeployedVersion = { id: string; number: number; hash: string };
 
-export type EmergencyRollback = { versionId: string; number: number; git: DeployedVersion; by: string | null; at: Date };
+export type EmergencyRollback = {
+    flowId: string;
+    versionId: string;
+    number: number;
+    hash: string;
+    git: DeployedVersion;
+    by: string | null;
+    at: Date;
+};
 
-export async function emergencyRollbackOf(db: Database, workspaceId: string, flowId: string): Promise<EmergencyRollback | null> {
-    const [row] = await db.query<{
+/** the workspace's emergency rollbacks, or only those of these flows */
+export async function emergencyRollbacks(db: Database, workspaceId: string, flowIds: string[] | null = null): Promise<EmergencyRollback[]> {
+    const rows = await db.query<{
+        flow_id: string;
         version_id: string;
         number: number;
+        hash: string;
         git_version_id: string;
         git_number: number;
         git_hash: string;
         by_user: string | null;
         at: Date;
     }>(
-        `SELECT r.version_id, v.number, r.git_version_id, g.number AS git_number, g.content_hash AS git_hash, r.by_user, r.at
+        `SELECT r.flow_id, r.version_id, v.number, v.content_hash AS hash, r.git_version_id, g.number AS git_number,
+         g.content_hash AS git_hash, r.by_user, r.at
        FROM emergency_rollbacks r JOIN flow_versions v ON v.id = r.version_id JOIN flow_versions g ON g.id = r.git_version_id
-      WHERE r.workspace_id = $1 AND r.flow_id = $2`,
-        [workspaceId, flowId],
+      WHERE r.workspace_id = $1 AND ($2::uuid[] IS NULL OR r.flow_id = ANY($2::uuid[]))`,
+        [workspaceId, flowIds],
     );
-    return row
-        ? {
-              versionId: row.version_id,
-              number: row.number,
-              git: { id: row.git_version_id, number: row.git_number, hash: row.git_hash },
-              by: row.by_user,
-              at: new Date(row.at),
-          }
-        : null;
+    return rows.map(row => ({
+        flowId: row.flow_id,
+        versionId: row.version_id,
+        number: row.number,
+        hash: row.hash,
+        git: { id: row.git_version_id, number: row.git_number, hash: row.git_hash },
+        by: row.by_user,
+        at: new Date(row.at),
+    }));
+}
+
+export async function emergencyRollbackOf(db: Database, workspaceId: string, flowId: string): Promise<EmergencyRollback | null> {
+    return (await emergencyRollbacks(db, workspaceId, [flowId]))[0] ?? null;
+}
+
+/** the emergency rollback as the flow list and the MCP report it */
+export type EmergencyRollbackState = { number: number; gitNumber: number; by: string | null; byName?: string; at: Date };
+
+export async function emergencyRollbackStates(
+    db: Database,
+    workspaceId: string,
+    flowIds: string[],
+): Promise<Map<string, EmergencyRollbackState>> {
+    const rollbacks = await emergencyRollbacks(db, workspaceId, flowIds);
+    const who = await names(
+        db,
+        rollbacks.map(r => r.by),
+    );
+    return new Map(
+        rollbacks.map(r => [
+            r.flowId,
+            { number: r.number, gitNumber: r.git.number, by: r.by, ...(r.by && who.has(r.by) ? { byName: who.get(r.by) } : {}), at: r.at },
+        ]),
+    );
 }
 
 /** what git's branch deploys: the deployed version, unless an emergency rollback runs another one */

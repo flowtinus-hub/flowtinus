@@ -1,12 +1,12 @@
 import { deployContent, flowChanges } from '@flowtinus/core';
 import { GetDeploymentsHandler } from '#features/deployments/get-deployments/get-deployments-handler';
-import { defineTool, failed, id, ok } from './tool';
+import { defineTool, failed, id, mcpEmergencyRollback, ok } from './tool';
 
 export const getDeployments = defineTool({
     name: 'get_deployments',
     scope: 'flows:read',
     description:
-        "What is deployed of a flow (the version schedules and webhooks run) and whether its draft differs from it. Deploying is a person's decision in the editor: never through here.",
+        "What is deployed of a flow (the version schedules and webhooks run) and whether its draft differs from it. With git on, an emergencyRollback means this server runs an older version than git's (runningVersion, gitVersion, by, at) until a commit changes the flow or a person ends it; the draft is then compared with git's version. Deploying is a person's decision in the editor: never through here.",
     input: { flowId: id('the flow') },
     run: async ({ flowId }, t) => {
         const found = await t.flowAndDraft(flowId);
@@ -17,14 +17,17 @@ export const getDeployments = defineTool({
         if (!result.ok) {
             return failed(result.error);
         }
-        const { versions, deployed, warnings } = result.value;
+        const { versions, deployed, warnings, emergencyRollback: rollback } = result.value;
         const version = deployed ? versions.find(v => v.id === deployed.versionId) : undefined;
-        const changes = version ? flowChanges(version.definition, found.value.draft.flow) : null;
+        // the draft's base is git's version: an emergency rollback runs another one
+        const base = rollback ? versions.find(v => v.id === rollback.gitVersionId) : version;
+        const changes = base ? flowChanges(base.definition, found.value.draft.flow) : null;
         return ok({
             deployedVersion: version?.number ?? null,
             deployedAt: deployed?.deployedAt ?? null,
             versions: versions.map(v => ({ number: v.number, createdAt: v.createdAt })),
-            draftDiffersFromDeployed: version ? deployContent(version.definition) !== deployContent(found.value.draft.flow) : null,
+            draftDiffersFromDeployed: base ? deployContent(base.definition) !== deployContent(found.value.draft.flow) : null,
+            ...(rollback ? { emergencyRollback: mcpEmergencyRollback(rollback) } : {}),
             ...(changes
                 ? {
                       changes: {
