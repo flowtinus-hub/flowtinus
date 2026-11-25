@@ -19,6 +19,7 @@ type DeploymentsDto = {
     draftConflict?: string;
     changedScripts?: string[];
     triggersChanged?: true;
+    emergencyRollback?: Omit<NonNullable<FlowDeployments['emergencyRollback']>, 'at'> & { at: string };
 };
 
 export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
@@ -32,6 +33,7 @@ export const toDeployments = (dto: DeploymentsDto): FlowDeployments => ({
     ...(dto.draftConflict ? { draftConflict: dto.draftConflict } : {}),
     ...(dto.changedScripts ? { changedScripts: dto.changedScripts } : {}),
     ...(dto.triggersChanged ? { triggersChanged: dto.triggersChanged } : {}),
+    ...(dto.emergencyRollback ? { emergencyRollback: { ...dto.emergencyRollback, at: new Date(dto.emergencyRollback.at) } } : {}),
 });
 
 async function deployments(path: string, method = 'POST', body?: unknown): Promise<ApiResult<FlowDeployments>> {
@@ -51,6 +53,13 @@ export const deployFlow = (flowId: string, message?: string, scripts?: string[])
 
 /** makes an existing version the deployed one (an older one: a rollback) */
 export const deployVersion = (flowId: string, versionId: string) => deployments(`/flows/${flowId}/versions/${versionId}/deploy`);
+
+/** with git on: this server runs a version that ran here, without git, until a commit changes the flow or it is ended */
+export const emergencyRollback = (flowId: string, versionId: string) =>
+    deployments(`/flows/${flowId}/versions/${versionId}/emergency-rollback`);
+
+/** git's version runs again */
+export const endEmergencyRollback = (flowId: string) => deployments(`/flows/${flowId}/emergency-rollback`, 'DELETE');
 
 /** nothing deployed anymore (its versions stay) */
 export const undeployFlow = (flowId: string) => deployments(`/flows/${flowId}/undeploy`);

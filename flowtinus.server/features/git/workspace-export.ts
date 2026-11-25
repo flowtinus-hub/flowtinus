@@ -28,7 +28,8 @@ export type FlowInRepo = { flow_id: string; deployed: boolean; definition: FlowF
 type TriggerRows = { schedules: (Omit<RepoSchedule, 'input'> & { input: unknown })[]; webhooks: RepoWebhook[] };
 
 // a flow not deployed is at the version last deployed, or at a newer one git brought with deployed: false (a version no
-// deploy ever reached, made with or after the last change of what is deployed)
+// deploy ever reached, made with or after the last change of what is deployed); one in an emergency rollback is at the
+// version git deploys, not the one that runs
 export const flowsInRepo = async (db: Database, workspaceId: string, flowIds: string[] | null = null): Promise<FlowInRepo[]> =>
     (
         await db.query<Omit<FlowInRepo, keyof RepoTriggers> & TriggerRows>(
@@ -40,7 +41,9 @@ export const flowsInRepo = async (db: Database, workspaceId: string, flowIds: st
            FROM flow_webhooks w WHERE w.flow_id = f.id AND w.archived_at IS NULL) AS webhooks
        FROM flows f
        LEFT JOIN deployments d ON d.flow_id = f.id
+       LEFT JOIN emergency_rollbacks r ON r.flow_id = f.id
        JOIN flow_versions v ON v.id = coalesce(
+         r.git_version_id,
          d.flow_version_id,
          (SELECT n.id FROM flow_versions n WHERE n.flow_id = f.id
            AND NOT EXISTS (SELECT 1 FROM deployment_history h WHERE h.flow_id = f.id AND (h.from_version_id = n.id OR h.to_version_id = n.id OR h.at > n.created_at))

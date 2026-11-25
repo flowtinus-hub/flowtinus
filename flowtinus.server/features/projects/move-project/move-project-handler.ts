@@ -71,6 +71,15 @@ export class MoveProjectHandler implements UseCaseHandler<MoveProjectResponse> {
             return fail('not-found', 'Project not found.');
         }
 
+        // the move carries the deployment tables by a fixed list: the rollback's row would be left behind
+        const [rolledBack] = await ctx.db.query<{ name: string }>(
+            `SELECT f.name FROM emergency_rollbacks r JOIN flows f ON f.id = r.flow_id WHERE f.project_id = $1 ORDER BY f.name LIMIT 1`,
+            [id],
+        );
+        if (rolledBack) {
+            return fail('conflict', `End the emergency rollback of ${rolledBack.name} first.`);
+        }
+
         const [target] = await ctx.db.orm
             .select({ id: workspaces.id, role: workspaceMembers.role })
             .from(workspaces)

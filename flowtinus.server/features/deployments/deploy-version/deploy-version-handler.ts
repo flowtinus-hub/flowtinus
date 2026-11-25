@@ -8,7 +8,7 @@ import type { FlowFile } from '@flowtinus/core';
 import { changeTree } from '#features/git/git-first';
 import { isGitOn } from '#features/git/git-config';
 import { commitDeploy, type CommittedDeployments } from '../commit-deploy';
-import { activeFlow, currentDeployment, loadDeployments, lockFlowDeployments, setDeployed } from '../deployments';
+import { activeFlow, currentDeployment, gitDeployment, loadDeployments, lockFlowDeployments, setDeployed } from '../deployments';
 
 export const DeployVersionCommand = z.object({ id: z.uuid('Invalid'), versionId: z.uuid('Invalid') });
 
@@ -48,7 +48,7 @@ export class DeployVersionHandler implements UseCaseHandler<CommittedDeployments
             const message =
                 version.number < newest!.number ? `Revert ${row.name} to v${version.number}` : `Deploy ${row.name} v${version.number}`;
             return commitDeploy(ctx, row, message, async db => {
-                if ((await currentDeployment(db, ctx.workspaceId, row.id))?.id === version.id) {
+                if ((await gitDeployment(db, ctx.workspaceId, row.id))?.id === version.id) {
                     return { code: 'validation', message: `v${version.number} is already deployed.` };
                 }
                 return { definition: version.definition, deployed: true };
