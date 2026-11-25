@@ -91,6 +91,7 @@ export function PromotePanel({
     if (!edge) {
         return null;
     }
+    const brokenBackports = edge.backports.filter(p => p.state === 'broken');
     return (
         <section className="grid gap-3">
             <div className="flex flex-wrap items-center gap-3">
@@ -123,6 +124,15 @@ export function PromotePanel({
                     handle={handle}
                     broken={edge.broken}
                     targetBranch={branchOf(edge.target)}
+                    canRepair={canPromote}
+                />
+            )}
+            {brokenBackports.length > 0 && (
+                <BrokenBackports
+                    key={`broken-backports:${edge.target}`}
+                    handle={handle}
+                    broken={brokenBackports}
+                    sourceBranch={branchOf(edge.source)}
                     canRepair={canPromote}
                 />
             )}
@@ -184,6 +194,36 @@ function BrokenLineage({
             <ul className="grid gap-2">
                 {broken.map(promotion => (
                     <RepairRow key={promotion.id} handle={handle} promotion={promotion} targetBranch={targetBranch} canRepair={canRepair} />
+                ))}
+            </ul>
+        </div>
+    );
+}
+
+/** a backport squashed or rebased into the source: the source has its changes but not its commit, which blocks nothing */
+function BrokenBackports({
+    handle,
+    broken,
+    sourceBranch,
+    canRepair,
+}: {
+    handle: string;
+    broken: Promotion[];
+    sourceBranch: string;
+    canRepair: boolean;
+}) {
+    return (
+        <div className="grid gap-3 rounded-lg border p-4 text-sm">
+            <p className="flex gap-2">
+                <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
+                <span>
+                    A backport reached <span className="font-mono">{sourceBranch}</span> by a squash or a rebase: it has the changes but not
+                    the commit. This blocks nothing; a repair mends the history. It changes no file and deploys nothing.
+                </span>
+            </p>
+            <ul className="grid gap-2">
+                {broken.map(promotion => (
+                    <RepairRow key={promotion.id} handle={handle} promotion={promotion} targetBranch={sourceBranch} canRepair={canRepair} />
                 ))}
             </ul>
         </div>

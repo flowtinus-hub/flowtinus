@@ -8,7 +8,7 @@ import { success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { readGitState, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
-import { brokenPromotions, listPromotions, openBackports, type Promotion } from './promotion-state';
+import { brokenPromotions, listPromotions, liveBackports, type Promotion } from './promotion-state';
 import { providerOf } from './pull-request';
 import type { LoggedOutcome } from './reconcile';
 import type { EnvironmentDecl, Mode } from './topology';
@@ -21,7 +21,7 @@ export type EnvironmentCard = { env: string; label: string; branch: string; mode
 /**
  * behind: the files promoting the source's tip would change; ahead: merging the target into its source would change the source;
  * broken: this server's promotions along the edge whose lineage is broken, which block it until a repair is merged;
- * backports: this server's open backports from the target into the source, which block nothing
+ * backports: this server's open and broken backports from the target into the source, which block nothing
  */
 export type EnvironmentEdge = {
     source: string;
@@ -182,7 +182,7 @@ async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, config: 
         here: env === environment,
     }));
     const links = { topology, repository: config.repository, provider: await providerOf(config.repository) };
-    const [broken, backports] = await Promise.all([brokenPromotions(ctx, links), openBackports(ctx, links)]);
+    const [broken, backports] = await Promise.all([brokenPromotions(ctx, links), liveBackports(ctx, links)]);
     const edges: EnvironmentEdge[] = [];
     for (const e of ordered) {
         for (const target of e.promotesTo.filter(t => tips.has(t))) {

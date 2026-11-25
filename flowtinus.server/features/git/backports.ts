@@ -88,8 +88,8 @@ async function runBackportPreflight(ctx: UseCaseContext, remote: GitRemote, edge
 }
 
 const backportsOn = async (ctx: UseCaseContext, edge: Edge, links: PromotionLinks) =>
-    (await promotionRows(ctx, { kind: 'backport', state: 'open', edge: { source: edge.target.env, target: edge.source.env } })).map(row =>
-        toPromotion(row, links),
+    (await promotionRows(ctx, { kind: 'backport', states: ['open'], edge: { source: edge.target.env, target: edge.source.env } })).map(
+        row => toPromotion(row, links),
     );
 
 async function preflightOf(ctx: UseCaseContext, remote: GitRemote, config: GitConfig, edge: Edge) {
