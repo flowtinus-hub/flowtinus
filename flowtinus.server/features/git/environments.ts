@@ -8,7 +8,7 @@ import { success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { readGitState, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
-import { brokenPromotions, listPromotions, type Promotion } from './promotion-state';
+import { brokenPromotions, listPromotions, openBackports, type Promotion } from './promotion-state';
 import { providerOf } from './pull-request';
 import type { LoggedOutcome } from './reconcile';
 import type { EnvironmentDecl, Mode } from './topology';
@@ -20,7 +20,8 @@ export type EnvironmentCard = { env: string; label: string; branch: string; mode
 
 /**
  * behind: the files promoting the source's tip would change; ahead: merging the target into its source would change the source;
- * broken: this server's promotions along the edge whose lineage is broken, which block it until a repair is merged
+ * broken: this server's promotions along the edge whose lineage is broken, which block it until a repair is merged;
+ * backports: this server's open backports from the target into the source, which block nothing
  */
 export type EnvironmentEdge = {
     source: string;
@@ -29,6 +30,7 @@ export type EnvironmentEdge = {
     behind: number | null;
     ahead: boolean | null;
     broken: Promotion[];
+    backports: Promotion[];
 };
 
 /** content: compared with this server's version of the flow (null when either side has none); differs: it does not run as here */
@@ -86,7 +88,7 @@ async function edgeOf(
     source: string,
     target: string,
     tips: Map<string, string | null>,
-): Promise<Omit<EnvironmentEdge, 'broken'>> {
+): Promise<Omit<EnvironmentEdge, 'broken' | 'backports'>> {
     const from = tips.get(source) ?? null;
     const to = tips.get(target) ?? null;
     if (!from || !to) {
@@ -180,12 +182,13 @@ async function readEnvironments(ctx: UseCaseContext, remote: GitRemote, config: 
         here: env === environment,
     }));
     const links = { topology, repository: config.repository, provider: await providerOf(config.repository) };
-    const broken = await brokenPromotions(ctx, links);
+    const [broken, backports] = await Promise.all([brokenPromotions(ctx, links), openBackports(ctx, links)]);
     const edges: EnvironmentEdge[] = [];
     for (const e of ordered) {
         for (const target of e.promotesTo.filter(t => tips.has(t))) {
             const along = broken.filter(p => p.source === e.env && p.target === target);
-            edges.push({ ...(await edgeOf(remote, e.env, target, tips)), broken: along });
+            const back = backports.filter(p => p.source === target && p.target === e.env);
+            edges.push({ ...(await edgeOf(remote, e.env, target, tips)), broken: along, backports: back });
         }
     }
 

@@ -37,16 +37,21 @@ export async function currentBranch(db: Database, workspaceId: string, userId: s
     return row?.branch ?? git.branch;
 }
 
-export type BranchKind = 'environment' | 'app' | 'hotfix' | 'user' | 'shared';
+export type BranchKind = 'environment' | 'app' | 'hotfix' | 'backport' | 'user' | 'shared';
 
 export const HOTFIX_PREFIX = 'hotfix/';
 
-export function branchKind(name: string, environments: string[]): { kind: BranchKind; owner?: string } {
+/** from: a backport's environment, the one ahead it merges from */
+export function branchKind(name: string, environments: string[]): { kind: BranchKind; owner?: string; from?: string } {
     if (environments.includes(name)) {
         return { kind: 'environment' };
     }
     if (name.startsWith(HOTFIX_PREFIX)) {
         return { kind: 'hotfix' };
+    }
+    const backport = /^backport\/(.+)-[0-9a-f]{12}$/.exec(name);
+    if (backport) {
+        return { kind: 'backport', from: backport[1]! };
     }
     if (/^(promote|repair|backport|flowtinus)\//.test(name)) {
         return { kind: 'app' };
@@ -55,7 +60,8 @@ export function branchKind(name: string, environments: string[]): { kind: Branch
     return user ? { kind: 'user', owner: user[1]! } : { kind: 'shared' };
 }
 
-export type Editor = { handle: string | null; environments: string[]; mode: Mode };
+/** targets: the environments this server's environment promotes to: a backport from one of them is shared here, whatever the mode */
+export type Editor = { handle: string | null; environments: string[]; targets: string[]; mode: Mode };
 
 export function canEditBranch(branch: string | null, environment: string | null, editor: Editor): boolean {
     if (branch === null) {
@@ -64,7 +70,10 @@ export function canEditBranch(branch: string | null, environment: string | null,
     if (branch === environment) {
         return editor.mode !== 'pull-request';
     }
-    const { kind, owner } = branchKind(branch, environment ? [...editor.environments, environment] : editor.environments);
+    const { kind, owner, from } = branchKind(branch, environment ? [...editor.environments, environment] : editor.environments);
+    if (kind === 'backport') {
+        return editor.targets.includes(from!);
+    }
     return sharedHere(kind, editor) || (editor.mode !== 'protected' && kind === 'user' && owner === editor.handle);
 }
 
@@ -72,9 +81,12 @@ export function canEditBranch(branch: string | null, environment: string | null,
 export const sharedHere = (kind: BranchKind, editor: Pick<Editor, 'mode'>) =>
     editor.mode === 'protected' ? kind === 'hotfix' : kind === 'shared';
 
-/** the branches this server's picker offers: a protected server's own branch and its hotfixes only */
+/**
+ * the branches this server's picker offers, a backport only where it may be edited: a protected server's own branch, its
+ * hotfixes and the backports into it only
+ */
 export const listedHere = (name: string, kind: BranchKind, environment: string | null, editor: Pick<Editor, 'mode'>) =>
-    editor.mode === 'protected' ? name === environment || kind === 'hotfix' : kind !== 'app' && kind !== 'hotfix';
+    editor.mode === 'protected' ? name === environment || kind === 'hotfix' || kind === 'backport' : kind !== 'app' && kind !== 'hotfix';
 
 export async function editorOf(db: Database, workspaceId: string, userId: string): Promise<Editor> {
     const [[me], heads, git] = await Promise.all([
@@ -82,7 +94,12 @@ export async function editorOf(db: Database, workspaceId: string, userId: string
         readHeads(db, workspaceId),
         gitBranch(db, workspaceId),
     ]);
-    return { handle: me?.handle ?? null, environments: heads?.environments ?? [], mode: git?.mode ?? 'direct' };
+    return {
+        handle: me?.handle ?? null,
+        environments: heads?.environments ?? [],
+        targets: heads?.targets ?? [],
+        mode: git?.mode ?? 'direct',
+    };
 }
 
 export type CurrentBranchView = { branch: string | null; editable: boolean; removed?: true; lostTip?: true; offersBranch?: true };
@@ -131,15 +148,20 @@ export function readOnlyBranch(branch: string, editor: Editor, environment: stri
         const why =
             branch === environment
                 ? `the branch ${branch} only takes pull requests`
-                : editor.mode === 'protected'
-                  ? `this server's environment is protected: the branch ${branch} is read only here`
-                  : kind === 'user'
-                    ? `the branch ${branch} is ${owner}'s: only its owner changes it`
-                    : `the branch ${branch} is read only here`;
+                : kind === 'backport'
+                  ? `the backport ${branch} is changed only on the server of the environment it goes into`
+                  : editor.mode === 'protected'
+                    ? `this server's environment is protected: the branch ${branch} is read only here`
+                    : kind === 'user'
+                      ? `the branch ${branch} is ${owner}'s: only its owner changes it`
+                      : `the branch ${branch} is read only here`;
         return `Your current branch cannot be edited (${why}): pick or create a branch of your own in the editor, then try again.`;
     }
     if (branch === environment) {
         return `${branch} only takes pull requests: create a branch of your own to make changes.`;
+    }
+    if (kind === 'backport') {
+        return `The backport ${branch} is read only here: only the server of the environment it goes into changes it.`;
     }
     if (editor.mode === 'protected') {
         return `This server's environment is protected: the branch ${branch} is read only here.`;

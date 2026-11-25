@@ -21,7 +21,7 @@ export type UpdateOutcome =
 
 const scopeOf = (handle: string) => [handle, '.gitattributes'];
 
-const inScope = (path: string, handle: string) => path.startsWith(`${handle}/`) || path === '.gitattributes';
+export const inScope = (path: string, handle: string) => path.startsWith(`${handle}/`) || path === '.gitattributes';
 
 async function updatable(ctx: UseCaseContext): Promise<{ branch: WorkBranch; environment: string }> {
     const git = await gitBranch(ctx.db, ctx.workspaceId);
@@ -158,7 +158,7 @@ async function pushOrRefuse(remote: GitRemote, commit: string, branch: string, f
 }
 
 // marked as a moved branch marks a file: row.base, row.content and the file at row.conflict are the three texts
-async function holdMerge(
+export async function holdMerge(
     db: Database,
     ctx: UseCaseContext,
     remote: GitRemote,

@@ -17,6 +17,7 @@ const GROUPS: { kind: BranchKind; label: string }[] = [
     { kind: 'hotfix', label: 'Hotfixes' },
     { kind: 'user', label: "Users' branches" },
     { kind: 'shared', label: 'Shared branches' },
+    { kind: 'backport', label: 'Backports' },
 ];
 
 function BranchItem({ branch, current, onPick }: { branch: BranchInfo; current: string | null; onPick: (name: string) => void }) {
@@ -123,7 +124,9 @@ export function BranchPicker({ handle }: { handle: string }) {
     const updatable = canEdit && environment && work?.editable ? work : null;
     const pushable = work?.removed && (work.kind === 'shared' || work.mine) ? work : null;
     const protectedHere = branches?.handle === handle && branches.mode === 'protected';
-    const proposable = canEdit && environment && (!protectedHere || work?.kind === 'hotfix') ? (updatable ?? pushable) : null;
+    // hotfixes and backports go into this server's environment whatever its mode
+    const proposable =
+        canEdit && environment && (!protectedHere || work?.kind === 'hotfix' || work?.kind === 'backport') ? (updatable ?? pushable) : null;
 
     return (
         <>

@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react';
-import { ArrowRight, CircleCheck, CircleX, ExternalLink, GitPullRequestArrow, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { ArrowRight, CircleCheck, CircleX, ExternalLink, GitBranch, GitMerge, GitPullRequestArrow, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { shortSha } from '@/data/deployments/deployment';
 import { useResource } from '@/data/use-resource';
-import { getCommitGraph, getPreflight, openPromotion, openRepair, promotionSha, PROVIDERS, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedPromotion, type Preflight, type Promotion, type Provider } from '@/data/git/git-api';
+import { getBackportPreflight, getCommitGraph, getPreflight, openBackport, openPromotion, openRepair, promotionSha, PROVIDERS, setCurrentBranch, type BackportPreflight, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedBackport, type OpenedPromotion, type Preflight, type Promotion, type Provider } from '@/data/git/git-api';
+import { landingAfterSwitch, noteBranchSwitch } from '@/layout/branch-landing';
 import type { ApiResult } from '@/lib/api';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
@@ -110,6 +111,7 @@ export function PromotePanel({
                             >
                                 {e.source} <ArrowRight className="size-3" /> {e.target}
                                 {e.broken.length > 0 && <CircleX className="size-3 text-destructive" />}
+                                {e.ahead && <TriangleAlert className="size-3 text-amber-500" />}
                             </button>
                         ))}
                     </div>
@@ -122,6 +124,17 @@ export function PromotePanel({
                     broken={edge.broken}
                     targetBranch={branchOf(edge.target)}
                     canRepair={canPromote}
+                />
+            )}
+            {edge.ahead && (
+                <Backport
+                    key={`backport:${edge.target}`}
+                    handle={handle}
+                    edge={edge}
+                    sourceBranch={branchOf(edge.source)}
+                    targetBranch={branchOf(edge.target)}
+                    canBackport={canPromote}
+                    onOpened={onOpened}
                 />
             )}
             {edge.targetExists ? (
@@ -227,6 +240,165 @@ function RepairRow({
                 </span>
             )}
         </li>
+    );
+}
+
+/** the target has changes the source lacks: a merge of its tip, cut from the source's branch, brings them back one hop */
+function Backport({
+    handle,
+    edge,
+    sourceBranch,
+    targetBranch,
+    canBackport,
+    onOpened,
+}: {
+    handle: string;
+    edge: EnvironmentEdge;
+    sourceBranch: string;
+    targetBranch: string;
+    canBackport: boolean;
+    onOpened: () => void;
+}) {
+    const checked = useResource(`backport:${handle}:${edge.target}`, () => getBackportPreflight(handle, edge.target));
+    const { opening, opened, open } = useOpening(() => openBackport(handle, edge.target), onOpened);
+    const preflight: BackportPreflight | null = checked.state.status === 'ready' ? checked.state.value : null;
+    const same = preflight?.open.find(p => p.sha === preflight.sha);
+    const others = preflight?.open.filter(p => p.sha !== preflight.sha) ?? [];
+    const result = opened?.value;
+
+    return (
+        <div className="grid gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+            <p className="flex gap-2">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                <span>
+                    {edge.target} is ahead of {edge.source}: <span className="font-mono">{targetBranch}</span> has changes{' '}
+                    <span className="font-mono">{sourceBranch}</span> lacks. Promoting into {edge.target} is blocked until a backport brings
+                    them into <span className="font-mono">{sourceBranch}</span>, as a merge of{' '}
+                    <span className="font-mono">{targetBranch}</span>
+                    's tip.
+                </span>
+            </p>
+            {checked.state.status === 'error' && <p className="text-destructive">{checked.state.error.message}</p>}
+            {checked.state.status === 'loading' && (
+                <p className="flex items-center gap-2 text-muted-foreground">
+                    <LoaderCircle className="size-4 animate-spin" /> Checking the backport...
+                </p>
+            )}
+            {preflight && (
+                <ul className="grid gap-2">
+                    {preflight.blocks.map(block => (
+                        <li key={block.kind} className="flex gap-2">
+                            <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
+                            <span className="grid gap-1">
+                                {block.message}
+                                {block.issues?.map(issue => (
+                                    <span key={`${issue.path}:${issue.message}`} className="text-xs text-muted-foreground">
+                                        <span className="font-mono">{issue.path}</span>: {issue.message}
+                                    </span>
+                                ))}
+                            </span>
+                        </li>
+                    ))}
+                    {preflight.blocks.length === 0 && (
+                        <li className="flex gap-2">
+                            <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                            Nothing blocks the backport.
+                        </li>
+                    )}
+                    {preflight.conflicts.length > 0 && (
+                        <li className="flex gap-2">
+                            <GitMerge className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                            <span className="grid gap-1">
+                                {plural(preflight.conflicts.length, 'file')} conflict: the merge is left pending on its branch, to resolve
+                                on the conflict screen before the pull request.
+                                {preflight.conflicts.map(path => (
+                                    <span key={path} className="truncate font-mono text-xs text-muted-foreground" title={path}>
+                                        {path}
+                                    </span>
+                                ))}
+                            </span>
+                        </li>
+                    )}
+                    {preflight.warnings.map(warning => (
+                        <li key={warning.kind} className="flex gap-2">
+                            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                            <span className="grid gap-1">
+                                {warning.message}
+                                {warning.items.map(item => (
+                                    <span key={item} className="truncate text-xs text-muted-foreground" title={item}>
+                                        {item}
+                                    </span>
+                                ))}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {others.length > 0 && (
+                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+                    {others.length === 1 ? 'A backport' : 'Backports'} of{' '}
+                    {others.map(p => (
+                        <span key={p.id} className="font-mono">
+                            {shortSha(p.sha)}{' '}
+                        </span>
+                    ))}
+                    {others.length === 1 ? 'is' : 'are'} open on this edge. An older one counts as merged once a newer one is.
+                </p>
+            )}
+            {canBackport && preflight && !result && (
+                <div>
+                    <Button disabled={preflight.blocks.length > 0 || opening} onClick={() => void open()}>
+                        {opening ? <LoaderCircle className="animate-spin" /> : <GitPullRequestArrow />}
+                        {same ? 'Open the backport again' : 'Open backport'}
+                    </Button>
+                </div>
+            )}
+            {opened?.error && <p className="text-destructive">{opened.error}</p>}
+            {result && <OpenedBackportView handle={handle} opened={result} sourceBranch={sourceBranch} />}
+            {preflight?.sha && preflight.branch && (
+                <p className="text-xs text-muted-foreground">
+                    From <span className="font-mono">{preflight.branch}</span>: <span className="font-mono">{sourceBranch}</span> with{' '}
+                    <span className="font-mono">{targetBranch}</span> at <span className="font-mono">{promotionSha(preflight.sha)}</span>{' '}
+                    merged in. Merge it without a squash or a rebase.
+                </p>
+            )}
+        </div>
+    );
+}
+
+function OpenedBackportView({ handle, opened, sourceBranch }: { handle: string; opened: OpenedBackport; sourceBranch: string }) {
+    const { promotion, reused, conflicts, provider } = opened;
+    const [error, setError] = useState('');
+    const goToBranch = async () => {
+        const result = await setCurrentBranch(handle, promotion.branch);
+        if (!result.ok) {
+            setError(result.error.message);
+            return;
+        }
+        noteBranchSwitch();
+        window.location.assign(await landingAfterSwitch(handle));
+    };
+    return (
+        <div className="grid gap-2">
+            <p>
+                {reused ? 'This backport was already open: ' : 'Pushed '}
+                <span className="font-mono">{promotion.branch}</span>
+                {conflicts.length > 0
+                    ? `, its merge pending on this server: ${plural(conflicts.length, 'file')} to resolve on that branch, then Commit the merge and open its pull request.`
+                    : '.'}
+            </p>
+            {conflicts.length > 0 ? (
+                <div>
+                    <Button variant="outline" onClick={() => void goToBranch()}>
+                        <GitBranch />
+                        Go to {promotion.branch}
+                    </Button>
+                </div>
+            ) : (
+                <PullRequestLink url={promotion.url} provider={provider} branch={promotion.branch} targetBranch={sourceBranch} />
+            )}
+            {error && <p className="text-destructive">{error}</p>}
+        </div>
     );
 }
 
@@ -341,7 +513,9 @@ function PreflightView({ promote, sha }: { promote: PromoteEdge; sha: string }) 
                         <li key={block.kind} className="flex gap-2 text-sm">
                             <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
                             <span className="grid gap-1">
-                                {block.message}
+                                {block.kind === 'ahead'
+                                    ? `${edge.target} is ahead of ${edge.source}: the backport above brings it into ${sourceBranch} first.`
+                                    : block.message}
                                 {block.issues?.map(issue => (
                                     <span key={`${issue.path}:${issue.message}`} className="text-xs text-muted-foreground">
                                         <span className="font-mono">{issue.path}</span>: {issue.message}

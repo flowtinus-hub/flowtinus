@@ -68,15 +68,15 @@ export type Preflight = {
 
 const GRAPH_PAGE = 200;
 const CONTEXT_COMMITS = 3;
-const NO_ENVIRONMENT = { connections: [], secrets: [], variables: [] };
+export const NO_ENVIRONMENT = { connections: [], secrets: [], variables: [] };
 
 export const promotionBranch = (source: string, sha: string) => `promote/${source}-${shortSha(sha)}`;
 
 export const repairBranch = (target: string, sha: string) => `repair/${target}-${shortSha(sha)}`;
 
-type Edge = { source: EnvironmentDecl; target: EnvironmentDecl; sourceTip: string | null; targetTip: string | null };
+export type Edge = { source: EnvironmentDecl; target: EnvironmentDecl; sourceTip: string | null; targetTip: string | null };
 
-async function edgeOut(
+export async function edgeOut(
     remote: GitRemote,
     environment: string,
     target: string,
@@ -206,7 +206,7 @@ function scriptImpact(before: RepoFiles, after: RepoFiles, handle: string): Scri
     return impact.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-function connectionsIn(files: RepoFiles, handle: string): Map<string, string> {
+export function connectionsIn(files: RepoFiles, handle: string): Map<string, string> {
     const connections = new Map<string, string>();
     for (const { entry, text } of workspaceEntries(files, handle, 'connection')) {
         const read = connectionFromYaml(text);
@@ -217,7 +217,7 @@ function connectionsIn(files: RepoFiles, handle: string): Map<string, string> {
     return connections;
 }
 
-function triggersIn(files: RepoFiles, handle: string): Map<string, string> {
+export function triggersIn(files: RepoFiles, handle: string): Map<string, string> {
     const triggers = new Map<string, string>();
     for (const { entry, text } of workspaceEntries(files, handle, 'flow')) {
         const read = repoFlowFromYaml(text, entry.name);
@@ -231,13 +231,13 @@ function triggersIn(files: RepoFiles, handle: string): Map<string, string> {
     return triggers;
 }
 
-const newIn = (result: Map<string, string>, target: Map<string, string>) =>
+export const newIn = (result: Map<string, string>, target: Map<string, string>) =>
     [...result]
         .filter(([id]) => !target.has(id))
         .map(([, name]) => name)
         .sort();
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, sha: string): Promise<Omit<Preflight, 'open'>> {
     const branch = promotionBranch(edge.source.env, sha);
@@ -266,7 +266,11 @@ async function runPreflight(ctx: UseCaseContext, remote: GitRemote, edge: Edge, 
             message: `${edge.target.env} is ahead of ${edge.source.env}: merge ${edge.target.branch} into ${edge.source.branch} first.`,
         });
     }
-    const broken = await promotionRows(ctx, { state: 'broken', edge: { source: edge.source.env, target: edge.target.env } });
+    const broken = await promotionRows(ctx, {
+        kind: 'promotion',
+        state: 'broken',
+        edge: { source: edge.source.env, target: edge.target.env },
+    });
     if (broken.length > 0) {
         const shas = broken.map(row => shortSha(row.sha)).join(', ');
         blocks.push({
@@ -340,25 +344,25 @@ export class GetCommitGraphHandler implements UseCaseHandler<CommitGraph> {
 
 const PromotionInput = z.object({ target: z.string().min(1, 'The target environment'), sha: z.string().min(1, 'The commit to promote') });
 
-async function gitOff(ctx: UseCaseContext): Promise<UseCaseResult<never> | null> {
+export async function gitOff(ctx: UseCaseContext): Promise<UseCaseResult<never> | null> {
     return (await readGitState(ctx.db, ctx.workspaceId))?.on ? null : fail('conflict', 'Git is off in this workspace.');
 }
 
-async function fetchAndFollow(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<Map<string, string>> {
+export async function fetchAndFollow(ctx: UseCaseContext, remote: GitRemote, config: GitConfig): Promise<Map<string, string>> {
     const heads = await fetchHeads(remote);
     await recordHeads(ctx, remote, config, heads);
     await followPromotions(ctx, remote, heads.fetched);
     return heads.fetched;
 }
 
-const edgeLinks = (edge: Edge, config: GitConfig, provider: Provider | null): PromotionLinks => ({
+export const edgeLinks = (edge: Edge, config: GitConfig, provider: Provider | null): PromotionLinks => ({
     topology: { environments: [edge.source, edge.target] },
     repository: config.repository,
     provider,
 });
 
 const openOn = async (ctx: UseCaseContext, edge: Edge, links: PromotionLinks) =>
-    (await promotionRows(ctx, { state: 'open', edge: { source: edge.source.env, target: edge.target.env } })).map(row =>
+    (await promotionRows(ctx, { kind: 'promotion', state: 'open', edge: { source: edge.source.env, target: edge.target.env } })).map(row =>
         toPromotion(row, links),
     );
 
