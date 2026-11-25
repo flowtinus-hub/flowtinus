@@ -11,6 +11,7 @@ import { shortSha } from './current-branch';
 import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
+import { mergeSettingsBlocks, type MergeSettingsBlock } from './merge-settings';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
 import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMerge, openAlong, plural, type Edge, type PreflightWarning } from './promotion-edge';
 import { promotionRows, rowEdge, toPromotion, type Promotion } from './promotion-state';
@@ -47,11 +48,9 @@ export type FlowImpact = { id: string; name: string; from?: string; changes: Flo
 
 export type ScriptImpact = { path: string; change: 'added' | 'changed' | 'removed' };
 
-export type PreflightBlock = {
-    kind: 'no-target' | 'conflicts' | 'ahead' | 'broken' | 'invalid' | 'empty';
-    message: string;
-    issues?: TreeIssue[];
-};
+export type PreflightBlock =
+    | { kind: 'no-target' | 'conflicts' | 'ahead' | 'broken' | 'invalid' | 'empty'; message: string; issues?: TreeIssue[] }
+    | MergeSettingsBlock;
 
 export type Preflight = {
     sha: string;
@@ -280,6 +279,11 @@ async function preflightOf(
         return notOnLine(sha, edge);
     }
     const checked = await runPreflight(ctx, remote, edge, sha);
+    const targetTip = edge.targetTip;
+    if (targetTip) {
+        const fastForward = () => remote.isAncestor(targetTip, sha);
+        checked.blocks.push(...(await mergeSettingsBlocks(ctx, config, { branch: edge.target.branch, fastForward })));
+    }
     const open = await openAlong(ctx, config, edge, { kind: 'promotion', source: edge.source.env, target: edge.target.env });
     return success({ ...checked, open });
 }
@@ -409,6 +413,11 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
                     'conflict',
                     `The branch ${branch} is in the repository without ${shortSha(row.sha)}: delete it, then repair again.`,
                 );
+            }
+            const fastForward = async () => !pushed || (await remote.isAncestor(intoTip, pushed));
+            const blocks = await mergeSettingsBlocks(ctx, config, { branch: into.branch, fastForward });
+            if (blocks.length > 0) {
+                return fail('conflict', blocks.map(b => b.message).join(' '));
             }
             if (!pushed) {
                 const commit = await remote.commit({

@@ -150,7 +150,11 @@ export type Preflight = {
         flows: { id: string; name: string; from?: string; changes: FlowChange[] }[];
         scripts: { path: string; change: 'added' | 'changed' | 'removed' }[];
     };
-    blocks: { kind: 'no-target' | 'conflicts' | 'ahead' | 'broken' | 'invalid' | 'empty'; message: string; issues?: TreeIssue[] }[];
+    blocks: {
+        kind: 'no-target' | 'conflicts' | 'ahead' | 'broken' | 'invalid' | 'empty' | 'squash' | 'merge-method';
+        message: string;
+        issues?: TreeIssue[];
+    }[];
     warnings: { kind: 'connections' | 'triggers' | 'drafts'; message: string; items: string[] }[];
     open: Promotion[];
 };
@@ -167,7 +171,11 @@ export type BackportPreflight = {
     sha: string | null;
     branch: string | null;
     conflicts: string[];
-    blocks: { kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid'; message: string; issues?: TreeIssue[] }[];
+    blocks: {
+        kind: 'no-branch' | 'not-ahead' | 'outside' | 'invalid' | 'squash' | 'merge-method';
+        message: string;
+        issues?: TreeIssue[];
+    }[];
     warnings: { kind: 'connections' | 'triggers'; message: string; items: string[] }[];
     open: Promotion[];
 };
