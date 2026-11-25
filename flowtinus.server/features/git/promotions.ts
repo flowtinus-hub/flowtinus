@@ -12,6 +12,7 @@ import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
 import { mergeSettingsBlocks, type MergeSettingsBlock } from './merge-settings';
+import { adapterOf, mergeRequestDescription, openMergeRequest, reuseOpenRow, type OpenedMergeRequest } from './merge-request';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
 import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMerge, openAlong, plural, type Edge, type PreflightWarning } from './promotion-edge';
 import { promotionRows, rowEdge, toPromotion, type Promotion } from './promotion-state';
@@ -120,7 +121,7 @@ async function commitGraph(remote: GitRemote, edge: Edge, skip: number): Promise
     return { ...graph, commits, next: more ? skip + GRAPH_PAGE : null };
 }
 
-async function fileChanges(remote: GitRemote, from: string, to: string): Promise<FileChange[]> {
+export async function fileChanges(remote: GitRemote, from: string, to: string): Promise<FileChange[]> {
     const parts = (await remote.run(['diff-tree', '-r', '--no-renames', '--name-status', '-z', from, to])).split('\0').filter(Boolean);
     const changes: FileChange[] = [];
     for (let i = 0; i + 1 < parts.length; i += 2) {
@@ -130,7 +131,7 @@ async function fileChanges(remote: GitRemote, from: string, to: string): Promise
     return changes;
 }
 
-function flowImpact(before: RepoFiles, after: RepoFiles, handle: string): FlowImpact[] {
+export function flowImpact(before: RepoFiles, after: RepoFiles, handle: string): FlowImpact[] {
     const inTarget = flowsIn(before, handle);
     const inResult = flowsIn(after, handle);
     const impact: FlowImpact[] = [];
@@ -308,8 +309,9 @@ export class GetPreflightHandler implements UseCaseHandler<Preflight> {
     }
 }
 
-/** reused: an open promotion of the same commit on the edge; alsoOpen: the other open promotions on the edge */
-export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: Provider | null };
+/** reused: an open promotion of the same commit on the edge; alsoOpen: the other open promotions on the edge; notice: why no merge
+ * request was opened with the adapter on */
+export type OpenedPromotion = { promotion: Promotion; reused: boolean; alsoOpen: Promotion[]; provider: Provider | null; notice?: string };
 
 export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
     constructor(private readonly options: GitOptions) {}
@@ -335,11 +337,31 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
             if (!preflight.ok) {
                 return preflight;
             }
-            const { blocks, open, branch } = preflight.value;
+            const { blocks, branch } = preflight.value;
+            let { open } = preflight.value;
             const provider = await providerOf(config.repository);
+            const adapter = await adapterOf(ctx, config);
+            const request = {
+                source: branch,
+                target: edge.value.target.branch,
+                title: `Promote ${edge.value.source.env} into ${edge.value.target.env} (${shortSha(sha)})`,
+                description: await mergeRequestDescription(ctx, {
+                    files: preflight.value.files,
+                    flows: preflight.value.impact.flows,
+                    warnings: preflight.value.warnings,
+                }),
+                squash: false as const,
+                removeSourceBranch: true,
+            };
             const same = open.find(p => p.sha === sha);
             if (same) {
-                return success({ promotion: same, reused: true, alsoOpen: open.filter(p => p !== same), provider });
+                const reused = await reuseOpenRow(ctx, adapter, same, request);
+                const alsoOpen = open.filter(p => p !== same);
+                if (!reused.closed) {
+                    const { promotion, notice } = reused;
+                    return success({ promotion, reused: true, alsoOpen, provider, ...(notice ? { notice } : {}) });
+                }
+                open = alsoOpen;
             }
             if (blocks.length > 0) {
                 return fail('conflict', blocks.map(b => b.message).join(' '));
@@ -352,10 +374,22 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
             if (!pushed) {
                 await remote.push(sha, branch, null);
             }
+            const { mergeRequest, notice } = await openMergeRequest(adapter, request);
             const id = crypto.randomUUID();
             await ctx.db.query(
-                `INSERT INTO promotions (id, workspace_id, source, target, sha, branch, opened_by, state) VALUES ($1, $2, $3, $4, $5, $6, $7, 'open')`,
-                [id, ctx.workspaceId, edge.value.source.env, edge.value.target.env, sha, branch, ctx.userId],
+                `INSERT INTO promotions (id, workspace_id, source, target, sha, branch, opened_by, state, pull_request_number, pull_request_url)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $9)`,
+                [
+                    id,
+                    ctx.workspaceId,
+                    edge.value.source.env,
+                    edge.value.target.env,
+                    sha,
+                    branch,
+                    ctx.userId,
+                    mergeRequest?.number ?? null,
+                    mergeRequest?.url ?? null,
+                ],
             );
             const [row] = await promotionRows(ctx, { id });
             return success({
@@ -363,13 +397,14 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
                 reused: false,
                 alsoOpen: open,
                 provider,
+                ...(notice ? { notice } : {}),
             });
         });
     }
 }
 
 /** reused: the repair branch was already pushed with the promoted sha in it */
-export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null };
+export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null } & OpenedMergeRequest;
 
 const RepairInput = z.object({ id: z.uuid('Invalid') });
 
@@ -430,8 +465,18 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
                 await remote.push(commit, branch, null);
             }
             const provider = await providerOf(config.repository);
-            const url = provider ? pullRequestLink(config.repository, provider, branch, into.branch) : null;
-            return success({ branch, reused: !!pushed, url, provider });
+            const opened = await openMergeRequest(await adapterOf(ctx, config), {
+                source: branch,
+                target: into.branch,
+                title: `Repair the lineage of ${shortSha(row.sha)} into ${into.env}`,
+                description: await mergeRequestDescription(ctx, {
+                    notes: [`A merge of ${row.sha} that keeps ${into.branch}'s tree: it changes no file.`],
+                }),
+                squash: false,
+                removeSourceBranch: true,
+            });
+            const link = provider ? pullRequestLink(config.repository, provider, branch, into.branch) : null;
+            return success({ branch, reused: !!pushed, url: opened.mergeRequest?.url ?? link, provider, ...opened });
         });
     }
 }

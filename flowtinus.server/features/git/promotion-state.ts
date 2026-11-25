@@ -9,7 +9,7 @@ export type PromotionState = 'open' | 'broken' | 'merged' | 'closed';
 /** a backport runs against its edge: from the environment ahead (source) into the one it is promoted from (target) */
 export type PromotionKind = 'promotion' | 'backport';
 
-/** url: the provider's page for a new pull request, while it is open; inTopology: its edge is still in the topology */
+/** url: while it is open, its merge request's page, or the provider's page for a new pull request; inTopology: its edge is still in the topology */
 export type Promotion = {
     id: string;
     kind: PromotionKind;
@@ -21,6 +21,7 @@ export type Promotion = {
     openedBy: string | null;
     openedAt: string;
     inTopology: boolean;
+    number: number | null;
     url: string | null;
 };
 
@@ -36,6 +37,8 @@ export type PromotionRow = {
     state: PromotionState;
     opened_by_name: string | null;
     opened_at: Date;
+    pull_request_number: number | null;
+    pull_request_url: string | null;
 };
 
 export const edgeIn = (topology: Topology, source: string, target: string) => {
@@ -53,7 +56,8 @@ export function rowEdge(topology: Topology, row: Pick<PromotionRow, 'kind' | 'so
     return edge && { ...edge, into: edge.target };
 }
 
-const SELECT_PROMOTIONS = `SELECT p.id, p.kind, p.source, p.target, p.sha, p.branch, p.state, u.name AS opened_by_name, p.opened_at
+const SELECT_PROMOTIONS = `SELECT p.id, p.kind, p.source, p.target, p.sha, p.branch, p.state, u.name AS opened_by_name, p.opened_at,
+  p.pull_request_number, p.pull_request_url
   FROM promotions p LEFT JOIN users u ON u.id::text = p.opened_by WHERE p.workspace_id = $1`;
 
 const RECENT_PROMOTIONS = 50;
@@ -106,9 +110,10 @@ export function toPromotion(row: PromotionRow, links: PromotionLinks): Promotion
         openedBy: row.opened_by_name,
         openedAt: new Date(row.opened_at).toISOString(),
         inTopology: !!edge,
+        number: row.pull_request_number,
         url:
             edge && links.provider && row.state === 'open'
-                ? pullRequestLink(links.repository, links.provider, row.branch, edge.into.branch)
+                ? (row.pull_request_url ?? pullRequestLink(links.repository, links.provider, row.branch, edge.into.branch))
                 : null,
     };
 }
@@ -156,7 +161,7 @@ async function hasContentOf(remote: GitRemote, targetTip: string, sha: string): 
 /** merged and closed are final; broken ends only as merged */
 export async function followPromotions(ctx: UseCaseContext, remote: GitRemote, heads: Map<string, string>): Promise<void> {
     const rows = await ctx.db.query<PromotionRow>(
-        `SELECT id, kind, source, target, sha, branch, state, NULL AS opened_by_name, opened_at FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
+        `SELECT id, kind, source, target, sha, branch, state, NULL AS opened_by_name, opened_at, pull_request_number, pull_request_url FROM promotions WHERE workspace_id = $1 AND state IN ('open', 'broken')`,
         [ctx.workspaceId],
     );
     const configTip = heads.get(CONFIG_BRANCH);

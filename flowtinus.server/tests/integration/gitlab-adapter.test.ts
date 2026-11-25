@@ -132,4 +132,24 @@ describe("the GitLab adapter: what it asks GitLab's API, and what it makes of th
         expect(missing).toMatchObject({ provider: 'gitlab', adapter: null });
         expect(missing.notice).toContain('404 Project Not Found');
     });
+
+    test('a self-hosted GitLab that answers a 5xx at its first probe is told again once it answers, not kept as another provider', async () => {
+        const down = fakeGitLab();
+        try {
+            down.token('tok3n', ['api', 'read_repository', 'write_repository']);
+            down.fail(502);
+            expect(await providerAdapter({ repository: down.repository('omc/later'), token: 'tok3n' })).toEqual({
+                provider: null,
+                adapter: null,
+                notice: null,
+            });
+            down.fail(null);
+            expect(await providerAdapter({ repository: down.repository('omc/later'), token: 'tok3n' })).toMatchObject({
+                provider: 'gitlab',
+                notice: null,
+            });
+        } finally {
+            await down.stop();
+        }
+    });
 });
