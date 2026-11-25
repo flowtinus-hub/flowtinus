@@ -270,6 +270,17 @@ export async function emergencyRollbackStates(
     );
 }
 
+/** each flow in an emergency rollback: the content git's version has, and the content that runs */
+export async function emergencyRollbackHashes(db: Database, workspaceId: string): Promise<Map<string, { git: string; runs: string }>> {
+    const rows = await db.query<{ flow_id: string; git_hash: string; runs_hash: string }>(
+        `SELECT r.flow_id, g.content_hash AS git_hash, v.content_hash AS runs_hash
+       FROM emergency_rollbacks r JOIN flow_versions v ON v.id = r.version_id JOIN flow_versions g ON g.id = r.git_version_id
+      WHERE r.workspace_id = $1`,
+        [workspaceId],
+    );
+    return new Map(rows.map(r => [r.flow_id, { git: r.git_hash, runs: r.runs_hash }]));
+}
+
 /** what git's branch deploys: the deployed version, unless an emergency rollback runs another one */
 export async function gitDeployment(db: Database, workspaceId: string, flowId: string): Promise<DeployedVersion | null> {
     return (await emergencyRollbackOf(db, workspaceId, flowId))?.git ?? (await currentDeployment(db, workspaceId, flowId));

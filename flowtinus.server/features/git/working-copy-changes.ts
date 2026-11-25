@@ -8,14 +8,16 @@ import { fail, success, type UseCaseError, type UseCaseResult } from '#shared/us
 import { commitTree } from './git-first';
 import { onClone, workBranch, type WorkBranch } from './branch-read';
 import { branchIds, lockBranch, noteHead, refuseReadOnly } from './branch-write';
-import { gitAuthorOf, gitBranch } from './git-config';
+import { gitAuthorOf, gitBranch, readGitConfig } from './git-config';
 import { GitError } from './git-remote';
 import { pendingMerge, pendingMergeRefusal } from './pending-merge';
 import { dropNeverCommitted, liveFolderIds } from './never-committed';
 import { lockReconcile } from './reconcile';
 import { abortMerge, commitPendingMerge } from './update';
 import { ENVIRONMENT_BRANCH, followGit, hasWorkingCopy, isChange, overlayRows, workingRows, type WorkingRow } from './working-copy';
-import { committedFlowText, exportTree, flowsInRepo, type GitChanges, type RepoFiles } from './workspace-export';
+import { committedFlowText, exportTree, flowName, flowsInRepo, type GitChanges, type RepoFiles } from './workspace-export';
+import { flowsIn } from './environments';
+import { endsRollbackMessage, rollbacksEndedByAccident, type FlowAfter } from './emergency-rollback-warnings';
 import { importStructure, issueFields, readBranchWorkspace, validateImport } from './workspace-import';
 
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed';
@@ -33,6 +35,8 @@ export type WorkingChange = {
     mine: boolean;
     conflict?: string;
     requires: Requirement[];
+    /** committed, it would end an emergency rollback of this environment by accident */
+    endsEmergencyRollback?: string;
 };
 
 export type Item = WorkingChange & { rows: WorkingRow[] };
@@ -218,7 +222,38 @@ export async function workingItems(
 }
 
 export async function workingChanges(ctx: UseCaseContext): Promise<WorkingChange[]> {
-    return (await workingItems(ctx, await workBranch(ctx))).items.map(({ rows: _rows, ...change }) => change);
+    const branch = await workBranch(ctx);
+    const { items } = await workingItems(ctx, branch);
+    if (!branch) {
+        await markRollbackEnds(ctx, items);
+    }
+    return items.map(({ rows: _rows, ...change }) => change);
+}
+
+// only a commit to the environment's branch goes into this environment, and only direct takes one
+async function markRollbackEnds(ctx: UseCaseContext, items: Item[]): Promise<void> {
+    const [git, config] = await Promise.all([gitBranch(ctx.db, ctx.workspaceId), readGitConfig(ctx.db, ctx.workspaceId)]);
+    if (git?.mode !== 'direct' || !config) {
+        return;
+    }
+    const handle = await workspaceHandle(ctx);
+    const flows = new Map<Item, { id: string; flow: FlowAfter }>();
+    for (const item of items) {
+        const entry = repoEntry(item.path);
+        if (entry.kind === 'flow' && item.fileId) {
+            const row = item.rows[0]!;
+            const state = row.deleted ? null : (flowsIn({ [item.path]: row.content ?? '' }, handle).get(item.fileId) ?? null);
+            flows.set(item, { id: item.fileId, flow: { name: flowName(entry), state } });
+        }
+    }
+    const ended = new Set(
+        await rollbacksEndedByAccident(ctx.db, ctx.workspaceId, new Map([...flows.values()].map(({ id, flow }) => [id, flow]))),
+    );
+    for (const [item, { flow }] of flows) {
+        if (ended.has(flow.name)) {
+            item.endsEmergencyRollback = endsRollbackMessage([flow.name], config.environment);
+        }
+    }
 }
 
 export const chosenBy = (items: Item[], paths: string[]) => items.filter(item => pathsOf(item).some(path => paths.includes(path)));
