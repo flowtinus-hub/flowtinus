@@ -116,6 +116,12 @@ function EnvironmentCardView({ card, into, here }: { card: EnvironmentCard; into
                 </span>
                 <span>{MODE_LABEL[card.mode]}</span>
             </div>
+            {card.warning && (
+                <p className="flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+                    <TriangleAlert className="mt-px size-3.5 shrink-0" />
+                    {card.warning}
+                </p>
+            )}
             <div className="text-xs">
                 <span className="text-muted-foreground">Tip </span>
                 {card.tip ? (
