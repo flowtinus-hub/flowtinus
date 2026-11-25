@@ -54,19 +54,15 @@ export const deployFlow = (flowId: string, message?: string, scripts?: string[])
 /** makes an existing version the deployed one (an older one: a rollback) */
 export const deployVersion = (flowId: string, versionId: string) => deployments(`/flows/${flowId}/versions/${versionId}/deploy`);
 
-/** with git on: this server runs a version that ran here, without git, until a commit changes the flow or it is ended */
 export const emergencyRollback = (flowId: string, versionId: string) =>
     deployments(`/flows/${flowId}/versions/${versionId}/emergency-rollback`);
 
-/** what an emergency rollback to this version is refused for (errors), and what to know before it (warnings) */
 export const emergencyRollbackChecks = (flowId: string, versionId: string) =>
     api<{ errors: string[]; warnings: string[] }>(`/flows/${flowId}/versions/${versionId}/emergency-rollback`);
 
-/** git's version runs again */
 export const endEmergencyRollback = (flowId: string) => deployments(`/flows/${flowId}/emergency-rollback`, 'DELETE');
 
-/** where the fix of an emergency rollback was pushed, in the modes with a review; reused: the branch had it already */
-export type RollbackFix = {
+export type GitMatchBranch = {
     branch: string;
     target: string;
     reused: boolean;
@@ -74,14 +70,12 @@ export type RollbackFix = {
     url: string | null;
 } & OpenedMergeRequest;
 
-/**
- * "Make git match what runs": commits the rolled-back version's content of the flow, on the environment's branch in
- * direct, else on a branch of its own with its pull request (fix); applied, it ends the rollback under a new version
- */
-export async function makeGitMatch(flowId: string): Promise<ApiResult<FlowDeployments & { fix?: RollbackFix }>> {
-    const result = await api<DeploymentsDto & { fix?: RollbackFix }>(`/flows/${flowId}/emergency-rollback/match-git`, { method: 'POST' });
+export async function makeGitMatch(flowId: string): Promise<ApiResult<FlowDeployments & { pushed?: GitMatchBranch }>> {
+    const result = await api<DeploymentsDto & { pushed?: GitMatchBranch }>(`/flows/${flowId}/emergency-rollback/match-git`, {
+        method: 'POST',
+    });
     return result.ok
-        ? { ok: true, value: { ...toDeployments(result.value), ...(result.value.fix ? { fix: result.value.fix } : {}) } }
+        ? { ok: true, value: { ...toDeployments(result.value), ...(result.value.pushed ? { pushed: result.value.pushed } : {}) } }
         : result;
 }
 

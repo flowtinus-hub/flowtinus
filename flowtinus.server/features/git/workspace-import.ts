@@ -2,6 +2,7 @@ import { inArray } from 'drizzle-orm';
 import { workspaceHandleIn } from '#features/workspaces/workspace';
 import { connectionFromYaml, isRepoId, nameKey, projectFromYaml, repoEntry, repoPath, repoFlowFromYaml, validateWorkspaceTree, type FlowFile, type RepoEntry, type TreeIssue, type TreeValidation, type TriggerKind, type WorkspaceTree } from '@flowtinus/core';
 import { ConnectionRepository } from '#features/connections/connection-store';
+import { keepsEmergencyRollback } from '#features/deployments/emergency-rollback/emergency-rollback-content';
 import { contentHash, currentDeployment, emergencyRollbackOf, endEmergencyRollback, insertVersion, lockFlowDeployments, newestVersionLike, setDeployed, turnOffTriggers, undeployArchived, type Actor } from '#features/deployments/deployments';
 import { flows as flowsTable } from '#features/flows/flow';
 import { flowRepoPath } from '#features/flows/flow-draft';
@@ -542,10 +543,10 @@ async function deployAsInTree(
     await lockFlowDeployments(db, flowId);
     const rollback = await emergencyRollbackOf(db, workspaceId, flowId);
     if (rollback) {
-        if (deployed && rollback.git.hash === contentHash(flow)) {
+        if (keepsEmergencyRollback(rollback, { deployed, hash: contentHash(flow) })) {
             return;
         }
-        await endEmergencyRollback(db, by, flowId, commit);
+        await endEmergencyRollback(db, by, flowId, { commit });
     }
     const current = await currentDeployment(db, workspaceId, flowId);
     if (deployed) {

@@ -1,7 +1,7 @@
 import { repoEntry, type TreeIssue } from '@flowtinus/core';
 import { workspaceHandle } from '#features/folders/project-tree';
 import { foldOverrides } from '#features/schedules/schedules';
-import { endEmergencyRollback } from '#features/deployments/deployments';
+import { emergencyRollbacks, endEmergencyRollback } from '#features/deployments/deployments';
 import { clearArrivedDisabled } from './arrived-disabled';
 import { deleteWorkspaceSetting, readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspaces/workspace-settings';
 import type { Database } from '#shared/database/database';
@@ -71,11 +71,8 @@ export async function forgetReconcile(ctx: UseCaseContext) {
     await deleteWorkspaceSetting(ctx.db, ctx.workspaceId, HEADS_SETTING);
     await ctx.db.query('DELETE FROM deployed_scripts WHERE workspace_id = $1', [ctx.workspaceId]);
     // what runs stays: deployments already points at the rolled-back version, now an ordinary deployment
-    const rolledBack = await ctx.db.query<{ flow_id: string }>('SELECT flow_id FROM emergency_rollbacks WHERE workspace_id = $1', [
-        ctx.workspaceId,
-    ]);
-    for (const { flow_id: flowId } of rolledBack) {
-        await endEmergencyRollback(ctx.db, ctx, flowId, null);
+    for (const { flowId } of await emergencyRollbacks(ctx.db, ctx.workspaceId)) {
+        await endEmergencyRollback(ctx.db, ctx, flowId, { commit: null });
     }
     await foldOverrides(ctx.db, ctx.workspaceId);
     await clearArrivedDisabled(ctx.db, ctx.workspaceId);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, CircleCheck, File, FileCode2, Folder, FolderKanban, GitCommitHorizontal, Lock, LoaderCircle, Plug, TriangleAlert, Undo2, Workflow, type LucideIcon } from 'lucide-react';
 import { ArrivedDisabledList } from '@/components/arrived-disabled-list';
+import { WarningLine } from '@/components/warning-line';
 import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -319,9 +320,7 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
                         ) : (
                             <>
                                 {endings.map(ending => (
-                                    <p key={ending} className="flex gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                                        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" /> {ending}
-                                    </p>
+                                    <WarningLine key={ending}>{ending}</WarningLine>
                                 ))}
                                 <Input
                                     aria-label="Commit message"

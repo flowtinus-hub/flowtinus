@@ -108,6 +108,7 @@ export type RunFilter = {
     /** one of the user's workspaces (its handle); '': all of them */
     workspace: string;
     projectId: string;
+    flowId: string;
     trigger: 'all' | RunTrigger;
     /** a run id (whole or its start), or part of a flow's name */
     search: string;
@@ -115,7 +116,7 @@ export type RunFilter = {
     period?: RunPeriod;
 };
 
-export const EMPTY_FILTER: RunFilter = { status: 'all', workspace: '', projectId: '', trigger: 'all', search: '' };
+export const EMPTY_FILTER: RunFilter = { status: 'all', workspace: '', projectId: '', flowId: '', trigger: 'all', search: '' };
 
 /** the short form of a run id, as the list shows it (the whole one on hover, copy and in the details) */
 export const shortId = (id: string) => id.slice(0, 8);

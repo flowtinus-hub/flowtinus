@@ -183,6 +183,8 @@ describe('the Runs page api', () => {
         expect(await tops(`q=${ids.brokenRun!.slice(0, 8)}`)).toEqual(['Sync partners']);
         expect(await tops('q=backgr')).toEqual(['Import orders']);
         expect(await tops(`project=${crypto.randomUUID()}`)).toEqual([]);
+        expect(await tops(`flow=${ids.broken}`)).toEqual(['Sync partners']);
+        expect(await tops(`flow=${ids.background}&status=completed`)).toEqual(['Import orders']);
         const first = (await call<RunListPage>('GET', '/runs?limit=1')).body;
         expect(first.runs.filter(r => !r.parentId).map(r => r.flowName)).toEqual(['Import orders']);
         const second = (await call<RunListPage>('GET', `/runs?limit=1&before=${encodeURIComponent(first.next!)}`)).body;

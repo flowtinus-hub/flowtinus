@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { ChevronRight, History, Layers, LoaderCircle, RotateCw, Search, TriangleAlert } from 'lucide-react';
+import { ChevronRight, History, Layers, LoaderCircle, RotateCw, Search, TriangleAlert, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -29,7 +29,7 @@ const DEFAULT_PERIOD: RunPeriod = '24h';
 /** its short form, beside the numbers */
 const PERIOD_HINT: Record<RunPeriod, string> = { '24h': 'last 24 h', '7d': 'last 7 days' };
 
-/** the filter from the URL (?status=&workspace=&project=&trigger=&q=&period=), so a reload or a link keeps it */
+/** the filter from the URL (?status=&workspace=&project=&flow=&trigger=&q=&period=), so a reload or a link keeps it */
 function filterOf(params: URLSearchParams): RunFilter & { period: RunPeriod } {
     const status = params.get('status') as RunFilter['status'] | null;
     const trigger = params.get('trigger') as RunFilter['trigger'] | null;
@@ -38,6 +38,7 @@ function filterOf(params: URLSearchParams): RunFilter & { period: RunPeriod } {
         status: status && STRIP.includes(status) ? status : 'all',
         workspace: params.get('workspace') ?? '',
         projectId: params.get('project') ?? '',
+        flowId: params.get('flow') ?? '',
         trigger: trigger && trigger in TRIGGER_LABEL ? trigger : 'all',
         search: params.get('q') ?? '',
         period: period && period in RUN_PERIOD_LABEL ? period : DEFAULT_PERIOD,
@@ -386,6 +387,12 @@ export function RunsPage() {
                                     </option>
                                 ))}
                             </select>
+                            {filter.flowId && (
+                                <Button variant="outline" size="sm" onClick={() => set({ flow: '' })} title="Show the runs of every flow">
+                                    {runs.find(r => r.flowId === filter.flowId)?.flowName ?? 'One flow'}
+                                    <X />
+                                </Button>
+                            )}
                         </div>
                         {shown.length === 0 && !page.loading ? (
                             <div className="flex flex-col items-center gap-2 p-12 text-center">
@@ -395,11 +402,13 @@ export function RunsPage() {
                                     filter.status === 'all' &&
                                     !filter.workspace &&
                                     !filter.projectId &&
+                                    !filter.flowId &&
                                     filter.trigger === 'all'
                                         ? `No run with the id ${filter.search.trim()}.`
                                         : filter.status !== 'all' ||
                                             filter.workspace ||
                                             filter.projectId ||
+                                            filter.flowId ||
                                             filter.trigger !== 'all' ||
                                             filter.search
                                           ? 'No run fits these filters.'

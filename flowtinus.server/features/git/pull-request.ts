@@ -14,7 +14,8 @@ import { mergeRequestDescription, openMergeRequest, pullRequestUrl, workBranchRe
 import { pendingMerge, pendingMergeRefusal } from './pending-merge';
 import { fileChanges, flowImpact } from './promotions';
 import { issueFields, readBranchWorkspace, validateImport } from './workspace-import';
-import { endsRollbackMessage, flowsAfterMerge, rollbacksEndedByAccident } from './emergency-rollback-warnings';
+import { endsRollbackMessage } from '#features/deployments/emergency-rollback/emergency-rollback-content';
+import { flowsAfterMerge, rollbacksEndedByAccident } from './emergency-rollback-warnings';
 
 export type Provider = 'gitlab' | 'github';
 
@@ -26,7 +27,6 @@ export type PullRequestView = {
     borrowed: { branch: string; commits: number }[];
     provider: Provider | null;
     url: string | null;
-    /** its merge would end an emergency rollback of this environment by accident */
     endsEmergencyRollback?: string;
 } & OpenedMergeRequest;
 

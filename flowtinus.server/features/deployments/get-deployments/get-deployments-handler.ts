@@ -9,7 +9,7 @@ import { validate } from '#shared/use-cases/validate';
 import { isFolderVisible } from '@flowtinus/core';
 import { loadDraft } from '#features/flows/flow-draft';
 import { callsOf } from '#features/runs/start-run/called-flows';
-import { deployedDefinitions, loadDeployments, type FlowDeploymentsView } from '../deployments';
+import { deployedDefinitions, draftEndsEmergencyRollback, loadDeployments, type FlowDeploymentsView } from '../deployments';
 
 export const GetDeploymentsQuery = z.object({ id: z.uuid('Invalid') });
 
@@ -31,7 +31,8 @@ export class GetDeploymentsHandler implements UseCaseHandler<DeploymentsWithWarn
 
         const tree = await loadTree(ctx.db, ctx.workspaceId, row.projectId);
         // the flows its Flow Invokers name (one named by expression cannot be known before it runs)
-        const called = [...new Set(callsOf((await loadDraft(ctx.db, ctx.workspaceId, row)).flow))].filter(id => id !== row.id);
+        const draft = (await loadDraft(ctx.db, ctx.workspaceId, row)).flow;
+        const called = [...new Set(callsOf(draft))].filter(id => id !== row.id);
         const deployed = await deployedDefinitions(ctx.db, ctx.workspaceId, called);
         const warnings = called.flatMap(id => {
             const flow = tree.flows.find(f => f.id === id);
@@ -41,6 +42,7 @@ export class GetDeploymentsHandler implements UseCaseHandler<DeploymentsWithWarn
 
             return deployed.has(id) ? [] : [`It calls "${flow.name}", which is not deployed: those calls will fail.`];
         });
-        return success({ ...(await loadDeployments(ctx.db, ctx.workspaceId, row.id)), warnings });
+        const ends = await draftEndsEmergencyRollback(ctx.db, ctx.workspaceId, row, draft);
+        return success({ ...(await loadDeployments(ctx.db, ctx.workspaceId, row.id)), warnings: [...warnings, ...(ends ? [ends] : [])] });
     }
 }

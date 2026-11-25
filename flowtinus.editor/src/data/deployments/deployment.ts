@@ -21,6 +21,7 @@ export type FlowVersion = {
     /** with git: the commit it came from, and its message */
     commit?: string | null;
     commitMessage?: string;
+    endsEmergencyRollback?: string;
 };
 
 export type DeploymentAction = 'deploy' | 'rollback' | 'undeploy' | 'emergency-rollback' | 'end-emergency-rollback';
@@ -93,19 +94,12 @@ export function deployState(deployments: FlowDeployments, draft: FlowFile | null
         return { kind: 'not-deployed', lastNumber: deployments.versions[0]?.number ?? null };
     }
 
-    const rollback = deployments.emergencyRollback;
-    const base = (rollback && deployments.versions.find(v => v.id === rollback.gitVersionId)) || version;
+    const base = gitVersion(deployments) ?? version;
     return { kind: 'deployed', version, changed: draft !== null && !sameFlow(draft, base.definition) };
 }
 
-/** with git on: committing this content ends the emergency rollback by accident, being neither git's version nor what runs */
-export function endsEmergencyRollback(deployments: FlowDeployments, content: FlowFile): boolean {
-    const rollback = deployments.emergencyRollback;
-    return (
-        !!rollback &&
-        !deployments.versions.some(v => (v.id === rollback.versionId || v.id === rollback.gitVersionId) && sameFlow(v.definition, content))
-    );
-}
+export const gitVersion = (deployments: FlowDeployments): FlowVersion | undefined =>
+    deployments.versions.find(v => v.id === (deployments.emergencyRollback?.gitVersionId ?? deployments.deployed?.versionId));
 
 export function nextNumber(deployments: FlowDeployments, draft: FlowFile | null): number {
     const newest = deployments.versions[0];

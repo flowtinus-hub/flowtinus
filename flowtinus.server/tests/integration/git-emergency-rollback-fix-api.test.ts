@@ -201,7 +201,7 @@ describe('"Make git match what runs": the fix of an emergency rollback, a commit
             const fixed = await fix(editor);
             expect(fixed.status).toBe(200);
             const branch = `${prefix}orders-${short}-v1`;
-            expect(fixed.body.fix).toEqual({ branch, target: 'dev', reused: false, provider: null, url: null });
+            expect(fixed.body.pushed).toEqual({ branch, target: 'dev', reused: false, provider: null, url: null });
             expect(tip(`${branch}~1`)).toBe(before);
             expect(label(branch)).toBe('One');
             expect(tip('dev')).toBe(before);
@@ -214,6 +214,28 @@ describe('"Make git match what runs": the fix of an emergency rollback, a commit
         });
     }
 
+    test("in protected, the hotfix follows step 6's rules: an existing branch matches whatever its case; leftover changes here refuse a new one", async () => {
+        const { id, short, repo, tip, fix } = await workspace('protected');
+        const branch = `hotfix/rollback-orders-${short}-v1`;
+        await db.query(`INSERT INTO working_copy (workspace_id, branch, path, content) VALUES ($1, $2, 'stale.txt', 'x')`, [id, branch]);
+        const refused = await fix();
+        expect([refused.status, refused.body.error?.message]).toEqual([
+            409,
+            `This server still has changes on a branch ${branch}: discard them first.`,
+        ]);
+        await db.query('DELETE FROM working_copy WHERE workspace_id = $1 AND branch = $2', [id, branch]);
+        expect((await fix()).status).toBe(200);
+
+        const renamed = `hotfix/Rollback-Orders-${short}-v1`;
+        const sha = tip(branch);
+        git(repo, 'update-ref', '-d', `refs/heads/${branch}`);
+        git(repo, 'update-ref', `refs/heads/${renamed}`, sha);
+        const reused = await fix();
+        expect(reused.status).toBe(200);
+        expect(reused.body.pushed).toMatchObject({ branch: renamed, reused: true });
+        expect(tip(renamed)).toBe(sha);
+    });
+
     test("with the adapter on, the work branch's merge request is opened through it", async () => {
         const { short, fix, project } = await workspace('pull-request', { adapter: true });
 
@@ -222,9 +244,9 @@ describe('"Make git match what runs": the fix of an emergency rollback, a commit
         const branch = `rollback-orders-${short}-v1`;
         const [mr] = project().mergeRequests;
         expect(mr).toMatchObject({ source_branch: branch, target_branch: 'dev', force_remove_source_branch: true });
-        expect(fixed.body.fix).toMatchObject({ branch, provider: 'gitlab', url: mr!.web_url, mergeRequest: { number: mr!.iid } });
+        expect(fixed.body.pushed).toMatchObject({ branch, provider: 'gitlab', url: mr!.web_url, mergeRequest: { number: mr!.iid } });
 
-        expect((await fix()).body.fix).toMatchObject({ reused: true, mergeRequest: { number: mr!.iid } });
+        expect((await fix()).body.pushed).toMatchObject({ reused: true, mergeRequest: { number: mr!.iid } });
         expect(project().mergeRequests).toHaveLength(1);
     });
 
@@ -236,7 +258,7 @@ describe('"Make git match what runs": the fix of an emergency rollback, a commit
 
         const fixed = await fix();
         expect(fixed.status).toBe(200);
-        expect(fixed.body.fix.branch).toBe(`rollback-${short}-v1`);
+        expect(fixed.body.pushed.branch).toBe(`rollback-${short}-v1`);
         expect(label(`rollback-${short}-v1`, renamed)).toBe('One');
     });
 
@@ -252,7 +274,7 @@ describe('"Make git match what runs": the fix of an emergency rollback, a commit
 
         const reused = await fix();
         expect(reused.status).toBe(200);
-        expect(reused.body.fix).toMatchObject({ branch, reused: true });
+        expect(reused.body.pushed).toMatchObject({ branch, reused: true });
         expect(tip(branch)).toBe(moved);
 
         pushOrders(branch, f => ({ ...f, flow: relabelled(f.flow, 'Other') }));

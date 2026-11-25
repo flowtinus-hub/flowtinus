@@ -1,57 +1,27 @@
 import { z } from 'zod';
-import { gitBranch } from '#features/git/git-config';
 import { lockReconcile } from '#features/git/reconcile';
 import type { FlowFile } from '@flowtinus/core';
 import type { Flow } from '#features/flows/flow';
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
-import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseError, type UseCaseResult } from '#shared/use-cases/use-case-result';
-import { validate } from '#shared/use-cases/validate';
+import { authorizeFlowCommand, type FlowAccess } from './authorize-flow-command';
 import { emergencyRollbackChecks, type CheckedVersion, type EmergencyRollbackChecks } from './emergency-rollback-checks';
-import { activeFlow, currentDeployment, emergencyRollbackOf, loadDeployments, lockFlowDeployments, setDeployed, type EmergencyRollback, type FlowDeploymentsView } from '../deployments';
+import { hasGitContent } from './emergency-rollback-content';
+import { currentDeployment, emergencyRollbackOf, endEmergencyRollback, loadDeployments, lockFlowDeployments, setDeployed, versionDefinition, type DeployedVersion, type EmergencyRollback, type FlowDeploymentsView } from '../deployments';
 
 export const EmergencyRollbackCommand = z.object({ id: z.uuid('Invalid'), versionId: z.uuid('Invalid') });
 
 export const EndEmergencyRollbackCommand = z.object({ id: z.uuid('Invalid') });
 
-type Current = { id: string; number: number; hash: string };
+// who rolls back follows what the mode reviews: an editor in direct, an admin where the rollback skips a review
+const ROLLBACK_ACCESS: FlowAccess = {
+    role: mode => (mode === 'direct' ? 'editor' : 'admin'),
+    gitOff: 'Git is off in this workspace: roll back by deploying an older version.',
+};
 
-type Locked = { current: Current | null; rollback: EmergencyRollback | null };
-
-/**
- * With git on, who rolls back follows what the mode reviews: an editor in direct, an admin where the rollback skips a
- * review. The mode is the last reconcile's, so that it works while git cannot be reached.
- */
-async function onFlow<T extends { id: string }>(
-    input: unknown,
-    schema: z.ZodType<T>,
-    ctx: UseCaseContext,
-): Promise<UseCaseResult<{ flow: Flow; command: T }>> {
-    const denied = requireRole(ctx, 'editor');
-    if (denied) {
-        return denied;
-    }
-
-    const parsed = validate(schema, input);
-    if (!parsed.ok) {
-        return parsed;
-    }
-
-    const git = await gitBranch(ctx.db, ctx.workspaceId);
-    if (!git) {
-        return fail('conflict', 'Git is off in this workspace: roll back by deploying an older version.');
-    }
-
-    const role = requireRole(ctx, git.mode === 'direct' ? 'editor' : 'admin');
-    if (role) {
-        return role;
-    }
-
-    const flow = await activeFlow(ctx, parsed.value.id);
-    return flow ? success({ flow, command: parsed.value }) : fail('not-found', 'Flow not found.');
-}
+type Locked = { current: DeployedVersion | null; rollback: EmergencyRollback | null };
 
 // git's version is read under the reconcile's locks: a commit applied meanwhile would leave it stale
 async function underLocks(
@@ -75,15 +45,13 @@ async function underLocks(
     return success(await loadDeployments(ctx.db, ctx.workspaceId, flow.id));
 }
 
-async function goBackToGit(db: Database, ctx: UseCaseContext, flowId: string, rollback: EmergencyRollback): Promise<void> {
-    await db.query('DELETE FROM emergency_rollbacks WHERE workspace_id = $1 AND flow_id = $2', [ctx.workspaceId, flowId]);
-    await setDeployed(db, ctx, flowId, 'end-emergency-rollback', rollback.versionId, rollback.git.id);
-}
+const goBackToGit = (db: Database, ctx: UseCaseContext, flowId: string, rollback: EmergencyRollback) =>
+    endEmergencyRollback(db, ctx, flowId, { backToGit: rollback.git });
 
-type Target = { id: string; number: number; content_hash: string; definition: FlowFile };
+type VersionThatRan = { id: string; number: number; content_hash: string; definition: FlowFile };
 
-async function target(ctx: UseCaseContext, flow: Flow, versionId: string): Promise<UseCaseResult<Target>> {
-    const [version] = await ctx.db.query<Target & { ran: boolean }>(
+async function loadVersionThatRan(ctx: UseCaseContext, flow: Flow, versionId: string): Promise<UseCaseResult<VersionThatRan>> {
+    const [version] = await ctx.db.query<VersionThatRan & { ran: boolean }>(
         `SELECT v.id, v.number, v.content_hash, v.definition,
          EXISTS (SELECT 1 FROM deployment_history h WHERE h.flow_id = v.flow_id AND h.to_version_id = v.id) AS ran
        FROM flow_versions v WHERE v.workspace_id = $1 AND v.flow_id = $2 AND v.id = $3`,
@@ -98,15 +66,20 @@ async function target(ctx: UseCaseContext, flow: Flow, versionId: string): Promi
     return success(version);
 }
 
-async function checkedVersion(db: Database, version: Current): Promise<CheckedVersion> {
-    const [row] = await db.query<{ definition: FlowFile }>('SELECT definition FROM flow_versions WHERE id = $1', [version.id]);
-    return { number: version.number, definition: row!.definition };
-}
+const checkedVersion = async (db: Database, version: DeployedVersion): Promise<CheckedVersion> => ({
+    number: version.number,
+    definition: await versionDefinition(db, version.id),
+});
 
 // back to git's content (the end of the rollback) or to the version that runs: nothing to check
-async function checksOf(ctx: UseCaseContext, flow: Flow, version: Target, { current, rollback }: Locked): Promise<EmergencyRollbackChecks> {
+async function checksOf(
+    ctx: UseCaseContext,
+    flow: Flow,
+    version: VersionThatRan,
+    { current, rollback }: Locked,
+): Promise<EmergencyRollbackChecks> {
     const git = rollback?.git ?? current;
-    if (!current || !git || current.id === version.id || version.content_hash === git.hash) {
+    if (!current || !git || current.id === version.id || hasGitContent({ git }, version.content_hash)) {
         return { errors: [], warnings: [] };
     }
 
@@ -114,16 +87,15 @@ async function checksOf(ctx: UseCaseContext, flow: Flow, version: Target, { curr
     return emergencyRollbackChecks(ctx, flow, version, running, gitVersion);
 }
 
-/** What rolling back to a version would be refused for (errors), and what to know before (warnings). */
 export class EmergencyRollbackChecksHandler implements UseCaseHandler<EmergencyRollbackChecks> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<EmergencyRollbackChecks>> {
-        const found = await onFlow(input, EmergencyRollbackCommand, ctx);
+        const found = await authorizeFlowCommand(input, EmergencyRollbackCommand, ctx, ROLLBACK_ACCESS);
         if (!found.ok) {
             return found;
         }
 
         const { flow, command } = found.value;
-        const version = await target(ctx, flow, command.versionId);
+        const version = await loadVersionThatRan(ctx, flow, command.versionId);
         if (!version.ok) {
             return version;
         }
@@ -136,24 +108,20 @@ export class EmergencyRollbackChecksHandler implements UseCaseHandler<EmergencyR
     }
 }
 
-/**
- * An emergency rollback: the environment runs a version of the flow that already ran here, other than the one running,
- * without git; git's version stays the one it replaced, through further rollbacks. A version with git's content ends it.
- */
 export class EmergencyRollbackHandler implements UseCaseHandler<FlowDeploymentsView> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<FlowDeploymentsView>> {
-        const found = await onFlow(input, EmergencyRollbackCommand, ctx);
+        const found = await authorizeFlowCommand(input, EmergencyRollbackCommand, ctx, ROLLBACK_ACCESS);
         if (!found.ok) {
             return found;
         }
 
         const { flow, command } = found.value;
-        const targeted = await target(ctx, flow, command.versionId);
-        if (!targeted.ok) {
-            return targeted;
+        const loaded = await loadVersionThatRan(ctx, flow, command.versionId);
+        if (!loaded.ok) {
+            return loaded;
         }
 
-        const version = targeted.value;
+        const version = loaded.value;
         return underLocks(ctx, flow, async (db, locked) => {
             const { current, rollback } = locked;
             if (!current) {
@@ -164,7 +132,7 @@ export class EmergencyRollbackHandler implements UseCaseHandler<FlowDeploymentsV
             }
 
             const git = rollback?.git ?? current;
-            if (version.content_hash === git.hash) {
+            if (hasGitContent({ git }, version.content_hash)) {
                 if (!rollback) {
                     return { code: 'validation', message: `v${version.number} has the content of the version that runs.` };
                 }
@@ -188,10 +156,9 @@ export class EmergencyRollbackHandler implements UseCaseHandler<FlowDeploymentsV
     }
 }
 
-/** Ends an emergency rollback by hand: git's version runs again. */
 export class EndEmergencyRollbackHandler implements UseCaseHandler<FlowDeploymentsView> {
     async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<FlowDeploymentsView>> {
-        const found = await onFlow(input, EndEmergencyRollbackCommand, ctx);
+        const found = await authorizeFlowCommand(input, EndEmergencyRollbackCommand, ctx, ROLLBACK_ACCESS);
         if (!found.ok) {
             return found;
         }

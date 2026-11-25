@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { ArrowRight, GitBranch, Layers, TriangleAlert, Undo2 } from 'lucide-react';
 import { workspaceSettingsPath } from '@/app/paths';
+import { EmergencyRollbackBadge } from '@/components/emergency-rollback-badge';
 import { ResourceView } from '@/components/resource-view';
 import { useResource } from '@/data/use-resource';
 import { shortSha } from '@/data/deployments/deployment';
@@ -188,17 +189,15 @@ function EdgeLine({ edge, branch }: { edge: EnvironmentEdge; branch: string }) {
 }
 
 const CELL_TEXT = (cell: FlowCell) =>
-    cell.emergencyRollback
-        ? `v${cell.emergencyRollback.number} · emergency rollback`
-        : cell.state === 'absent'
-          ? 'Absent'
-          : cell.state === 'undeployed'
-            ? 'Undeployed'
-            : cell.content === 'same'
-              ? 'Same'
-              : cell.content === 'other'
-                ? 'Another version'
-                : 'Deployed';
+    cell.state === 'absent'
+        ? 'Absent'
+        : cell.state === 'undeployed'
+          ? 'Undeployed'
+          : cell.content === 'same'
+            ? 'Same'
+            : cell.content === 'other'
+              ? 'Another version'
+              : 'Deployed';
 
 function RunsWhere({ value }: { value: On }) {
     const { environments, flows } = value.runsWhere;
@@ -255,18 +254,17 @@ function FlowLine({ flow, environments, here }: { flow: FlowRow; environments: s
                             'px-3 py-2',
                             env === here && 'bg-primary/5',
                             cell?.differs && 'bg-amber-500/10 font-medium text-amber-800 dark:text-amber-300',
-                            cell?.emergencyRollback && 'font-mono font-medium text-red-700 dark:text-red-400',
                             (!cell || cell.state === 'absent') && !cell?.differs && 'text-muted-foreground',
                         )}
-                        title={
-                            cell?.emergencyRollback
-                                ? `v${cell.emergencyRollback.number} runs here instead of git's v${cell.emergencyRollback.gitNumber}: an emergency rollback`
-                                : cell?.differs
-                                  ? `Differs from ${here}`
-                                  : undefined
-                        }
+                        title={cell?.differs ? `Differs from ${here}` : undefined}
                     >
-                        {cell ? CELL_TEXT(cell) : 'No branch'}
+                        {cell?.emergencyRollback ? (
+                            <EmergencyRollbackBadge {...cell.emergencyRollback} />
+                        ) : cell ? (
+                            CELL_TEXT(cell)
+                        ) : (
+                            'No branch'
+                        )}
                     </td>
                 );
             })}

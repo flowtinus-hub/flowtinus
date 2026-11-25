@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, GitPullRequestArrow, LoaderCircle, TriangleAlert } from 'lucide-react';
+import { ExternalLink, GitPullRequestArrow, LoaderCircle } from 'lucide-react';
+import { WarningLine } from '@/components/warning-line';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -114,11 +115,7 @@ export function PullRequestDialog({
                         )}
                         {pr.mergeRequest && <p>Merge request !{pr.mergeRequest.number} is open.</p>}
                         {pr.notice && <p className="text-xs text-amber-700 dark:text-amber-400">{pr.notice}</p>}
-                        {pr.endsEmergencyRollback && (
-                            <p className="flex gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" /> {pr.endsEmergencyRollback}
-                            </p>
-                        )}
+                        {pr.endsEmergencyRollback && <WarningLine>{pr.endsEmergencyRollback}</WarningLine>}
                         {pr.borrowed.map(b => (
                             <p key={b.branch} className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
                                 It includes {plural(b.commits, 'commit')} from <span className="font-mono">{b.branch}</span>, not yet in{' '}

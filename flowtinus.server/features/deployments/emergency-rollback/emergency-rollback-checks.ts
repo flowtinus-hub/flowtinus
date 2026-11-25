@@ -32,10 +32,25 @@ async function inputTypeGone(ctx: UseCaseContext, file: FlowFile): Promise<strin
     return shape ? null : `The Start's input type ${ref.name} no longer exists in the script ${ref.path}.`;
 }
 
-// the tree's issues the old version brings, not those the running version has too
+const issueKey = (issue: TreeIssue) => `${issue.path}\n${issue.message}`;
+
+const issueText = (issue: TreeIssue, path: string) => (issue.path === path ? issue.message : `${issue.path}: ${issue.message}`);
+
 function newIssues(after: TreeIssue[], before: TreeIssue[], path: string): string[] {
-    const known = new Set(before.map(i => `${i.path}\n${i.message}`));
-    return after.filter(i => !known.has(`${i.path}\n${i.message}`)).map(i => (i.path === path ? i.message : `${i.path}: ${i.message}`));
+    const known = new Set(before.map(issueKey));
+    return after.filter(i => !known.has(issueKey(i))).map(i => issueText(i, path));
+}
+
+// a called flow, script or connection missing from this flow's file blocks even when the running version misses it too
+function blockingIssues(after: TreeIssue[], before: TreeIssue[], path: string): string[] {
+    return [
+        ...after.filter(i => i.path === path).map(i => issueText(i, path)),
+        ...newIssues(
+            after.filter(i => i.path !== path),
+            before,
+            path,
+        ),
+    ];
 }
 
 async function calledNotDeployed(ctx: UseCaseContext, flow: Flow, to: FlowFile, running: FlowFile, names: Map<string, string>) {
@@ -77,8 +92,8 @@ async function callersWarning(ctx: UseCaseContext, flow: Flow, to: CheckedVersio
 
 /**
  * The tree as this server deploys it (git's version of every flow, the deployed scripts), with this flow's file at the
- * old version, checked without git. Only what is new blocks: a defect the running version has too would block the way
- * out without making anything better.
+ * old version, checked without git. A called flow not deployed here and the Start's input type gone block only when
+ * new: a defect the running version has too would block the way out without making anything better.
  */
 export async function emergencyRollbackChecks(
     ctx: UseCaseContext,
@@ -88,7 +103,7 @@ export async function emergencyRollbackChecks(
     git: CheckedVersion,
 ): Promise<EmergencyRollbackChecks> {
     const [{ files, ids }, handle, environment] = await Promise.all([
-        exportTree(ctx.db, ctx.workspaceId, 'deployed'),
+        exportTree(ctx.db, ctx.workspaceId, 'git'),
         workspaceHandleIn(ctx.db, ctx.workspaceId),
         importEnvironment(ctx.db, ctx.workspaceId),
     ]);
@@ -115,7 +130,7 @@ export async function emergencyRollbackChecks(
     const callers = await callersWarning(ctx, flow, to, git);
     return {
         errors: [
-            ...newIssues(after.errors, before.errors, path),
+            ...blockingIssues(after.errors, before.errors, path),
             ...(await calledNotDeployed(ctx, flow, to.definition, running.definition, names)),
             ...(gone && !wasGone ? [gone] : []),
         ],
