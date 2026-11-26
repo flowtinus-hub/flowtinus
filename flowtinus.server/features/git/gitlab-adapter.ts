@@ -1,5 +1,5 @@
 import type { GitAccess } from './git-remote';
-import { API_NOTICE, ProviderError, providerNotice, type AccessRule, type BranchProtection, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
+import { API_NOTICE, ProviderError, providerNotice, type AccessRule, type BranchProtection, type MergeLimit, type MergeMethod, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 const TIMEOUT_MS = 10_000;
 
@@ -13,14 +13,23 @@ type ProtectedBranch = { name: string; push_access_levels: AccessLevels };
 
 const DEVELOPER = 30;
 
-const SQUASH: Record<string, MergeSettings['squash']> = {
-    never: 'never',
-    default_off: 'optional',
-    default_on: 'default',
-    always: 'always',
-};
+const FAST_FORWARD_ONLY: Record<string, MergeLimit> = { ff: 'fast-forward-only', rebase_merge: 'semi-linear-only' };
 
-const MERGE_METHOD: Record<string, MergeSettings['mergeMethod']> = { merge: 'merge', rebase_merge: 'semi-linear', ff: 'fast-forward' };
+const OPENNESS: AccessRule[] = ['nobody', 'maintainers', 'developers'];
+
+const pattern = (branch: string) =>
+    new RegExp(
+        `^${branch
+            .split('*')
+            .map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+            .join('.*')}$`,
+    );
+
+// a branch several rules match takes the most permissive one, as GitLab does
+function whoPushes(protections: ProtectedBranch[], branch: string): AccessRule {
+    const matching = protections.filter(p => pattern(p.name).test(branch)).map(p => OPENNESS.indexOf(accessRuleOf(p.push_access_levels)));
+    return matching.length ? OPENNESS[Math.max(...matching)]! : 'developers';
+}
 
 const toPullRequest = (m: MergeRequest): ProviderPullRequest => ({
     number: m.iid,
@@ -56,6 +65,7 @@ async function errorOf(response: Response): Promise<string> {
 
 class GitLabClient implements ProviderAdapter {
     readonly provider = 'gitlab' as const;
+    readonly canTurnSquashOff = true;
     private readonly api: string;
     private readonly project: string;
 
@@ -144,16 +154,22 @@ class GitLabClient implements ProviderAdapter {
         return toPullRequest((await this.call<MergeRequest>('GET', `${this.project}/merge_requests/${number}`)).value);
     }
 
+    // the project's settings, the same into every branch
     async mergeSettings(): Promise<MergeSettings> {
         const { value } = await this.call<{ squash_option?: string; merge_method?: string }>('GET', this.project);
-        return { squash: SQUASH[value.squash_option ?? ''] ?? 'optional', mergeMethod: MERGE_METHOD[value.merge_method ?? ''] ?? 'merge' };
+        const forced = value.squash_option === 'always';
+        const fastForwardOnly = FAST_FORWARD_ONLY[value.merge_method ?? ''];
+        const methods: MergeMethod[] = forced ? [] : [fastForwardOnly ? 'fast-forward' : 'merge-commit'];
+        if (value.squash_option !== 'never') {
+            methods.push('squash');
+        }
+        const limits: MergeLimit[] = [...(forced ? (['squash-forced'] as const) : []), ...(fastForwardOnly ? [fastForwardOnly] : [])];
+        return { methods, limits };
     }
 
-    async branchProtections(): Promise<BranchProtection[]> {
-        return (await this.list<ProtectedBranch>(`${this.project}/protected_branches`)).map(p => ({
-            branch: p.name,
-            push: accessRuleOf(p.push_access_levels),
-        }));
+    async branchProtections(branches: string[]): Promise<BranchProtection[]> {
+        const protections = await this.list<ProtectedBranch>(`${this.project}/protected_branches`);
+        return branches.map(branch => ({ branch, push: whoPushes(protections, branch) }));
     }
 }
 
@@ -161,7 +177,7 @@ export async function gitlabAdapter(access: GitAccess): Promise<{ adapter: Provi
     const client = new GitLabClient(access);
     try {
         if (!(await client.scopes()).includes('api')) {
-            return { notice: API_NOTICE };
+            return { notice: API_NOTICE.gitlab };
         }
         await client.projectPath();
         return { adapter: client };
