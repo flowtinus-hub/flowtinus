@@ -248,6 +248,49 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
         expect(raw(repo, 'dev', path)).toContain(theirsId);
     });
 
+    test('both added a flow at the same path with different ids, met by an Update: one is renamed, and the merge commits both', async () => {
+        const { call, repo, at, orders, ordersPath, userHandle, changes, conflict, push, inGit } = await workspace();
+        const branch = `users/${userHandle}/refunds`;
+        expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
+        const projectId = (await call('GET', `/flows/${orders}`)).body.projectId as string;
+        const mineId = (await call('POST', `/projects/${projectId}/flows`, { name: 'Refunds' })).body.id as string;
+        expect((await commitAll(call, 'Refunds')).status).toBe(200);
+        const ours = git(repo, 'rev-parse', branch);
+        const path = at('projects/Sales/flows/Refunds.flow.yaml');
+        const theirsId = crypto.randomUUID();
+        const theirs = push('dev', files => ({ ...files, [path]: files[ordersPath]!.replaceAll(orders, theirsId) }));
+
+        expect((await call('POST', '/git/update')).body).toEqual({ outcome: 'pending', conflicts: [path] });
+        const read = await conflict(path);
+        expect(read.body).toMatchObject({ commit: theirs, conflict: { type: 'added', name: 'Refunds' } });
+        expect(read.body.conflict.mine).toContain(mineId);
+        expect(read.body.conflict.theirs).toContain(theirsId);
+        expect((await call('POST', '/git/conflict', { path, revision: read.body.revision, rename: 'Refunds' })).status).toBe(400);
+        expect((await call('POST', '/git/conflict', { path, revision: read.body.revision, rename: 'Orders' })).status).toBe(400);
+
+        expect((await call('POST', '/git/conflict', { path, revision: read.body.revision, rename: 'Refunds mine' })).status).toBe(200);
+        const mine = at('projects/Sales/flows/Refunds mine.flow.yaml');
+        expect((await changes()).filter(c => c.conflict)).toEqual([]);
+        const flows = (await call('GET', `/projects/${projectId}/contents`)).body.flows as { id: string; name: string }[];
+        expect(
+            flows
+                .filter(f => f.id !== orders)
+                .map(f => [f.id, f.name])
+                .sort(),
+        ).toEqual(
+            [
+                [mineId, 'Refunds mine'],
+                [theirsId, 'Refunds'],
+            ].sort(),
+        );
+        const merged = await call('POST', '/git/commit', { paths: [], message: 'Merge dev, Refunds mine' });
+        expect(merged.status).toBe(200);
+        expect(git(repo, 'rev-parse', `${merged.body.commit}^1`)).toBe(ours);
+        expect(git(repo, 'rev-parse', `${merged.body.commit}^2`)).toBe(theirs);
+        expect(inGit(branch, mine)?.id).toBe(mineId);
+        expect(inGit(branch, path)?.id).toBe(theirsId);
+    });
+
     test("a draft's conflict on the environment's branch: resolved per hunk, then the flow's Commit", async () => {
         const { call, orders, ordersPath, changes, draft, conflict, relabel, pushLabels, inGit, poll } = await workspace();
         expect((await relabel({ start: 'Ana start' })).status).toBe(200);

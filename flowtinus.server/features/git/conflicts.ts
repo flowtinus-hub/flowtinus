@@ -429,6 +429,24 @@ export async function resolveConflict(ctx: UseCaseContext, request: Resolution):
                 `UPDATE working_copy SET path = $4, conflict = NULL, edited_by = $5, revision = revision + 1, updated_at = now() WHERE ${where}`,
                 [ctx.workspaceId, name, row.path, to, ctx.userId],
             );
+            // in a pending merge the branch's tip still holds mine at the path given up: theirs goes there as a change of the branch
+            const ours = merging ? branch!.tipFiles[row.path] : undefined;
+            const theirs = tree[row.path];
+            if (ours !== undefined && typeof theirs === 'string' && theirs !== ours) {
+                await db.query(
+                    `INSERT INTO working_copy (workspace_id, branch, path, content, deleted, file_id, base, edited_by, revision)
+                     VALUES ($1, $2, $3, $4, false, $5, $6, $7, 1)`,
+                    [
+                        ctx.workspaceId,
+                        name,
+                        row.path,
+                        theirs,
+                        idOfFile(row.path, theirs),
+                        await saveBlob(db, ctx.workspaceId, ours),
+                        ctx.userId,
+                    ],
+                );
+            }
         }
         await db.query(`UPDATE working_copy SET conflict = NULL WHERE ${where.replace('path = $3', 'path = ANY($3::text[])')}`, [
             ctx.workspaceId,
