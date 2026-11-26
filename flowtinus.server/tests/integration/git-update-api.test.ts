@@ -224,6 +224,93 @@ describe('Update merges the environment’s branch into a work branch; a conflic
         expect((await call('GET', '/git/update')).body).toEqual({ branch, environment: 'dev', behind: 0 });
     });
 
+    test('a pending merge refuses a second Update, Create branch and Open pull request, each saying how to end it', async () => {
+        const { call, repo, branch, ours } = await diverged();
+        expect((await call('POST', '/git/update')).body.outcome).toBe('pending');
+        const refusal = `A merge of dev is pending on ${branch}: Commit it whole, or Discard all to abort it.`;
+
+        for (const [method, path, body] of [
+            ['POST', '/git/update', undefined],
+            ['POST', '/git/branches', { name: `${branch}-2` }],
+            ['POST', '/git/pull-request', undefined],
+        ] as const) {
+            const refused = await call(method, path, body);
+            expect(refused.status).toBe(409);
+            expect(refused.body.error.message).toBe(refusal);
+        }
+        expect(git(repo, 'rev-parse', branch)).toBe(ours);
+        expect(git(repo, 'branch', '--list', `${branch}-2`)).toBe('');
+    });
+
+    test('a conflict outside the workspace’s files refuses the Update: nothing merged, nothing pending', async () => {
+        const { id, call, repo, userHandle, changes } = await workspace();
+        const outside = 'shared/readme.md';
+        const files = (branch: string) =>
+            Object.fromEntries(
+                git(repo, 'ls-tree', '-r', '--name-only', branch)
+                    .split('\n')
+                    .filter(Boolean)
+                    .map(path => [path, raw(repo, branch, path)]),
+            );
+        commitFiles(repo, 'dev', { ...files('dev'), [outside]: 'base\n' });
+        await app.gitPoller.poll(id);
+        const branch = `users/${await userHandle(ANA)}/outside`;
+        expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
+        const ours = commitFiles(repo, branch, { ...files(branch), [outside]: 'mine\n' });
+        commitFiles(repo, 'dev', { ...files('dev'), [outside]: 'theirs\n' });
+
+        const refused = await call('POST', '/git/update');
+        expect(refused.status).toBe(409);
+        expect(refused.body.error.message).toBe(
+            `The merge of dev conflicts outside this workspace (${outside}): merge it into ${branch} in git.`,
+        );
+        expect(git(repo, 'rev-parse', branch)).toBe(ours);
+        expect((await changes()).merge).toBeUndefined();
+        expect((await call('GET', '/git/update')).body.pending).toBeUndefined();
+    });
+
+    test('a flow added to a folder the other branch renamed follows the folder instead of conflicting', async () => {
+        const { id, call, repo, projectId, userHandle, inGit } = await workspace();
+        const flows = (await call('GET', `/projects/${projectId}/contents`)).body.flows as { id: string }[];
+        const folderId = (await call('POST', `/projects/${projectId}/folders`, { name: 'Reports' })).body.id as string;
+        for (const flow of flows) {
+            expect((await call('POST', `/flows/${flow.id}/move`, { folderId })).status).toBe(200);
+        }
+        expect((await commitAll(call, 'Into Reports')).status).toBe(200);
+        const inFolder = (folder: string, name: string) => `${workspaceHandleOf(id)}/projects/Sales/flows/${folder}/${name}.flow.yaml`;
+        expect(git(repo, 'ls-tree', '-r', '--name-only', 'dev')).toContain(inFolder('Reports', 'Orders'));
+
+        const branch = `users/${await userHandle(ANA)}/weekly`;
+        expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
+        const folderOn = async (name: string) =>
+            ((await call('GET', `/projects/${projectId}/contents`)).body.folders as { id: string; name: string }[]).find(
+                f => f.name === name,
+            )?.id;
+        const weekly = (await call('POST', `/projects/${projectId}/flows`, { name: 'Weekly', folderId: await folderOn('Reports') })).body
+            .id as string;
+        expect((await commitAll(call, 'Weekly')).status).toBe(200);
+        expect(git(repo, 'ls-tree', '-r', '--name-only', branch)).toContain(inFolder('Reports', 'Weekly'));
+
+        const devFiles = Object.fromEntries(
+            git(repo, 'ls-tree', '-r', '--name-only', 'dev')
+                .split('\n')
+                .filter(Boolean)
+                .map(path => [path.replace('/flows/Reports/', '/flows/Reporting/'), raw(repo, 'dev', path)]),
+        );
+        commitFiles(repo, 'dev', devFiles, 'Reports is Reporting');
+
+        const updated = await call('POST', '/git/update');
+        expect(updated.status).toBe(200);
+        expect(updated.body.outcome).toBe('merged');
+        const tree = git(repo, 'ls-tree', '-r', '--name-only', branch);
+        expect(tree).not.toContain('/flows/Reports/');
+        expect(tree).toContain(inFolder('Reporting', 'Weekly'));
+        expect(inGit(branch, 'Reporting/Weekly')?.id).toBe(weekly);
+        const contents = (await call('GET', `/projects/${projectId}/contents`)).body;
+        expect(contents.flows.find((f: { id: string }) => f.id === weekly).folderId).toBe(await folderOn('Reporting'));
+        expect(await folderOn('Reports')).toBeUndefined();
+    });
+
     test('with conflicts, resolved on the conflict screen: listed as a change, no longer a conflict, committed as resolved', async () => {
         const { call, repo, pathOf, branch, ours, theirs, changes, inGit } = await diverged();
         expect((await call('POST', '/git/update')).body.outcome).toBe('pending');

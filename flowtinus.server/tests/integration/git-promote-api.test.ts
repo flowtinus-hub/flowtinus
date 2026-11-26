@@ -394,6 +394,51 @@ describe('promoting along an edge that leaves this server: a branch at a first-p
         expect((await promote(next)).status).toBe(200);
     });
 
+    test('a broken lineage and a target ahead at once: both ways out offered, cleared in either order, the edge free once both are', async () => {
+        for (const order of [
+            ['repair', 'backport'],
+            ['backport', 'repair'],
+        ] as const) {
+            const { call, branchAt, addFile, squashInto, mergeInto, poll, promote, preflight } = await newWorkspace();
+            branchAt('qa', 'dev');
+            const sha = addFile('dev', 'a.txt');
+            const opened = (await promote(sha)).body.promotion;
+            squashInto('qa', `promote/DEV-${short(sha)}`);
+            addFile('qa', 'hotfix.txt');
+            await poll();
+            const kinds = async () =>
+                ((await preflight(addFile('dev', `${crypto.randomUUID()}.txt`))).body.blocks as { kind: string }[]).map(b => b.kind).sort();
+            const edge = async () => (await call('GET', '/git/environments')).body.edges.find((e: { target: string }) => e.target === 'QA');
+
+            expect(await kinds()).toEqual(['ahead', 'broken']);
+            expect(await edge()).toMatchObject({ ahead: true, broken: [{ id: opened.id, state: 'broken' }] });
+            expect((await call('GET', '/git/backports/preflight?target=QA')).body.blocks).toEqual([]);
+
+            const clear = {
+                repair: async () => {
+                    const repair = await call('POST', `/git/promotions/${opened.id}/repair`);
+                    expect(repair.status).toBe(200);
+                    mergeInto('qa', repair.body.branch);
+                },
+                backport: async () => {
+                    const backport = await call('POST', '/git/backports', { target: 'QA' });
+                    expect(backport.status).toBe(200);
+                    mergeInto('dev', backport.body.promotion.branch);
+                },
+            };
+            await clear[order[0]]();
+            await poll();
+            expect(await kinds()).toEqual([order[0] === 'repair' ? 'ahead' : 'broken']);
+            expect((await promote(addFile('dev', 'still.txt'))).status).toBe(409);
+
+            await clear[order[1]]();
+            await poll();
+            expect(await kinds()).toEqual([]);
+            expect(await edge()).toMatchObject({ ahead: false, broken: [] });
+            expect((await promote(addFile('dev', 'free.txt'))).status).toBe(200);
+        }
+    });
+
     test('an edge taken out of the topology keeps its rows, shown as such and no longer polled; turning git off keeps the table', async () => {
         const { call, repo, branchAt, addFile, deleteBranch, poll, promotions, promote } = await newWorkspace();
         branchAt('qa', 'dev');
