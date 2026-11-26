@@ -52,7 +52,7 @@ function unknownKeys(value: unknown, schema: Schema, at = ''): string[] {
     });
 }
 
-function hasComment(text: string): boolean {
+export function hasComment(text: string): boolean {
     const doc = parseDocument(text);
     let found = Boolean(doc.commentBefore || doc.comment);
     visit(doc, (_key, node) => {
