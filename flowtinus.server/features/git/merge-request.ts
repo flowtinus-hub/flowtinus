@@ -3,7 +3,7 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { gitAuthorOf } from './git-config';
 import type { Promotion, PromotionRow } from './promotion-state';
 import type { FileChange, FlowImpact } from './promotions';
-import { providerNotice, unlessProviderFails, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
+import { providerNotice, PULL_REQUEST_NAME, unlessProviderFails, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 export type MergeRequestLink = { number: number; url: string };
 
@@ -39,7 +39,7 @@ export async function openMergeRequest(adapter: ProviderAdapter | null, request:
         const opened = (await adapter.findOpenPullRequest(request.source, request.target)) ?? (await adapter.openPullRequest(request));
         return { mergeRequest: { number: opened.number, url: opened.url } };
     } catch (e) {
-        return { notice: `The merge request was not opened: ${providerNotice(adapter.provider, e)}` };
+        return { notice: `The ${PULL_REQUEST_NAME[adapter.provider]} was not opened: ${providerNotice(adapter.provider, e)}` };
     }
 }
 
@@ -70,7 +70,7 @@ export async function reuseOpenRow(
             return success({
                 closed: false,
                 promotion: row,
-                notice: `The merge request could not be read: ${providerNotice(adapter.provider, e)}`,
+                notice: `The ${PULL_REQUEST_NAME[adapter.provider]} could not be read: ${providerNotice(adapter.provider, e)}`,
             });
         }
         await ctx.db.query(`UPDATE promotions SET state = 'closed', state_at = now() WHERE id = $1 AND state = 'open'`, [row.id]);

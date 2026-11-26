@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { ANA, insertWorkspace, wsPath } from '../helpers/workspaces';
 import { createBranch, git } from '../helpers/git-repos';
 import { fakeGitLab, type FakeGitLab } from '../helpers/fake-gitlab';
+import { fakeGitHub, type FakeGitHub } from '../helpers/fake-github';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
@@ -14,18 +15,22 @@ setDefaultTimeout(60_000);
 
 const API_NOTICE = 'The API is not reachable with this token: add the `api` scope to use the adapter.';
 
+const GITHUB_NOTICE =
+    'The API is not reachable with this token: a classic token needs the `repo` scope (`public_repo` for a public repository); a fine-grained one needs Contents and Pull requests, read and write, on this repository.';
+
 const GIT_SCOPES = ['read_repository', 'write_repository'];
 
-describe('the provider adapter turns on by itself on a GitLab remote whose token can use the API', () => {
+describe('the provider adapter turns on by itself on a GitLab or GitHub remote whose token can use the API', () => {
     let db: Database;
     let app: ReturnType<typeof createApp>;
     let dir: string;
     let gitConfig: string;
     let gitlab: FakeGitLab;
+    let github: FakeGitHub;
     const globalBefore = process.env.GIT_CONFIG_GLOBAL;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    async function workspace(token: string, options: { on?: boolean; repository?: string } = {}) {
+    async function workspace(token: string, options: { on?: boolean; repository?: string; provider?: 'github' } = {}) {
         const id = crypto.randomUUID();
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
@@ -39,7 +44,7 @@ describe('the provider adapter turns on by itself on a GitLab remote whose token
         const repo = join(dir, `${id}.git`);
         git(dir, 'init', '--bare', '--quiet', '--initial-branch=main', repo);
         createBranch(repo, 'dev');
-        const repository = options.repository ?? gitlab.repository(`omc/${id}`);
+        const repository = options.repository ?? (options.provider === 'github' ? github : gitlab).repository(`omc/${id}`);
         if (!options.repository) {
             git(dir, 'config', '--file', gitConfig, '--add', `url.${pathToFileURL(repo).href}.insteadOf`, repository);
         }
@@ -60,6 +65,7 @@ describe('the provider adapter turns on by itself on a GitLab remote whose token
         await Bun.write(gitConfig, '');
         process.env.GIT_CONFIG_GLOBAL = gitConfig;
         gitlab = fakeGitLab();
+        github = fakeGitHub();
         app = createApp(db, 'DEV', keyring, undefined, { git: { clonesDir: join(dir, 'clones') } });
     });
 
@@ -70,6 +76,7 @@ describe('the provider adapter turns on by itself on a GitLab remote whose token
             process.env.GIT_CONFIG_GLOBAL = globalBefore;
         }
         await gitlab.stop();
+        await github.stop();
         await db.close();
         await rm(dir, { recursive: true, force: true });
     });
@@ -138,5 +145,49 @@ describe('the provider adapter turns on by itself on a GitLab remote whose token
         expect((await call('GET', '/git')).body.adapter).toEqual({ provider: 'gitlab', on: false, notice: API_NOTICE });
         gitlab.token('flaky', ['read_api', ...GIT_SCOPES]);
         expect((await call('GET', '/git')).body.adapter).toEqual({ provider: 'gitlab', on: false, notice: API_NOTICE });
+    });
+
+    test('on GitHub, the access test passes with a classic `repo` token or a fine-grained one, and says what a token lacks', async () => {
+        github.classic('gh-classic', ['repo', 'workflow']);
+        github.fineGrained('gh-fine');
+        github.classic('gh-no-scope', ['gist']);
+        github.fineGrained('gh-no-pulls', { pullRequests: 'none' });
+
+        for (const token of ['gh-classic', 'gh-fine']) {
+            const { call, config } = await workspace(token, { on: false, provider: 'github' });
+            const passed = await call('POST', '/git/test', config);
+            expect(passed.body.ok).toBe(true);
+            expect(passed.body.checks.map((c: any) => [c.step, c.ok])).toEqual([
+                ['read', true],
+                ['write', true],
+                ['api', true],
+            ]);
+        }
+        for (const token of ['gh-no-scope', 'gh-no-pulls']) {
+            const { call, config } = await workspace(token, { on: false, provider: 'github' });
+            const refused = await call('POST', '/git/test', config);
+            expect(refused.body.ok).toBe(true);
+            expect(refused.body.checks.at(-1)).toEqual({ step: 'api', ok: false, message: GITHUB_NOTICE });
+        }
+    });
+
+    test("on GitHub, the git section shows the adapter on, and GitHub's notice while it is off", async () => {
+        github.classic('gh-section-on', ['public_repo']);
+        github.classic('gh-section-off', []);
+
+        const on = await workspace('gh-section-on', { provider: 'github' });
+        expect((await on.call('GET', '/git')).body.adapter).toEqual({ provider: 'github', on: true });
+
+        const off = await workspace('gh-section-off', { provider: 'github' });
+        expect((await off.call('GET', '/git')).body.adapter).toEqual({ provider: 'github', on: false, notice: GITHUB_NOTICE });
+
+        github.fail(503);
+        try {
+            const down = (await on.call('GET', '/git')).body.adapter;
+            expect(down).toMatchObject({ provider: 'github', on: false });
+            expect(down.notice).toStartWith("GitHub's API did not answer");
+        } finally {
+            github.fail(null);
+        }
     });
 });
