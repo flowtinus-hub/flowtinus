@@ -3,7 +3,7 @@ import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { CONNECTION_TYPES, isConnectionType, newFlowFile, repoEntry, validateWorkspaceTree, type ConnectionTypeName, type RepoEntry } from '@flowtinus/core';
 import { parseCommandArgs, usageError, type Command, type CommandResult } from '../command';
 import { REPO_FILES } from '../repo-files';
-import { readRepository, slashed } from '../repository';
+import { readRepository, slashed } from '@flowtinus/core/disk';
 
 const USAGE = 'Usage: flowtinus new flow <path> | new project <dir> | new connection <path> --type <type>';
 
