@@ -134,6 +134,10 @@ _Avoid_: Pending, inactive, new
 An environment's own value for a field of a schedule (its cron, time zone, a parameter or the input), used there over git's value and never written back to git.
 _Avoid_: Local setting, environment config
 
+**Canonical form**:
+The one way every writer (the app, the CLI's `fmt`, the extension) writes a file of the repo format: its keys and nodes in a fixed order, no comments. Reading accepts any order.
+_Avoid_: Stable order, normalized form
+
 **Working copy**:
 The uncommitted changes of one branch on one server: changed files in the repo format, each with the blob it was based on and its last editor. With git on, a flow's draft is its file in the working copy of the branch open.
 _Avoid_: Draft (with git on), stash, local changes
