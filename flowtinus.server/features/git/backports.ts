@@ -12,7 +12,7 @@ import { targetAhead } from './environments';
 import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
-import { mergeSettingsChecks, type MergeSettingsBlock } from './merge-settings';
+import { mergeSettingsBlocks, mergeSettingsInto, squashOrRebaseWarnings, type MergeSettingsBlock } from './merge-settings';
 import { holdMerge, inScope, pendingMerge } from './pending-merge';
 import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMerge, openAlong, type Edge, type PreflightWarning } from './promotion-edge';
 import { insertPromotion, toPromotion, type Promotion } from './promotion-state';
@@ -89,9 +89,9 @@ async function preflightOf(ctx: UseCaseContext, remote: GitRemote, config: GitCo
             const pushed = await remote.fetch(branch);
             return !pushed || (await remote.isAncestor(edge.sourceTip!, pushed));
         };
-        const merging = await mergeSettingsChecks(ctx, config, { branch: edge.source.branch, fastForward });
-        checked.blocks.push(...merging.blocks);
-        checked.warnings.push(...merging.warnings);
+        const into = await mergeSettingsInto(ctx, config, edge.source.branch);
+        checked.blocks.push(...(await mergeSettingsBlocks(into, fastForward)));
+        checked.warnings.push(...squashOrRebaseWarnings(into));
     }
     const open = await openAlong(ctx, config, edge, { kind: 'backport', source: edge.target.env, target: edge.source.env });
     return { checked: { ...checked, open }, tree, flows };

@@ -33,7 +33,6 @@ const TOPOLOGY = `environments:
 
 const short = (sha: string) => sha.slice(0, 12);
 
-// what each provider is sent besides the branches, the title and the description: GitHub has neither squash nor removing the branch on a pull request
 const EXTRA = {
     GitLab: { workBranch: { remove_source_branch: true }, keepingCommits: { squash: false, remove_source_branch: true } },
     GitHub: { workBranch: {}, keepingCommits: {} },

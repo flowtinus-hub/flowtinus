@@ -1,6 +1,6 @@
 import type { GitAccess } from './git-remote';
 import { callProvider, PAGE } from './provider-api';
-import { API_NOTICE, ProviderError, providerNotice, type AccessRule, type BranchProtection, type MergeLimit, type MergeMethod, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
+import { API_NOTICE, OPENNESS, ProviderError, providerNotice, type AccessRule, type BranchProtection, type MergeLimit, type MergeMethod, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 type PullRequest = {
     number: number;
@@ -29,9 +29,9 @@ const CLASSIC_SCOPES = ['repo', 'public_repo'];
 
 const PUSH_RULES = new Set(['update', 'pull_request']);
 
-const METHODS: Record<string, MergeMethod> = { merge: 'merge-commit', squash: 'squash', rebase: 'rebase' };
+const NOT_PROTECTED = 'Branch not protected';
 
-const OPENNESS: AccessRule[] = ['nobody', 'maintainers', 'developers'];
+const METHODS: Record<string, MergeMethod> = { merge: 'merge-commit', squash: 'squash', rebase: 'rebase' };
 
 const leastOpen = (a: AccessRule, b: AccessRule) => OPENNESS[Math.min(OPENNESS.indexOf(a), OPENNESS.indexOf(b))]!;
 
@@ -65,7 +65,6 @@ class GitHubClient implements ProviderAdapter {
         return { value: (await response.json()) as T, response };
     }
 
-    /** stops at the first page where until says so, keeping that page's items before it */
     private async list<T>(path: string, query: Record<string, string> = {}, until?: (item: T) => boolean): Promise<T[]> {
         const items: T[] = [];
         let next: string | null = `${path}?${new URLSearchParams({ ...query, per_page: String(PAGE) })}`;
@@ -184,18 +183,28 @@ class GitHubClient implements ProviderAdapter {
     }
 
     private async whoPushes(branch: string, bypass: (ruleset: number) => Promise<boolean>): Promise<AccessRule | 'unknown'> {
-        const rulesets = [...new Set((await this.rules(branch)).filter(r => PUSH_RULES.has(r.type)).map(r => r.ruleset_id))];
+        const rules = await this.rules(branch);
+        const rulesets = [...new Set(rules.filter(r => PUSH_RULES.has(r.type)).map(r => r.ruleset_id))];
         const bypassed = await Promise.all(rulesets.map(bypass));
         const byRules: AccessRule = rulesets.length === 0 ? 'developers' : bypassed.every(Boolean) ? 'maintainers' : 'nobody';
         if (byRules === 'nobody') {
             return byRules;
         }
         const classic = await this.classicProtection(branch);
-        return classic === 'unknown' ? classic : leastOpen(byRules, classic);
+        if (classic !== 'unreadable') {
+            return leastOpen(byRules, classic);
+        }
+        // `protected` is also true for a ruleset alone: with one on the branch, classic protection beside it cannot be told
+        // apart, and the ruleset's verdict stands
+        if (rules.length > 0) {
+            return byRules;
+        }
+        const { value } = await this.call<{ protected?: boolean }>('GET', `${this.repository}/branches/${segment(branch)}`);
+        return value.protected ? 'unknown' : 'developers';
     }
 
-    // readable by an admin only; to anyone else only whether the branch is protected at all, by it or by a ruleset
-    private async classicProtection(branch: string): Promise<AccessRule | 'unknown'> {
+    // to a token without admin rights GitHub answers 403, or 404 with another message than "Branch not protected"
+    private async classicProtection(branch: string): Promise<AccessRule | 'unreadable'> {
         try {
             const { value } = await this.call<{ enforce_admins?: { enabled: boolean } }>(
                 'GET',
@@ -206,12 +215,8 @@ class GitHubClient implements ProviderAdapter {
             if (!(e instanceof ProviderError) || (e.status !== 404 && e.status !== 403)) {
                 throw e;
             }
-            if (e.status === 404) {
-                return 'developers';
-            }
+            return e.status === 404 && e.message === NOT_PROTECTED ? 'developers' : 'unreadable';
         }
-        const { value } = await this.call<{ protected?: boolean }>('GET', `${this.repository}/branches/${segment(branch)}`);
-        return value.protected ? 'unknown' : 'developers';
     }
 }
 

@@ -46,8 +46,8 @@ export async function protectionWarnings(
     return read ? warningsOf(environments, read.protections, PROVIDER_NAME[read.adapter.provider]) : [];
 }
 
-/** for the git section, read when it loads: the warnings, and notices on what the repository does or the token cannot see */
-export async function sectionProtection(
+// the git section's only, read when it loads: the notices cost more calls than the cards and the poll should make
+export async function protectionWarningsWithNotices(
     ctx: UseCaseContext,
     config: GitConfig,
     environments: EnvironmentDecl[],
@@ -57,7 +57,9 @@ export async function sectionProtection(
         return { warnings: [], notices: [] };
     }
     const provider = PROVIDER_NAME[read.adapter.provider];
-    const deletes = await unlessProviderFails<boolean | null>(read.adapter.deletesMergedBranches(), null);
+    const deletes = read.adapter.deletesMergedBranches
+        ? await unlessProviderFails<boolean | null>(read.adapter.deletesMergedBranches(), null)
+        : null;
     return {
         warnings: warningsOf(environments, read.protections, provider),
         notices: [

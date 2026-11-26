@@ -1,6 +1,6 @@
 import type { GitAccess } from './git-remote';
 import { callProvider, PAGE } from './provider-api';
-import { API_NOTICE, providerNotice, type AccessRule, type BranchProtection, type MergeLimit, type MergeMethod, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
+import { API_NOTICE, OPENNESS, providerNotice, type AccessRule, type BranchProtection, type MergeLimit, type MergeMethod, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 type MergeRequest = { iid: number; web_url: string; source_branch: string; target_branch: string; state: string };
 
@@ -10,9 +10,7 @@ type ProtectedBranch = { name: string; push_access_levels: AccessLevels };
 
 const DEVELOPER = 30;
 
-const FAST_FORWARD_ONLY: Record<string, MergeLimit> = { ff: 'fast-forward-only', rebase_merge: 'semi-linear-only' };
-
-const OPENNESS: AccessRule[] = ['nobody', 'maintainers', 'developers'];
+const LIMIT_OF_MERGE_METHOD: Record<string, MergeLimit> = { ff: 'fast-forward-only', rebase_merge: 'semi-linear-only' };
 
 const pattern = (branch: string) =>
     new RegExp(
@@ -119,21 +117,16 @@ class GitLabClient implements ProviderAdapter {
         return toPullRequest((await this.call<MergeRequest>('GET', `${this.project}/merge_requests/${number}`)).value);
     }
 
-    // the project's settings, the same into every branch
     async mergeSettings(): Promise<MergeSettings> {
         const { value } = await this.call<{ squash_option?: string; merge_method?: string }>('GET', this.project);
         const forced = value.squash_option === 'always';
-        const fastForwardOnly = FAST_FORWARD_ONLY[value.merge_method ?? ''];
+        const fastForwardOnly = LIMIT_OF_MERGE_METHOD[value.merge_method ?? ''];
         const methods: MergeMethod[] = forced ? [] : [fastForwardOnly ? 'fast-forward' : 'merge-commit'];
         if (value.squash_option !== 'never') {
             methods.push('squash');
         }
         const limits: MergeLimit[] = [...(forced ? (['squash-forced'] as const) : []), ...(fastForwardOnly ? [fastForwardOnly] : [])];
         return { methods, limits };
-    }
-
-    async deletesMergedBranches(): Promise<null> {
-        return null;
     }
 
     async branchProtections(branches: string[]): Promise<BranchProtection[]> {

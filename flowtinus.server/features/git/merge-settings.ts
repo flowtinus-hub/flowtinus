@@ -1,15 +1,16 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { adapterOf } from './adapter-status';
 import type { GitConfig } from './git-config';
-import { PROVIDER_NAME, unlessProviderFails, type MergeLimit, type MergeSettings } from './provider-adapter';
+import type { PreflightWarning } from './promotion-edge';
+import { PROVIDER_NAME, unlessProviderFails, type MergeLimit, type MergeSettings, type ProviderAdapter } from './provider-adapter';
 
 export type MergeSettingsBlock = { kind: 'squash' | 'merge-method'; message: string };
 
-export type MergeSettingsWarning = { kind: 'merge-method'; message: string; items: string[] };
+export type SquashOrRebaseWarning = PreflightWarning & { kind: 'squash-or-rebase' };
 
-export type MergeSettingsChecks = { blocks: MergeSettingsBlock[]; warnings: MergeSettingsWarning[] };
+export type MergeSettingsInto = { branch: string; adapter: ProviderAdapter; settings: MergeSettings };
 
-const FAST_FORWARD_ONLY: Partial<Record<MergeLimit, string>> = {
+const FAST_FORWARD_MERGING: Partial<Record<MergeLimit, string>> = {
     'fast-forward-only': 'only by fast-forward',
     'semi-linear-only': 'only with a semi-linear history',
 };
@@ -22,48 +23,52 @@ const NO_MERGE_COMMIT: Partial<Record<MergeLimit, (name: string, branch: string)
         `A ruleset on ${branch} does not allow merge commits: add "Merge" to the allowed merge methods of its pull request rule.`,
 };
 
-const mayRewrite = (settings: MergeSettings) => settings.methods.some(m => m === 'squash' || m === 'rebase');
-
 const squashAndRebase = (name: string) =>
     `This ${name} repository allows squash and rebase merges: merge this pull request with **Create a merge commit**, or the lineage breaks and needs a repair.`;
 
-/** fastForward: whether the target branch is already an ancestor of the commit the pull request brings */
-export async function mergeSettingsChecks(
-    ctx: UseCaseContext,
-    config: GitConfig,
-    target: { branch: string; fastForward: () => Promise<boolean> },
-): Promise<MergeSettingsChecks> {
+/** null with the adapter off, or when the provider does not tell or does not answer: then nothing blocks or warns */
+export async function mergeSettingsInto(ctx: UseCaseContext, config: GitConfig, branch: string): Promise<MergeSettingsInto | null> {
     const adapter = await adapterOf(ctx, config);
-    const settings = adapter && (await unlessProviderFails<MergeSettings | null>(adapter.mergeSettings(target.branch), null));
-    if (!adapter || !settings) {
-        return { blocks: [], warnings: [] };
+    const settings = adapter && (await unlessProviderFails<MergeSettings | null>(adapter.mergeSettings(branch), null));
+    return adapter && settings ? { branch, adapter, settings } : null;
+}
+
+export function squashOrRebaseWarnings(into: MergeSettingsInto | null): SquashOrRebaseWarning[] {
+    if (!into || into.adapter.canTurnSquashOff || !into.settings.methods.includes('merge-commit')) {
+        return [];
     }
-    if (settings.methods.includes('merge-commit')) {
-        const warn = !adapter.canTurnSquashOff && mayRewrite(settings);
-        return {
-            blocks: [],
-            warnings: warn ? [{ kind: 'merge-method', message: squashAndRebase(PROVIDER_NAME[adapter.provider]), items: [] }] : [],
-        };
+    return into.settings.methods.some(m => m === 'squash' || m === 'rebase')
+        ? [{ kind: 'squash-or-rebase', message: squashAndRebase(PROVIDER_NAME[into.adapter.provider]), items: [] }]
+        : [];
+}
+
+/** fastForward: whether the target branch is already an ancestor of the commit the pull request brings */
+export async function mergeSettingsBlocks(
+    into: MergeSettingsInto | null,
+    fastForward: () => Promise<boolean>,
+): Promise<MergeSettingsBlock[]> {
+    if (!into || into.settings.methods.includes('merge-commit')) {
+        return [];
     }
-    let fastForward: boolean | undefined;
-    const canFastForward = async () => (fastForward ??= await target.fastForward());
-    if (settings.methods.includes('fast-forward') && (await canFastForward())) {
-        return { blocks: [], warnings: [] };
+    let fastForwards: boolean | undefined;
+    const canFastForward = async () => (fastForwards ??= await fastForward());
+    if (into.settings.methods.includes('fast-forward') && (await canFastForward())) {
+        return [];
     }
 
-    const name = PROVIDER_NAME[adapter.provider];
+    const name = PROVIDER_NAME[into.adapter.provider];
     const blocks: MergeSettingsBlock[] = [];
-    for (const limit of settings.limits) {
+    for (const limit of into.settings.limits) {
         if (limit === 'squash-forced') {
             blocks.push({ kind: 'squash', message: `This ${name} project forces squash: turn it off in the project's merge settings.` });
         } else if (NO_MERGE_COMMIT[limit]) {
-            blocks.push({ kind: 'merge-method', message: NO_MERGE_COMMIT[limit](name, target.branch) });
-        } else if (FAST_FORWARD_ONLY[limit] && !(await canFastForward())) {
+            blocks.push({ kind: 'merge-method', message: NO_MERGE_COMMIT[limit](name, into.branch) });
+        } else if (FAST_FORWARD_MERGING[limit] && !(await canFastForward())) {
             blocks.push({
                 kind: 'merge-method',
-                message: `This ${name} project merges ${FAST_FORWARD_ONLY[limit]}, and ${target.branch} cannot be fast-forwarded now: set the merge method to "Merge commit" in the project's merge settings.`,
+                message: `This ${name} project merges ${FAST_FORWARD_MERGING[limit]}, and ${into.branch} cannot be fast-forwarded now: set the merge method to "Merge commit" in the project's merge settings.`,
             });
         }
     }
-    return { blocks, warnings: [] };
+    return blocks;
 }

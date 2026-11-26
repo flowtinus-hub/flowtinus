@@ -51,7 +51,6 @@ describe("the branches' protection on GitLab or GitHub, where it disagrees with 
     const globalBefore = process.env.GIT_CONFIG_GLOBAL;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    /** on GitHub, a classic token reads classic protection and a fine-grained one does not */
     async function workspace(scopes = ['api', ...GIT_SCOPES], on?: { github: 'classic' | 'fine-grained' }) {
         const id = crypto.randomUUID();
         await insertWorkspace(db, id);

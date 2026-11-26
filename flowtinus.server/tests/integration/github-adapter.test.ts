@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fakeGitHub, type FakeGitHub } from '../helpers/fake-github';
 import { providerAdapter } from '#features/git/adapter-status';
-import { API_NOTICE, ProviderError, type ProviderAdapter } from '#features/git/provider-adapter';
+import { API_NOTICE, ProviderError, type BranchProtection, type ProviderAdapter } from '#features/git/provider-adapter';
 
 describe("the GitHub adapter: what it asks GitHub's API, and what it makes of the answers", () => {
     let github: FakeGitHub;
@@ -194,18 +194,29 @@ describe("the GitHub adapter: what it asks GitHub's API, and what it makes of th
         expect((await gh.branchProtections(['qa']))[0]!.push).toBe('nobody');
     });
 
-    test('classic protection the token may not read is unknown on a protected branch, and nothing on an unprotected one', async () => {
+    test('classic protection the token may not read is unknown on a protected branch no ruleset applies to; a ruleset keeps its verdict', async () => {
         github.fineGrained('no-admin');
         const gh = await adapter('omc/classic', 'no-admin');
         github.protect('omc/classic', 'main');
         github.ruleset('omc/classic', { branches: ['qa'], rules: [{ type: 'update' }], bypass: 'always' });
         github.ruleset('omc/classic', { branches: ['prod'], rules: [{ type: 'update' }] });
-        expect(await gh.branchProtections(['main', 'qa', 'prod', 'dev'])).toEqual([
+        github.ruleset('omc/classic', { branches: ['linear'], rules: [{ type: 'required_linear_history' }] });
+        const expected: BranchProtection[] = [
             { branch: 'main', push: 'unknown' },
-            { branch: 'qa', push: 'unknown' },
+            { branch: 'qa', push: 'maintainers' },
             { branch: 'prod', push: 'nobody' },
+            { branch: 'linear', push: 'developers' },
             { branch: 'dev', push: 'developers' },
-        ]);
+        ];
+        const branches = expected.map(e => e.branch);
+        expect(await gh.branchProtections(branches)).toEqual(expected);
+
+        const restore = github.deniesProtectionWith(404);
+        try {
+            expect(await gh.branchProtections(branches)).toEqual(expected);
+        } finally {
+            restore();
+        }
     });
 
     test("an operation GitHub refuses or fails throws a ProviderError with GitHub's status and message", async () => {

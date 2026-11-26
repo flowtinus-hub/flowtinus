@@ -1,6 +1,7 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { gitAuthorOf } from './git-config';
+import type { PreflightWarning } from './promotion-edge';
 import type { Promotion, PromotionRow } from './promotion-state';
 import type { FileChange, FlowImpact } from './promotions';
 import { providerNotice, PULL_REQUEST_NAME, unlessProviderFails, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
@@ -13,8 +14,7 @@ export type OpenedMergeRequest = { mergeRequest?: MergeRequestLink; notice?: str
 export type CheckedChanges = {
     files?: FileChange[];
     flows?: FlowImpact[];
-    /** a 'merge-method' one opens the description, ahead of the notes */
-    warnings?: { kind?: string; message: string; items?: string[] }[];
+    warnings?: (Pick<PreflightWarning, 'message'> & Partial<PreflightWarning>)[];
     notes?: string[];
 };
 
@@ -128,12 +128,14 @@ export async function mergeRequestsOfRows(
     return found;
 }
 
+const opensDescription = (warning: { kind?: PreflightWarning['kind'] }) => warning.kind === 'squash-or-rebase';
+
 const descriptionSection = (title: string, lines: string[]) => (lines.length > 0 ? [`### ${title}`, '', ...lines, ''] : []);
 
 export async function mergeRequestDescription(ctx: UseCaseContext, checked: CheckedChanges): Promise<string> {
     const user = (await gitAuthorOf(ctx))?.name ?? ctx.userId;
-    const leading = (checked.warnings ?? []).filter(w => w.kind === 'merge-method').map(w => w.message);
-    const notes = [...leading, ...(checked.notes ?? [])];
+    const warnings = checked.warnings ?? [];
+    const notes = [...warnings.filter(opensDescription).map(w => w.message), ...(checked.notes ?? [])];
     return [
         ...(notes.length ? [...notes, ''] : []),
         ...descriptionSection(
@@ -146,9 +148,7 @@ export async function mergeRequestDescription(ctx: UseCaseContext, checked: Chec
         ),
         ...descriptionSection(
             'Warnings',
-            (checked.warnings ?? [])
-                .filter(w => w.kind !== 'merge-method')
-                .flatMap(w => [`- ${w.message}`, ...(w.items ?? []).map(item => `  - ${item}`)]),
+            warnings.filter(w => !opensDescription(w)).flatMap(w => [`- ${w.message}`, ...(w.items ?? []).map(item => `  - ${item}`)]),
         ),
         `Opened from Flowtinus by ${user}.`,
     ].join('\n');

@@ -12,7 +12,7 @@ import { deployFlow, deployVersion, discardDraft, emergencyRollback, emergencyRo
 import { EmergencyRollbackBadge } from '@/components/emergency-rollback-badge';
 import { Link } from 'react-router';
 import { RUNS_PATH } from '@/app/paths';
-import { CHANGES_CHANGED, getChanges, ONLY_PULL_REQUESTS } from '@/data/git/git-api';
+import { CHANGES_CHANGED, getChanges, ONLY_PULL_REQUESTS, pullRequestNamed } from '@/data/git/git-api';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { CommitFiles } from './commit-files';
 import { ArrivedDisabledList } from '@/components/arrived-disabled-list';
@@ -553,7 +553,9 @@ function EmergencyRollbackBanner(props: {
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1 text-primary hover:underline"
                             >
-                                {pushed.mergeRequest ? `Pull request #${pushed.mergeRequest.number}` : 'Open the pull request'}
+                                {pushed.mergeRequest && pushed.provider
+                                    ? `Open ${pullRequestNamed(pushed.provider, pushed.mergeRequest.number)}`
+                                    : 'Open the pull request'}
                                 <ExternalLink className="size-3.5" />
                             </a>
                         )}

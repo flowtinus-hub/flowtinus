@@ -7,7 +7,7 @@ import { OpenPullRequestHandler } from '#features/git/pull-request';
 import { CreateHotfixHandler } from '#features/git/hotfix';
 import { GetFileDiffHandler } from '#features/git/file-diff';
 import { GetEnvironmentsHandler } from '#features/git/environments';
-import { GetCommitGraphHandler, GetPreflightHandler, OpenPromotionHandler, OpenRepairHandler } from '#features/git/promotions';
+import { GetCommitGraphHandler, GetPreflightHandler, GetRepairPreflightHandler, OpenPromotionHandler, OpenRepairHandler } from '#features/git/promotions';
 import { GetBackportPreflightHandler, OpenBackportHandler } from '#features/git/backports';
 import { ListArrivedDisabledHandler } from '#features/git/arrived-disabled';
 import { DeleteArchivedConnectionHandler, ListArchivedConnectionsHandler } from '#features/git/archived-connections';
@@ -44,6 +44,9 @@ export function gitRoutes(options: GitOptions) {
         )
         .post('/promotions/:id/repair', async c =>
             toHttpResult(c, await new OpenRepairHandler(options).handle({ id: c.req.param('id') }, c.get('useCase'))),
+        )
+        .get('/repairs/preflight', async c =>
+            toHttpResult(c, await new GetRepairPreflightHandler().handle(c.req.query(), c.get('useCase'))),
         )
         .get('/backports/preflight', async c =>
             toHttpResult(c, await new GetBackportPreflightHandler(options).handle(c.req.query(), c.get('useCase'))),
