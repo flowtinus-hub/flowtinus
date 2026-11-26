@@ -430,6 +430,8 @@ export type ConflictView = {
     revision: number;
     conflict: ConflictCase;
     duplicable: boolean;
+    /** the branch whose merge into this one is pending */
+    merging?: string;
 };
 
 export type HunkChoice = 'mine' | 'theirs' | 'both' | { edit: string };

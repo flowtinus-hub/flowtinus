@@ -317,6 +317,7 @@ describe('Update merges the environment’s branch into a work branch; a conflic
 
         const conflict = await call('GET', `/git/conflict?path=${encodeURIComponent(pathOf('Orders'))}`);
         expect(conflict.status).toBe(200);
+        expect(conflict.body).toMatchObject({ commit: theirs, merging: 'dev' });
         const hunks = conflict.body.conflict.segments.filter((s: object) => 'hunk' in s).map(() => 'theirs');
         const resolved = await call('POST', '/git/conflict', { path: pathOf('Orders'), revision: conflict.body.revision, hunks });
         expect(resolved.status).toBe(200);

@@ -115,6 +115,7 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
         const read = await conflict(ordersPath);
         expect(read.status).toBe(200);
         expect(read.body).toMatchObject({ path: ordersPath, commit: laptop, duplicable: false, conflict: { type: 'content' } });
+        expect(read.body.merging).toBeUndefined();
         const [first, second] = hunks(read.body.conflict.segments);
         expect(hunks(read.body.conflict.segments)).toHaveLength(2);
         expect(first!.mine.join('\n')).toContain('Ana');

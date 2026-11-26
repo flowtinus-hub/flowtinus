@@ -95,7 +95,13 @@ export function ConflictDialog({
                         {shortPath(handle, path)}
                     </DialogTitle>
                     <DialogDescription>
-                        {view ? (
+                        {view?.merging ? (
+                            <>
+                                This branch&apos;s version against <span className="font-mono">{view.merging}</span>&apos;s (
+                                <span className="font-mono">{view.commit.slice(0, 7)}</span>), in the pending merge. The result is committed
+                                with the whole merge.
+                            </>
+                        ) : view ? (
                             <>
                                 Your uncommitted change against <span className="font-mono">{view.commit.slice(0, 7)}</span>. The result
                                 stays in your working copy, to commit.

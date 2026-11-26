@@ -36,6 +36,8 @@ export type ConflictView = {
     revision: number;
     conflict: ConflictCase;
     duplicable: boolean;
+    /** the branch whose merge into this one is pending: the conflict is the merge's, not an uncommitted change's */
+    merging?: string;
 };
 
 export type HunkChoice = 'mine' | 'theirs' | 'both' | { edit: string };
@@ -256,6 +258,7 @@ export async function readConflict(ctx: UseCaseContext, path: string): Promise<U
         return fail('not-found', `${path} has no conflict to resolve.`);
     }
     const { item, conflict, commit, revision } = situation;
+    const merge = branch ? await pendingMerge(ctx.db, ctx.workspaceId, branch.branch) : null;
     return success({
         path: item.path,
         ...(item.from ? { from: item.from } : {}),
@@ -265,6 +268,7 @@ export async function readConflict(ctx: UseCaseContext, path: string): Promise<U
         revision,
         conflict,
         duplicable: !branch && item.kind === 'flow' && conflict.type === 'content' && !conflict.names,
+        ...(merge ? { merging: merge.source } : {}),
     });
 }
 
