@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation } from 'react-router';
-import { CircleCheck, CircleX, Copy, GitBranch, Power, RefreshCw, TriangleAlert } from 'lucide-react';
+import { CircleCheck, CircleX, Copy, GitBranch, Info, Power, RefreshCw, TriangleAlert } from 'lucide-react';
 import { relativeTime } from '@/lib/relative-time';
 import { ArrivedDisabledPanel } from './arrived-disabled-panel';
 import { environmentsPath } from '@/app/paths';
@@ -472,6 +472,7 @@ function TopologyPanel({ handle, config, readOnly }: { handle: string; config: G
                     topology={topology.state.value.topology}
                     environment={config.environment}
                     protection={topology.state.value.protection ?? []}
+                    notices={topology.state.value.notices ?? []}
                 />
             )}
             <ConfirmDialog target={confirm} onClose={() => setConfirm(null)} />
@@ -483,10 +484,12 @@ function TopologyTable({
     topology,
     environment,
     protection,
+    notices,
 }: {
     topology: Extract<Topology, { exists: true }>;
     environment: string;
     protection: ProtectionWarning[];
+    notices: string[];
 }) {
     return (
         <div className="grid gap-2">
@@ -526,6 +529,12 @@ function TopologyTable({
                 <p key={w.env} className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
                     <TriangleAlert className="mt-0.5 size-4 shrink-0" />
                     {w.message}
+                </p>
+            ))}
+            {notices.map(notice => (
+                <p key={notice} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <Info className="mt-0.5 size-4 shrink-0" />
+                    {notice}
                 </p>
             ))}
             {topology.problems.map(problem => (

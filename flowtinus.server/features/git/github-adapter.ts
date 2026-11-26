@@ -12,7 +12,12 @@ type PullRequest = {
     base: { ref: string };
 };
 
-type Repository = { allow_merge_commit?: boolean; allow_squash_merge?: boolean; allow_rebase_merge?: boolean };
+type Repository = {
+    allow_merge_commit?: boolean;
+    allow_squash_merge?: boolean;
+    allow_rebase_merge?: boolean;
+    delete_branch_on_merge?: boolean;
+};
 
 type Rule = { type: string; ruleset_id: number; parameters?: { allowed_merge_methods?: string[] } };
 
@@ -153,6 +158,10 @@ class GitHubClient implements ProviderAdapter {
             }
         }
         return { methods, limits: [...new Set(limits)] };
+    }
+
+    async deletesMergedBranches(): Promise<boolean | null> {
+        return (await this.call<Repository>('GET', this.repository)).value.delete_branch_on_merge ?? null;
     }
 
     async branchProtections(branches: string[]): Promise<BranchProtection[]> {

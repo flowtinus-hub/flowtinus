@@ -46,6 +46,8 @@ export interface ProviderAdapter {
     pullRequest(number: number): Promise<ProviderPullRequest>;
     /** null: the provider does not tell this token (GitHub, to a token that cannot write) */
     mergeSettings(target: string): Promise<MergeSettings | null>;
+    /** null: the provider does not tell this token, or removes the source branch per pull request (GitLab) */
+    deletesMergedBranches(): Promise<boolean | null>;
     /** one per branch asked for, in that order */
     branchProtections(branches: string[]): Promise<BranchProtection[]>;
 }

@@ -11,7 +11,7 @@ import { shortSha } from './current-branch';
 import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
-import { mergeSettingsBlocks, type MergeSettingsBlock } from './merge-settings';
+import { mergeSettingsChecks, type MergeSettingsBlock, type MergeSettingsWarning } from './merge-settings';
 import { adapterOf } from './adapter-status';
 import { mergeRequestDescription, openMergeRequest, pullRequestUrl, refusedBy, requestKeepingCommits, reuseOpenRow, type OpenedMergeRequest } from './merge-request';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
@@ -287,7 +287,9 @@ async function preflightOf(
     const targetTip = edge.targetTip;
     if (targetTip) {
         const fastForward = () => remote.isAncestor(targetTip, sha);
-        checked.blocks.push(...(await mergeSettingsBlocks(ctx, config, { branch: edge.target.branch, fastForward })));
+        const merging = await mergeSettingsChecks(ctx, config, { branch: edge.target.branch, fastForward });
+        checked.blocks.push(...merging.blocks);
+        checked.warnings.push(...merging.warnings);
     }
     const open = await openAlong(ctx, config, edge, { kind: 'promotion', source: edge.source.env, target: edge.target.env });
     return success({ ...checked, open });
@@ -395,7 +397,13 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
 }
 
 /** reused: the repair branch was already pushed with the promoted sha in it */
-export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null } & OpenedMergeRequest;
+export type OpenedRepair = {
+    branch: string;
+    reused: boolean;
+    url: string | null;
+    provider: Provider | null;
+    warnings: MergeSettingsWarning[];
+} & OpenedMergeRequest;
 
 const RepairInput = z.object({ id: z.uuid('Invalid') });
 
@@ -441,7 +449,7 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
                 );
             }
             const fastForward = async () => !pushed || (await remote.isAncestor(intoTip, pushed));
-            const blocks = await mergeSettingsBlocks(ctx, config, { branch: into.branch, fastForward });
+            const { blocks, warnings } = await mergeSettingsChecks(ctx, config, { branch: into.branch, fastForward });
             if (blocks.length > 0) {
                 return refusedBy(blocks);
             }
@@ -464,11 +472,12 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
                     title: `Repair the lineage of ${shortSha(row.sha)} into ${into.env}`,
                     description: await mergeRequestDescription(ctx, {
                         notes: [`A merge of ${row.sha} that keeps ${into.branch}'s tree: it changes no file.`],
+                        warnings,
                     }),
                 }),
             );
             const link = provider ? pullRequestLink(config.repository, provider, branch, into.branch) : null;
-            return success({ branch, reused: !!pushed, url: pullRequestUrl(opened, link), provider, ...opened });
+            return success({ branch, reused: !!pushed, url: pullRequestUrl(opened, link), provider, warnings, ...opened });
         });
     }
 }

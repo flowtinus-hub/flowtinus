@@ -16,20 +16,53 @@ function warningOf(e: EnvironmentDecl, push: BranchProtection['push'], provider:
     return null;
 }
 
+const CLASSIC_UNREADABLE =
+    'Classic branch protection cannot be read with this token, which needs admin access to the repository: the branches it protects get no warning on their protection.';
+
+const keepsMergedBranches = (provider: string) =>
+    `This ${provider} repository does not delete merged branches: turn on "Automatically delete head branches" in its settings (General, Pull Requests). The app never deletes a branch on the remote.`;
+
+async function protectionsOf(ctx: UseCaseContext, config: GitConfig, environments: EnvironmentDecl[]) {
+    const adapter = await adapterOf(ctx, config);
+    const protections =
+        adapter && (await unlessProviderFails<BranchProtection[] | null>(adapter.branchProtections(environments.map(e => e.branch)), null));
+    return adapter && protections ? { adapter, protections } : null;
+}
+
+function warningsOf(environments: EnvironmentDecl[], protections: BranchProtection[], provider: string): ProtectionWarning[] {
+    return environments.flatMap((e, i) => {
+        const message = warningOf(e, protections[i]!.push, provider);
+        return message ? [{ env: e.env, branch: e.branch, message }] : [];
+    });
+}
+
 /** with the adapter on: where the provider's branch protection disagrees with the modes; never fails, an API error shows nothing */
 export async function protectionWarnings(
     ctx: UseCaseContext,
     config: GitConfig,
     environments: EnvironmentDecl[],
 ): Promise<ProtectionWarning[]> {
-    const adapter = await adapterOf(ctx, config);
-    const protections =
-        adapter && (await unlessProviderFails<BranchProtection[] | null>(adapter.branchProtections(environments.map(e => e.branch)), null));
-    if (!adapter || !protections) {
-        return [];
+    const read = await protectionsOf(ctx, config, environments);
+    return read ? warningsOf(environments, read.protections, PROVIDER_NAME[read.adapter.provider]) : [];
+}
+
+/** for the git section, read when it loads: the warnings, and notices on what the repository does or the token cannot see */
+export async function sectionProtection(
+    ctx: UseCaseContext,
+    config: GitConfig,
+    environments: EnvironmentDecl[],
+): Promise<{ warnings: ProtectionWarning[]; notices: string[] }> {
+    const read = await protectionsOf(ctx, config, environments);
+    if (!read) {
+        return { warnings: [], notices: [] };
     }
-    return environments.flatMap((e, i) => {
-        const message = warningOf(e, protections[i]!.push, PROVIDER_NAME[adapter.provider]);
-        return message ? [{ env: e.env, branch: e.branch, message }] : [];
-    });
+    const provider = PROVIDER_NAME[read.adapter.provider];
+    const deletes = await unlessProviderFails<boolean | null>(read.adapter.deletesMergedBranches(), null);
+    return {
+        warnings: warningsOf(environments, read.protections, provider),
+        notices: [
+            ...(deletes === false ? [keepsMergedBranches(provider)] : []),
+            ...(read.protections.some(p => p.push === 'unknown') ? [CLASSIC_UNREADABLE] : []),
+        ],
+    };
 }

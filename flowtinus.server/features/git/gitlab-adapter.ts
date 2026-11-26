@@ -132,6 +132,10 @@ class GitLabClient implements ProviderAdapter {
         return { methods, limits };
     }
 
+    async deletesMergedBranches(): Promise<null> {
+        return null;
+    }
+
     async branchProtections(branches: string[]): Promise<BranchProtection[]> {
         const protections = await this.list<ProtectedBranch>(`${this.project}/protected_branches`);
         return branches.map(branch => ({ branch, push: whoPushes(protections, branch) }));
