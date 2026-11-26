@@ -1,12 +1,12 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { adapterOf } from './adapter-status';
 import type { GitConfig } from './git-config';
-import { PROVIDER_NAME, unlessProviderFails, type AccessRule, type BranchProtection } from './provider-adapter';
+import { PROVIDER_NAME, unlessProviderFails, type BranchProtection } from './provider-adapter';
 import type { EnvironmentDecl } from './topology';
 
 export type ProtectionWarning = { env: string; branch: string; message: string };
 
-function warningOf(e: EnvironmentDecl, push: AccessRule, provider: string): string | null {
+function warningOf(e: EnvironmentDecl, push: BranchProtection['push'], provider: string): string | null {
     if (e.mode === 'protected' && push === 'developers') {
         return `${e.label} is protected in the topology, but developers may push to ${e.branch} on ${provider}.`;
     }

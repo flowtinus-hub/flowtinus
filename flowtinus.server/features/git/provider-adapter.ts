@@ -4,7 +4,7 @@ export type PullRequestState = 'open' | 'merged' | 'closed';
 
 export type ProviderPullRequest = { number: number; url: string; source: string; target: string; state: PullRequestState };
 
-/** squash: false turns it off, absent keeps the project's default */
+/** squash: false turns it off, absent keeps the project's default; neither it nor removeSourceBranch reaches GitHub */
 export type NewPullRequest = {
     source: string;
     target: string;
@@ -17,15 +17,22 @@ export type NewPullRequest = {
 /** 'fast-forward' keeps the commit only when the target is an ancestor of it; 'rebase' writes new commits */
 export type MergeMethod = 'merge-commit' | 'fast-forward' | 'squash' | 'rebase';
 
-/** the provider's settings that leave a merge commit out */
-export type MergeLimit = 'squash-forced' | 'fast-forward-only' | 'semi-linear-only';
+/** the provider's settings that leave a merge commit out: GitLab's project, then GitHub's repository and rulesets on the target */
+export type MergeLimit =
+    | 'squash-forced'
+    | 'fast-forward-only'
+    | 'semi-linear-only'
+    | 'merge-commits-off'
+    | 'linear-history-required'
+    | 'merge-commit-not-allowed-by-rule';
 
 /** methods: those a pull request into the target may use */
 export type MergeSettings = { methods: MergeMethod[]; limits: MergeLimit[] };
 
 export type AccessRule = 'nobody' | 'maintainers' | 'developers';
 
-export type BranchProtection = { branch: string; push: AccessRule };
+/** unknown: protection the token may not read (GitHub's classic one), which gives no warning */
+export type BranchProtection = { branch: string; push: AccessRule | 'unknown' };
 
 export interface ProviderAdapter {
     readonly provider: Provider;
@@ -37,12 +44,15 @@ export interface ProviderAdapter {
     /** in every state */
     pullRequestsInto(target: string, openedSince: Date): Promise<ProviderPullRequest[]>;
     pullRequest(number: number): Promise<ProviderPullRequest>;
-    mergeSettings(target: string): Promise<MergeSettings>;
+    /** null: the provider does not tell this token (GitHub, to a token that cannot write) */
+    mergeSettings(target: string): Promise<MergeSettings | null>;
     /** one per branch asked for, in that order */
     branchProtections(branches: string[]): Promise<BranchProtection[]>;
 }
 
 export const PROVIDER_NAME: Record<Provider, string> = { gitlab: 'GitLab', github: 'GitHub' };
+
+export const PULL_REQUEST_NAME: Record<Provider, string> = { gitlab: 'merge request', github: 'pull request' };
 
 /** status null: the provider did not answer */
 export class ProviderError extends Error {

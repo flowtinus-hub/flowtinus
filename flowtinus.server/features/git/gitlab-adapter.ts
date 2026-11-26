@@ -1,9 +1,6 @@
 import type { GitAccess } from './git-remote';
-import { API_NOTICE, ProviderError, providerNotice, type AccessRule, type BranchProtection, type MergeLimit, type MergeMethod, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
-
-const TIMEOUT_MS = 10_000;
-
-const PAGE = 100;
+import { callProvider, PAGE } from './provider-api';
+import { API_NOTICE, providerNotice, type AccessRule, type BranchProtection, type MergeLimit, type MergeMethod, type MergeSettings, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 type MergeRequest = { iid: number; web_url: string; source_branch: string; target_branch: string; state: string };
 
@@ -45,24 +42,6 @@ function accessRuleOf(levels: AccessLevels): AccessRule {
     return lowest <= DEVELOPER ? 'developers' : lowest < Infinity ? 'maintainers' : 'nobody';
 }
 
-function jsonOf(text: string): { message?: unknown; error?: unknown; error_description?: unknown } {
-    try {
-        return JSON.parse(text) ?? {};
-    } catch {
-        return {};
-    }
-}
-
-async function errorOf(response: Response): Promise<string> {
-    const text = await response.text().catch(() => '');
-    const body = jsonOf(text);
-    const message = body.message ?? body.error_description ?? body.error;
-    if (message !== undefined) {
-        return typeof message === 'string' ? message : JSON.stringify(message);
-    }
-    return text.trim().slice(0, 200) || `${response.status} ${response.statusText}`;
-}
-
 class GitLabClient implements ProviderAdapter {
     readonly provider = 'gitlab' as const;
     readonly canTurnSquashOff = true;
@@ -76,21 +55,7 @@ class GitLabClient implements ProviderAdapter {
     }
 
     private async call<T>(method: string, path: string, body?: unknown): Promise<{ value: T; next: string | null }> {
-        let response: Response;
-        try {
-            response = await fetch(`${this.api}${path}`, {
-                method,
-                headers: { 'private-token': this.access.token, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
-                body: body === undefined ? undefined : JSON.stringify(body),
-                redirect: 'manual',
-                signal: AbortSignal.timeout(TIMEOUT_MS),
-            });
-        } catch (e) {
-            throw new ProviderError((e as Error).message, null);
-        }
-        if (!response.ok) {
-            throw new ProviderError(await errorOf(response), response.status);
-        }
+        const response = await callProvider(`${this.api}${path}`, method, { 'private-token': this.access.token }, body);
         return { value: (await response.json()) as T, next: response.headers.get('x-next-page') || null };
     }
 

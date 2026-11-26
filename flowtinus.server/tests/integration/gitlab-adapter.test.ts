@@ -77,6 +77,18 @@ describe("the GitLab adapter: what it asks GitLab's API, and what it makes of th
         expect((await gl.pullRequest(3)).state).toBe('merged');
     });
 
+    test('lists the pull requests into a branch opened after a date, in every state, by asking GitLab for those only', async () => {
+        const gl = await adapter('omc/since');
+        await gl.openPullRequest({ source: 'a', target: 'qa', title: 'a', description: '', removeSourceBranch: true });
+        await gl.openPullRequest({ source: 'b', target: 'qa', title: 'b', description: '', removeSourceBranch: true });
+        gitlab.project('omc/since').mergeRequests[0]!.created_at = '2026-11-01T00:00:00.000Z';
+        gitlab.close('omc/since', 2);
+
+        const listed = await gl.pullRequestsInto('qa', new Date('2026-11-10T00:00:00.000Z'));
+        expect(listed.map(p => [p.number, p.state])).toEqual([[2, 'closed']]);
+        expect(gitlab.requests.at(-1)!.query).toMatchObject({ target_branch: 'qa', created_after: '2026-11-10T00:00:00.000Z' });
+    });
+
     test("reads the project's merge settings as the methods allowed into a target, and says it can turn squash off", async () => {
         const gl = await adapter('omc/settings');
         expect(gl.canTurnSquashOff).toBe(true);

@@ -5,7 +5,7 @@ import { PROVIDER_NAME, unlessProviderFails, type MergeLimit, type MergeSettings
 
 export type MergeSettingsBlock = { kind: 'squash' | 'merge-method'; message: string };
 
-const FAST_FORWARD_ONLY: Record<Exclude<MergeLimit, 'squash-forced'>, string> = {
+const FAST_FORWARD_ONLY: Partial<Record<MergeLimit, string>> = {
     'fast-forward-only': 'only by fast-forward',
     'semi-linear-only': 'only with a semi-linear history',
 };
@@ -32,7 +32,7 @@ export async function mergeSettingsBlocks(
     for (const limit of settings.limits) {
         if (limit === 'squash-forced') {
             blocks.push({ kind: 'squash', message: `This ${name} project forces squash: turn it off in the project's merge settings.` });
-        } else if (!(await canFastForward())) {
+        } else if (FAST_FORWARD_ONLY[limit] && !(await canFastForward())) {
             blocks.push({
                 kind: 'merge-method',
                 message: `This ${name} project merges ${FAST_FORWARD_ONLY[limit]}, and ${target.branch} cannot be fast-forwarded now: set the merge method to "Merge commit" in the project's merge settings.`,
