@@ -127,7 +127,8 @@ function Level({
                         {!flow.archivedAt && <WebhooksChip webhooks={flow.webhooks} />}
                         <WorkerTagChip tag={flow.workerTag} color={colors[flow.workerTag]} />
                         <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline" title={formatDateTime(flow.updatedAt)}>
-                            Updated {relativeTime(flow.updatedAt)} by {flow.updatedByName ?? flow.updatedBy}
+                            Updated {relativeTime(flow.updatedAt)}
+                            {(flow.updatedByName ?? flow.updatedBy) && ` by ${flow.updatedByName ?? flow.updatedBy}`}
                         </span>
                         <FlowMenu flow={flow} actions={actions} />
                     </div>

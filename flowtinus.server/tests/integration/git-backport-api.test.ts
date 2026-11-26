@@ -246,6 +246,23 @@ describe("backporting an environment ahead of its source: a merge of its tip cut
         expect(git(repo, 'for-each-ref', 'refs/heads/backport/')).toBe('');
     });
 
+    test('a conflict outside the workspace’s files blocks it: nothing pushed, no pending merge', async () => {
+        const { id, repo, write, branchAt, backport, backportPreflight } = await newWorkspace();
+        const outside = 'shared/readme.md';
+        write('dev', { [outside]: 'base\n' });
+        branchAt('qa', 'dev');
+        write('qa', { [outside]: 'qa\n' });
+        write('dev', { [outside]: 'dev\n' });
+        const message = `Merging qa into dev conflicts outside this workspace (${outside}): backport it in git.`;
+
+        expect((await backportPreflight()).body.blocks).toEqual([{ kind: 'outside', message }]);
+        const refused = await backport();
+        expect(refused.status).toBe(409);
+        expect(refused.body.error.message).toContain(message);
+        expect(git(repo, 'for-each-ref', 'refs/heads/backport/')).toBe('');
+        expect(await db.query('SELECT branch FROM pending_merges WHERE workspace_id = $1', [id])).toEqual([]);
+    });
+
     test('the warnings: connections and triggers new to the source, declared in the merge result', async () => {
         const { handle, at, flowId, branchAt, filesOf, write, backportPreflight } = await newWorkspace();
         branchAt('qa', 'dev');

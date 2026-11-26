@@ -119,6 +119,20 @@ export function GitStatusPanel({
                     <Issues issues={status.warnings} tone="warn" />
                 </div>
             )}
+            {status.renamedDrafts.length > 0 && (
+                <div className="grid gap-1">
+                    <span className="text-muted-foreground">
+                        The commit applied brought flows with the names of drafts here: each draft was renamed.
+                    </span>
+                    <ul className="grid gap-0.5 text-xs">
+                        {status.renamedDrafts.map(draft => (
+                            <li key={draft.id}>
+                                {draft.from} is now <span className="font-medium">{draft.to}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
             {said && (
                 <p
                     className={`flex items-center gap-1.5 ${said.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}`}

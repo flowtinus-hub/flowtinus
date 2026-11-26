@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, getCurrentBranch, discardedWith, removedBranchText, requiredBy, type ArrivedDisabled, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
+import { CHANGES_CHANGED, commitChanges, discardChanges, getChanges, getCurrentBranch, getGitStatus, discardedWith, removedBranchText, requiredBy, type ArrivedDisabled, type PendingMerge, type WorkingChange } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import type { ApiError } from '@/lib/api';
@@ -53,6 +53,7 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
     const [diffOf, setDiffOf] = useState<string | null>(null);
     const [loads, setLoads] = useState(0);
     const [pullRequestsOnly, setPullRequestsOnly] = useState<string | null>(null);
+    const [workBranch, setWorkBranch] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
     const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
     const { canEdit } = useWorkspace();
@@ -60,9 +61,11 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
     const { state: me } = useMe();
     const userHandle = me.status === 'ready' ? me.me.handle : null;
     useEffect(() => {
-        void getCurrentBranch(handle).then(result =>
-            setPullRequestsOnly(result.ok && result.value.offersBranch && result.value.branch ? result.value.branch : null),
-        );
+        void Promise.all([getCurrentBranch(handle), getGitStatus(handle)]).then(([result, status]) => {
+            setPullRequestsOnly(result.ok && result.value.offersBranch && result.value.branch ? result.value.branch : null);
+            const branch = result.ok ? result.value.branch : null;
+            setWorkBranch(branch && status.ok && status.value.on && status.value.branch !== branch ? branch : null);
+        });
     }, [handle]);
 
     const load = useCallback(async () => {
@@ -154,8 +157,17 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
                 <DialogHeader>
                     <DialogTitle>Changes</DialogTitle>
                     <DialogDescription>
-                        What is not committed yet on the environment&apos;s branch. A Commit takes the files checked to the branch, and the
-                        server applies it.
+                        {workBranch ? (
+                            <>
+                                What is not committed yet on <span className="font-mono">{workBranch}</span>. A Commit pushes the files
+                                checked to that branch; nothing is applied here until it is merged into the environment&apos;s branch.
+                            </>
+                        ) : (
+                            <>
+                                What is not committed yet on the environment&apos;s branch. A Commit takes the files checked to the branch,
+                                and the server applies it.
+                            </>
+                        )}
                     </DialogDescription>
                 </DialogHeader>
                 {committed ? (
@@ -163,7 +175,14 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
                         <p className="flex items-center gap-2 text-sm">
                             <CircleCheck className="size-4 text-emerald-600" />
                             <span>
-                                <span className="font-mono">{committed.commit.slice(0, 7)}</span> applied
+                                <span className="font-mono">{committed.commit.slice(0, 7)}</span>{' '}
+                                {workBranch ? (
+                                    <>
+                                        pushed to <span className="font-mono">{workBranch}</span>
+                                    </>
+                                ) : (
+                                    'applied'
+                                )}
                             </span>
                         </p>
                         {committed.arrived.length > 0 && (
@@ -190,7 +209,8 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
                             <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
                                 A merge of <span className="font-mono">{merge.from}</span> ({merge.theirs.slice(0, 7)}) is pending. Commit
                                 takes every file as one merge commit; Abort the merge puts the branch back as it was.
-                                {merge.conflicts.length > 0 && ' Discard a conflicted file to keep this branch’s version of it.'}
+                                {merge.conflicts.length > 0 &&
+                                    ' Resolve a conflicted file to choose what it keeps, or discard it to keep this branch’s version.'}
                             </p>
                         )}
                         <div className="grid min-w-0 gap-1">
@@ -379,7 +399,7 @@ export function ChangesDialog({ handle, onClose }: { handle: string; onClose: ()
                                 onClick={() => void commit()}
                             >
                                 {busy ? <LoaderCircle className="animate-spin" /> : <GitCommitHorizontal />}
-                                {busy ? 'Committing…' : `Commit ${all.length}`}
+                                {busy ? 'Committing…' : merge ? 'Commit the merge' : `Commit ${all.length}`}
                             </Button>
                         </>
                     )}

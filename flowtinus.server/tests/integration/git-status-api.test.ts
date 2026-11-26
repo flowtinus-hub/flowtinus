@@ -71,6 +71,7 @@ describe('the git status the git section and the sidebar read', () => {
             refused: null,
             unreachable: null,
             warnings: [],
+            renamedDrafts: [],
             lastPoll: null,
         });
 

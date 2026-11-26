@@ -36,6 +36,8 @@ export type ConflictView = {
     revision: number;
     conflict: ConflictCase;
     duplicable: boolean;
+    /** the branch whose merge into this one is pending: the conflict is the merge's, not an uncommitted change's */
+    merging?: string;
 };
 
 export type HunkChoice = 'mine' | 'theirs' | 'both' | { edit: string };
@@ -105,6 +107,42 @@ export async function mergeSegments(mine: string, base: string, theirs: string):
 
 const hunksOf = (segments: Segment[]) => segments.flatMap(s => ('hunk' in s ? [s.hunk] : []));
 
+const TOP_KEY = /^[A-Za-z_][\w-]*:\s*$/;
+
+// a side made of whole top-level blocks ("schedules:" and its items), by key; null when it is not
+function topBlocks(lines: string[]): Map<string, string[]> | null {
+    if (lines.length === 0 || !TOP_KEY.test(lines[0]!)) {
+        return null;
+    }
+    const blocks = new Map<string, string[]>();
+    let current: string[] = [];
+    for (const line of lines) {
+        if (TOP_KEY.test(line)) {
+            if (blocks.has(line.trim())) {
+                return null;
+            }
+            current = [];
+            blocks.set(line.trim(), current);
+        } else if (/^\S/.test(line)) {
+            return null;
+        } else {
+            current.push(line);
+        }
+    }
+    return blocks;
+}
+
+// both sides opened the same list (each added the first schedule, say): one key with the items of both, not the key twice
+function bothSides(hunk: Hunk): string[] {
+    const mine = topBlocks(hunk.mine);
+    const theirs = topBlocks(hunk.theirs);
+    if (!mine || !theirs || ![...mine.keys()].some(key => theirs.has(key))) {
+        return [...hunk.mine, ...hunk.theirs];
+    }
+    const keys = [...new Set([...mine.keys(), ...theirs.keys()])];
+    return keys.flatMap(key => [key, ...(mine.get(key) ?? []), ...(theirs.get(key) ?? [])]);
+}
+
 export function joinSegments(segments: Segment[], choices: HunkChoice[], newline: boolean): string | null {
     const lines: string[] = [];
     let i = 0;
@@ -117,10 +155,13 @@ export function joinSegments(segments: Segment[], choices: HunkChoice[], newline
         if (choice === undefined) {
             return null;
         }
-        if (choice === 'mine' || choice === 'both') {
+        if (choice === 'both') {
+            lines.push(...bothSides(segment.hunk));
+        }
+        if (choice === 'mine') {
             lines.push(...segment.hunk.mine);
         }
-        if (choice === 'theirs' || choice === 'both') {
+        if (choice === 'theirs') {
             lines.push(...segment.hunk.theirs);
         }
         if (typeof choice === 'object' && choice.edit !== '') {
@@ -217,6 +258,7 @@ export async function readConflict(ctx: UseCaseContext, path: string): Promise<U
         return fail('not-found', `${path} has no conflict to resolve.`);
     }
     const { item, conflict, commit, revision } = situation;
+    const merge = branch ? await pendingMerge(ctx.db, ctx.workspaceId, branch.branch) : null;
     return success({
         path: item.path,
         ...(item.from ? { from: item.from } : {}),
@@ -226,6 +268,7 @@ export async function readConflict(ctx: UseCaseContext, path: string): Promise<U
         revision,
         conflict,
         duplicable: !branch && item.kind === 'flow' && conflict.type === 'content' && !conflict.names,
+        ...(merge ? { merging: merge.source } : {}),
     });
 }
 
@@ -429,6 +472,24 @@ export async function resolveConflict(ctx: UseCaseContext, request: Resolution):
                 `UPDATE working_copy SET path = $4, conflict = NULL, edited_by = $5, revision = revision + 1, updated_at = now() WHERE ${where}`,
                 [ctx.workspaceId, name, row.path, to, ctx.userId],
             );
+            // in a pending merge the branch's tip still holds mine at the path given up: theirs goes there as a change of the branch
+            const ours = merging ? branch!.tipFiles[row.path] : undefined;
+            const theirs = tree[row.path];
+            if (ours !== undefined && typeof theirs === 'string' && theirs !== ours) {
+                await db.query(
+                    `INSERT INTO working_copy (workspace_id, branch, path, content, deleted, file_id, base, edited_by, revision)
+                     VALUES ($1, $2, $3, $4, false, $5, $6, $7, 1)`,
+                    [
+                        ctx.workspaceId,
+                        name,
+                        row.path,
+                        theirs,
+                        idOfFile(row.path, theirs),
+                        await saveBlob(db, ctx.workspaceId, ours),
+                        ctx.userId,
+                    ],
+                );
+            }
         }
         await db.query(`UPDATE working_copy SET conflict = NULL WHERE ${where.replace('path = $3', 'path = ANY($3::text[])')}`, [
             ctx.workspaceId,

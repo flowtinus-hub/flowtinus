@@ -12,6 +12,7 @@ import { readTopology, type TopologyView } from './workspace-topology';
 import { turnGitOn, turnOnPlan, type TurnOnOutcome, type TurnOnPlan } from './turn-git-on';
 import type { TreeIssue } from '@flowtinus/core';
 import { forgetReconcile, lockReconcile, type ReconcileResult } from './reconcile';
+import type { RenamedDraft } from './working-copy';
 import { ensureHookToken, forgetHookToken, hookPath, readHookToken, renewHookToken } from './git-hook';
 import { readLastPoll, recordPoll, type LastPoll } from './git-poll-state';
 import { readState } from './reconcile';
@@ -398,7 +399,8 @@ export type GitCommitView = { sha: string; message?: string; author?: string; at
 
 /**
  * What the git section and the sidebar show with git on: the commit the deploy is on, a commit git is at that was
- * refused (with its errors per file), git unreachable (since when), and the warnings of the commit applied.
+ * refused (with its errors per file), git unreachable (since when), and the warnings of the commit applied with the
+ * draft-only flows it renamed "<name> (draft)" to take their names.
  */
 export type GitStatusView =
     | { on: false }
@@ -411,6 +413,7 @@ export type GitStatusView =
           refused: (GitCommitView & { errors: TreeIssue[]; refusedAt: string }) | null;
           unreachable: { since: string; error: string } | null;
           warnings: TreeIssue[];
+          renamedDrafts: RenamedDraft[];
           lastPoll: LastPoll | null;
       };
 
@@ -443,6 +446,7 @@ export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
             refused: state.refused ? { ...commit(state.refused.commit), errors: state.refused.errors, refusedAt: state.refused.at } : null,
             unreachable: lastPoll?.error ? { since: lastPoll.since ?? lastPoll.at, error: lastPoll.error } : null,
             warnings: state.warnings ?? [],
+            renamedDrafts: state.renamedDrafts ?? [],
             lastPoll,
         });
     }

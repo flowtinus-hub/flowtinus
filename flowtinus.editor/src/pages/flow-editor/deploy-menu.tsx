@@ -494,6 +494,7 @@ export function DeployMenu({
                     workspace={workspace}
                     flowId={flowId}
                     number={committing.number}
+                    running={deployed?.id ?? null}
                     flowName={draftNow()?.name ?? 'flow'}
                     warnings={committing.warnings}
                     saved={committing.saved}
@@ -568,6 +569,8 @@ function EmergencyRollbackBanner(props: {
 function CommitDialog(props: {
     branch: string;
     number: number;
+    /** the version deployed when the dialog opened: a commit of the triggers alone leaves it */
+    running: string | null;
     flowName: string;
     warnings: string[];
     saved: boolean;
@@ -579,6 +582,7 @@ function CommitDialog(props: {
     onClose: () => void;
 }) {
     const { branch, workspace, flowId, number, flowName, warnings, saved, scripts, onCommit, onClose } = props;
+    const [before] = useState(props.running);
     const [message, setMessage] = useState(`Update ${flowName}`);
     const [busy, setBusy] = useState(false);
     const [outcome, setOutcome] = useState<ApiResult<FlowDeployments> | null>(null);
@@ -608,7 +612,10 @@ function CommitDialog(props: {
                             {applied.commit ? (
                                 <span>
                                     <span className="font-mono">{shortSha(applied.commit)}</span> applied
-                                    {deployedNow && ` · v${deployedNow.number} deployed`}
+                                    {deployedNow &&
+                                        (deployedNow.id === before
+                                            ? ` · the version did not change, v${deployedNow.number} runs`
+                                            : ` · v${deployedNow.number} deployed`)}
                                 </span>
                             ) : (
                                 'Nothing changed in the branch.'

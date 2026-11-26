@@ -82,7 +82,8 @@ export function CardsView({ contents, projectId, folderId, actions }: Props) {
                                 {!flow.archivedAt && <WebhooksChip webhooks={flow.webhooks} />}
                                 <WorkerTagChip tag={flow.workerTag} color={colors[flow.workerTag]} />
                                 <CardDescription className="truncate" title={formatDateTime(flow.updatedAt)}>
-                                    Updated {relativeTime(flow.updatedAt)} by {flow.updatedByName ?? flow.updatedBy}
+                                    Updated {relativeTime(flow.updatedAt)}
+                                    {(flow.updatedByName ?? flow.updatedBy) && ` by ${flow.updatedByName ?? flow.updatedBy}`}
                                 </CardDescription>
                             </div>
                         </div>

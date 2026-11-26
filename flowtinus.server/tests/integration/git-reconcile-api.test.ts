@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { connectionToYaml, GITATTRIBUTES, projectToYaml, repoFlowToYaml, workspaceToYaml, type FlowFile, type FlowFileNode } from '@flowtinus/core';
-import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
+import { ANA, insertMember, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { commitFiles, git } from '../helpers/git-repos';
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
@@ -265,6 +265,56 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         ]);
     });
 
+    test('an archived connection is listed, and an admin deletes it for good; one whose Delete is not committed yet is refused', async () => {
+        const { id, call, p, commit, reconcile } = await newWorkspace();
+        const create = async (name: string) => {
+            const created = await call('POST', '/connections', {
+                name,
+                type: 'kafka',
+                config: { bootstrapServers: 'b:9092', security: 'SASL_SSL', mechanism: 'PLAIN', user: 'u', password: 'kafka-pass' },
+                ...(name === 'Events' ? { newSecrets: [{ name: 'kafka-pass', value: 's3cret' }] } : {}),
+            });
+            expect(created.status).toBe(201);
+            const path = p(`connections/${name}.yaml`);
+            expect((await call('POST', '/git/commit', { paths: [path], message: `Create connection ${name}` })).status).toBe(200);
+            return { id: created.body.id as string, path };
+        };
+        const events = await create('Events');
+        const spare = await create('Spare');
+        const archived = async () => (await call('GET', '/git/archived-connections')).body.items;
+        expect(await archived()).toEqual([]);
+
+        commit(({ [events.path]: _events, ...rest }) => rest);
+        expect((await reconcile()).body.outcome).toBe('applied');
+        expect((await call('DELETE', `/connections/${spare.id}`)).status).toBe(200);
+        expect(await archived()).toEqual([
+            expect.objectContaining({ id: spare.id, name: 'Spare', type: 'kafka', uncommitted: true, archivedByName: 'Ana' }),
+            expect.objectContaining({ id: events.id, name: 'Events', type: 'kafka', uncommitted: false }),
+        ]);
+
+        const editor = await insertMember(db, id, { name: 'Eve', role: 'editor' });
+        const asEditor = await app.request(wsPath(id, `/git/archived-connections/${events.id}`), {
+            method: 'DELETE',
+            headers: { 'x-user-id': editor },
+        });
+        expect(asEditor.status).toBe(403);
+        const pending = await call('DELETE', `/git/archived-connections/${spare.id}`);
+        expect([pending.status, pending.body.error.message]).toEqual([
+            409,
+            'Its Delete is not committed yet: commit it, or discard it to bring the connection back.',
+        ]);
+
+        expect((await call('DELETE', `/git/archived-connections/${events.id}`)).status).toBe(200);
+        expect((await archived()).map((c: { id: string }) => c.id)).toEqual([spare.id]);
+        expect((await call('GET', '/secrets')).body.items.map((s: { name: string }) => s.name)).toContain('kafka-pass');
+        expect((await call('DELETE', `/git/archived-connections/${events.id}`)).status).toBe(404);
+
+        expect((await call('POST', '/git/discard', { paths: [spare.path] })).status).toBe(200);
+        expect(await archived()).toEqual([]);
+        expect((await call('DELETE', `/git/archived-connections/${spare.id}`)).status).toBe(404);
+        expect((await call('GET', '/connections')).body.items.map((c: { id: string }) => c.id)).toEqual([spare.id]);
+    });
+
     test('a flow deleted by git while it has a draft goes to the archive with its draft, marked as deleted by that commit', async () => {
         const { call, ids, paths, commit, reconcile, contents, deployments } = await newWorkspace();
         const draft = (await call('GET', `/flows/${ids.orders}/draft`)).body;
@@ -305,6 +355,23 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         expect(names[draftId]).toBe('Report (draft 2)');
         expect(names[taken]).toBe('Report (draft)');
         expect(names[fromGit]).toBe('report');
+    });
+
+    test('a draft renamed by the poll is kept with the commit applied: the status says so until the next commit applies', async () => {
+        const { id, call, ids, p, commit, flowNamed } = await newWorkspace();
+        const draftId = (await call('POST', `/projects/${ids.sales}/flows`, { name: 'Report' })).body.id as string;
+        const fromGit = crypto.randomUUID();
+        const sha = commit(files => ({ ...files, [p('projects/Sales/flows/Report.flow.yaml')]: repoFlowToYaml(logFlow(fromGit, 'git')) }));
+
+        await app.gitPoller.poll(id);
+        const status = (await call('GET', '/git/status')).body;
+        expect(status.deploy.sha).toBe(sha);
+        expect(status.renamedDrafts).toEqual([{ id: draftId, from: 'Report', to: 'Report (draft)' }]);
+        expect((await flowNamed('Report (draft)')).id).toBe(draftId);
+
+        commit(files => ({ ...files, [p('projects/Sales/flows/Other.flow.yaml')]: repoFlowToYaml(logFlow(crypto.randomUUID(), 'other')) }));
+        await app.gitPoller.poll(id);
+        expect((await call('GET', '/git/status')).body.renamedDrafts).toEqual([]);
     });
 
     test('a workspace without git configuration has nothing to reconcile', async () => {

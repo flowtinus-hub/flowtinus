@@ -10,6 +10,7 @@ import { GetEnvironmentsHandler } from '#features/git/environments';
 import { GetCommitGraphHandler, GetPreflightHandler, OpenPromotionHandler, OpenRepairHandler } from '#features/git/promotions';
 import { GetBackportPreflightHandler, OpenBackportHandler } from '#features/git/backports';
 import { ListArrivedDisabledHandler } from '#features/git/arrived-disabled';
+import { DeleteArchivedConnectionHandler, ListArchivedConnectionsHandler } from '#features/git/archived-connections';
 import { CommitChangesHandler, CreateBranchHandler, DiscardChangesHandler, GetChangesHandler, GetConflictHandler, GetUpdateHandler, ResolveConflictHandler, UpdateBranchHandler } from '#features/git/working-copy-handlers';
 import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
@@ -28,6 +29,10 @@ export function gitRoutes(options: GitOptions) {
         .post('/on', async c => toHttpResult(c, await new TurnGitOnHandler(options).handle(await jsonBody(c), c.get('useCase'))))
         .get('/status', async c => toHttpResult(c, await new GetGitStatusHandler().handle({}, c.get('useCase'))))
         .get('/environments', async c => toHttpResult(c, await new GetEnvironmentsHandler(options).handle({}, c.get('useCase'))))
+        .get('/archived-connections', async c => toHttpResult(c, await new ListArchivedConnectionsHandler().handle({}, c.get('useCase'))))
+        .delete('/archived-connections/:id', async c =>
+            toHttpResult(c, await new DeleteArchivedConnectionHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
+        )
         .get('/promotions/graph', async c =>
             toHttpResult(c, await new GetCommitGraphHandler(options).handle(c.req.query(), c.get('useCase'))),
         )

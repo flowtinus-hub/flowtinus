@@ -89,7 +89,7 @@ export function UpdateDialog({ handle, onClose }: { handle: string; onClose: () 
                     <div className="grid gap-2 text-sm">
                         <p>
                             {outcome.conflicts.length > 0
-                                ? `${plural(outcome.conflicts.length, 'file')} conflict. The merge is pending: discard a conflicted file to keep this branch's version, then Commit the whole merge from Changes; Discard all aborts it.`
+                                ? `${plural(outcome.conflicts.length, 'file')} conflict. The merge is pending: in Changes, Resolve a conflicted file to choose what it keeps, or discard it to keep this branch's version, then Commit the whole merge; Abort the merge puts the branch back.`
                                 : 'The merge has no conflict but would not be valid. It is pending: fix the files, then Commit the whole merge from Changes; Discard all aborts it.'}
                         </p>
                         <ul className="grid gap-1">

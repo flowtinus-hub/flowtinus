@@ -55,6 +55,8 @@ export type GitStatus =
           refused: (GitCommitView & { errors: TreeIssue[]; refusedAt: string }) | null;
           unreachable: { since: string; error: string } | null;
           warnings: TreeIssue[];
+          /** the draft-only flows the commit applied renamed "<name> (draft)" to take their names */
+          renamedDrafts: { id: string; from: string; to: string }[];
           lastPoll: LastPoll | null;
       };
 
@@ -430,6 +432,8 @@ export type ConflictView = {
     revision: number;
     conflict: ConflictCase;
     duplicable: boolean;
+    /** the branch whose merge into this one is pending */
+    merging?: string;
 };
 
 export type HunkChoice = 'mine' | 'theirs' | 'both' | { edit: string };
@@ -477,3 +481,19 @@ export const getTurnOnPlan = (ws: string) => api<TurnOnPlan>(`/w/${ws}/git/on`);
 
 export const turnGitOn = (ws: string, options: { createBranch?: boolean; choice?: 'git' | 'server' }) =>
     api<TurnOnResult>(`/w/${ws}/git/on`, { method: 'POST', body: options });
+
+/** uncommitted: archived by a Delete here not committed yet (a Discard brings it back), not by git */
+export type ArchivedConnection = {
+    id: string;
+    name: string;
+    type: string;
+    archivedAt: string;
+    archivedBy: string | null;
+    archivedByName?: string;
+    uncommitted: boolean;
+};
+
+export const listArchivedConnections = (ws: string) => api<{ items: ArchivedConnection[] }>(`/w/${ws}/git/archived-connections`);
+
+export const deleteArchivedConnection = (ws: string, id: string) =>
+    api<{ id: string }>(`/w/${ws}/git/archived-connections/${id}`, { method: 'DELETE' });

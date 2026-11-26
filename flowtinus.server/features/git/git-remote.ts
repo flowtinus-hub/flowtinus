@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export type GitAccess = { repository: string; token: string };
+export type GitAccess = { repository: string; token: string; allowFileUrls?: boolean };
 
 export type GitAuthor = { name: string; email: string };
 
@@ -40,7 +40,7 @@ function gitEnv(access: GitAccess | null, extra: Record<string, string> = {}): R
         GIT_ASKPASS: '',
         SSH_ASKPASS: '',
         GIT_CONFIG_NOSYSTEM: '1',
-        GIT_ALLOW_PROTOCOL: 'http:https:file',
+        GIT_ALLOW_PROTOCOL: access?.allowFileUrls ? 'http:https:file' : 'http:https',
         GIT_CONFIG_COUNT: String(inherited + config.length),
         ...Object.fromEntries(
             config.flatMap(([key, value], i) => [
