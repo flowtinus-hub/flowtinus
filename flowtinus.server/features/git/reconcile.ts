@@ -36,6 +36,7 @@ type ReconcileState = {
     mode?: Mode;
     refused: { commit: string; errors: TreeIssue[]; at: string } | null;
     warnings?: TreeIssue[];
+    renamedDrafts?: RenamedDraft[];
 };
 
 const lockKey = (workspaceId: string) => `reconcile:${workspaceId}`;
@@ -48,12 +49,12 @@ export async function readState(db: Database, workspaceId: string): Promise<Reco
     return state ?? { applied: null, refused: null };
 }
 
-const markApplied = (ctx: UseCaseContext, { branch, commit, mode }: BranchCommit, warnings: TreeIssue[]) =>
+const markApplied = (ctx: UseCaseContext, { branch, commit, mode }: BranchCommit, warnings: TreeIssue[], renamedDrafts: RenamedDraft[]) =>
     writeWorkspaceSetting(
         ctx.db,
         ctx.workspaceId,
         RECONCILE_SETTING,
-        { applied: commit, branch, mode, refused: null, warnings },
+        { applied: commit, branch, mode, refused: null, warnings, renamedDrafts },
         ctx.userId,
     );
 
@@ -91,7 +92,7 @@ export async function applyCommit(
 ): Promise<RenamedDraft[]> {
     const by = await recordCommit(ctx, remote, applied.commit);
     const { renamedDrafts } = await importWorkspace(ctx, handle, files, { commit: applied.commit, by });
-    await markApplied(ctx, applied, warnings);
+    await markApplied(ctx, applied, warnings, renamedDrafts);
     await logReconcile(ctx, applied.commit, 'applied');
     return renamedDrafts;
 }

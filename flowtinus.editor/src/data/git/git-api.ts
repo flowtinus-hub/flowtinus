@@ -55,6 +55,8 @@ export type GitStatus =
           refused: (GitCommitView & { errors: TreeIssue[]; refusedAt: string }) | null;
           unreachable: { since: string; error: string } | null;
           warnings: TreeIssue[];
+          /** the draft-only flows the commit applied renamed "<name> (draft)" to take their names */
+          renamedDrafts: { id: string; from: string; to: string }[];
           lastPoll: LastPoll | null;
       };
 

@@ -307,6 +307,23 @@ describe("the reconcile applies the tip of the environment's branch", () => {
         expect(names[fromGit]).toBe('report');
     });
 
+    test('a draft renamed by the poll is kept with the commit applied: the status says so until the next commit applies', async () => {
+        const { id, call, ids, p, commit, flowNamed } = await newWorkspace();
+        const draftId = (await call('POST', `/projects/${ids.sales}/flows`, { name: 'Report' })).body.id as string;
+        const fromGit = crypto.randomUUID();
+        const sha = commit(files => ({ ...files, [p('projects/Sales/flows/Report.flow.yaml')]: repoFlowToYaml(logFlow(fromGit, 'git')) }));
+
+        await app.gitPoller.poll(id);
+        const status = (await call('GET', '/git/status')).body;
+        expect(status.deploy.sha).toBe(sha);
+        expect(status.renamedDrafts).toEqual([{ id: draftId, from: 'Report', to: 'Report (draft)' }]);
+        expect((await flowNamed('Report (draft)')).id).toBe(draftId);
+
+        commit(files => ({ ...files, [p('projects/Sales/flows/Other.flow.yaml')]: repoFlowToYaml(logFlow(crypto.randomUUID(), 'other')) }));
+        await app.gitPoller.poll(id);
+        expect((await call('GET', '/git/status')).body.renamedDrafts).toEqual([]);
+    });
+
     test('a workspace without git configuration has nothing to reconcile', async () => {
         const { call, reconcile } = await newWorkspace();
         expect((await call('DELETE', '/git')).status).toBe(200);
