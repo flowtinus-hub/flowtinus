@@ -135,6 +135,11 @@ describe('flowtinus validate', () => {
         expect((await validate(root)).output).toContain('acme/projects/Sales/flows/Extra.flow.yaml: error: Not valid YAML');
     });
 
+    test('in a subfolder of a git repository, the whole repository', async () => {
+        const root = repoWith(VALID);
+        expect(await validate(join(root, 'acme/projects'))).toEqual({ code: 0, output: 'No errors, no warnings.\n' });
+    });
+
     test('outside git, the whole folder but .git', async () => {
         const root = folderWith({ ...VALID, '.git/config': 'not a repository', 'acme/projects/Sales/flows/README.md': '# Sales\n' });
         expect((await validate(root)).output).toBe(

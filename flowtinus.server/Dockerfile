@@ -25,9 +25,8 @@ COPY flowtinus.server flowtinus.server
 # git sync runs the git binary on a private clone per workspace
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# the flowtinus command, on a mounted repository: docker run --rm -v "$PWD:/repo" -w /repo <image> flowtinus validate.
-# The mount belongs to another user than the image's, which git refuses unless the folder is a safe.directory: only for
-# this command, not for the server's own clones.
+# the flowtinus command on a mounted repository. The mount belongs to another user than the image's, which git refuses
+# unless the folder is a safe.directory: only for this command, not for the server's own clones.
 RUN printf '%s\n' '#!/bin/sh' \
     'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="*" exec bun /app/flowtinus.cli/src/bin.ts "$@"' \
     > /usr/local/bin/flowtinus && chmod +x /usr/local/bin/flowtinus

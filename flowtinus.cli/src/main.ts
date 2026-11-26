@@ -1,6 +1,6 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { USAGE_ERROR, usageError, type Command, type CommandResult } from './command';
+import { errorMessage, USAGE_ERROR, usageError, type Command, type CommandResult } from './command';
 
 const COMMANDS = join(import.meta.dir, 'commands');
 
@@ -24,6 +24,6 @@ export async function main(argv: string[], cwd: string): Promise<CommandResult> 
     try {
         return await run(args, cwd);
     } catch (e) {
-        return { code: 1, output: `${e instanceof Error ? e.message : String(e)}\n` };
+        return { code: 1, output: `${errorMessage(e)}\n` };
     }
 }
