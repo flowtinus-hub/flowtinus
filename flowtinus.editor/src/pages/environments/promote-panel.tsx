@@ -233,6 +233,12 @@ function RepairRow({ promote, promotion, into }: { promote: PromoteEdge; promoti
                     />
                 </span>
             )}
+            {repair?.warnings.map(warning => (
+                <span key={warning.kind} className="flex gap-2">
+                    <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                    <span>{emphasized(warning.message)}</span>
+                </span>
+            ))}
             {repair && (
                 <span className="text-xs text-muted-foreground">
                     Merge it with a merge commit: a squash or a rebase would not mend the history.
@@ -560,6 +566,8 @@ function OpenedView({ opened, targetBranch }: { opened: OpenedPromotion; targetB
 
 type Check = { kind: string; message: string };
 
+const emphasized = (text: string) => text.split(/\*\*(.+?)\*\*/).map((part, i) => (i % 2 ? <strong key={i}>{part}</strong> : part));
+
 function Checks({
     blocks,
     warnings,
@@ -597,7 +605,7 @@ function Checks({
                 <li key={warning.kind} className="flex gap-2">
                     <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
                     <span className="grid gap-1">
-                        {warning.message}
+                        <span>{emphasized(warning.message)}</span>
                         {warning.items.map(item => (
                             <span key={item} className="truncate text-xs text-muted-foreground" title={item}>
                                 {item}

@@ -171,7 +171,8 @@ export type Preflight = {
         issues?: TreeIssue[];
     }[];
     /** emergency-rollback: a flow it carries runs another version here, in an emergency rollback */
-    warnings: { kind: 'connections' | 'triggers' | 'drafts' | 'emergency-rollback'; message: string; items: string[] }[];
+    /** merge-method: the target allows squash or rebase merges, which break the lineage */
+    warnings: { kind: 'connections' | 'triggers' | 'drafts' | 'emergency-rollback' | 'merge-method'; message: string; items: string[] }[];
     open: Promotion[];
 };
 
@@ -192,7 +193,7 @@ export type BackportPreflight = {
         message: string;
         issues?: TreeIssue[];
     }[];
-    warnings: { kind: 'connections' | 'triggers' | 'ends-emergency-rollback'; message: string; items: string[] }[];
+    warnings: { kind: 'connections' | 'triggers' | 'ends-emergency-rollback' | 'merge-method'; message: string; items: string[] }[];
     open: Promotion[];
 };
 
@@ -215,7 +216,13 @@ export type MergeRequestLink = { number: number; url: string };
 
 export type OpenedMergeRequest = { mergeRequest?: MergeRequestLink; notice?: string };
 
-export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null } & OpenedMergeRequest;
+export type OpenedRepair = {
+    branch: string;
+    reused: boolean;
+    url: string | null;
+    provider: Provider | null;
+    warnings: { kind: 'merge-method'; message: string; items: string[] }[];
+} & OpenedMergeRequest;
 
 export const openRepair = (ws: string, promotion: string) =>
     api<OpenedRepair>(`/w/${ws}/git/promotions/${promotion}/repair`, { method: 'POST' });
@@ -449,7 +456,9 @@ export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(
 
 export type ProtectionWarning = { env: string; branch: string; message: string };
 
-export const getTopology = (ws: string) => api<{ topology: Topology; protection?: ProtectionWarning[] }>(`/w/${ws}/git/topology`);
+/** notices: what the repository does, or the token cannot see, read only here */
+export const getTopology = (ws: string) =>
+    api<{ topology: Topology; protection?: ProtectionWarning[]; notices?: string[] }>(`/w/${ws}/git/topology`);
 
 export const createTopology = (ws: string, environment: { label?: string; branch?: string }) =>
     api<{ topology: Topology }>(`/w/${ws}/git/topology`, { method: 'POST', body: { confirm: true, ...environment } });

@@ -13,7 +13,8 @@ export type OpenedMergeRequest = { mergeRequest?: MergeRequestLink; notice?: str
 export type CheckedChanges = {
     files?: FileChange[];
     flows?: FlowImpact[];
-    warnings?: { message: string; items?: string[] }[];
+    /** a 'merge-method' one opens the description, ahead of the notes */
+    warnings?: { kind?: string; message: string; items?: string[] }[];
     notes?: string[];
 };
 
@@ -131,8 +132,10 @@ const descriptionSection = (title: string, lines: string[]) => (lines.length > 0
 
 export async function mergeRequestDescription(ctx: UseCaseContext, checked: CheckedChanges): Promise<string> {
     const user = (await gitAuthorOf(ctx))?.name ?? ctx.userId;
+    const leading = (checked.warnings ?? []).filter(w => w.kind === 'merge-method').map(w => w.message);
+    const notes = [...leading, ...(checked.notes ?? [])];
     return [
-        ...(checked.notes?.length ? [...checked.notes, ''] : []),
+        ...(notes.length ? [...notes, ''] : []),
         ...descriptionSection(
             'Files',
             (checked.files ?? []).map(f => `- ${f.status} \`${f.path}\``),
@@ -143,7 +146,9 @@ export async function mergeRequestDescription(ctx: UseCaseContext, checked: Chec
         ),
         ...descriptionSection(
             'Warnings',
-            (checked.warnings ?? []).flatMap(w => [`- ${w.message}`, ...(w.items ?? []).map(item => `  - ${item}`)]),
+            (checked.warnings ?? [])
+                .filter(w => w.kind !== 'merge-method')
+                .flatMap(w => [`- ${w.message}`, ...(w.items ?? []).map(item => `  - ${item}`)]),
         ),
         `Opened from Flowtinus by ${user}.`,
     ].join('\n');

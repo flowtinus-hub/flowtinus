@@ -12,7 +12,7 @@ import { targetAhead } from './environments';
 import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
-import { mergeSettingsBlocks, type MergeSettingsBlock } from './merge-settings';
+import { mergeSettingsChecks, type MergeSettingsBlock } from './merge-settings';
 import { holdMerge, inScope, pendingMerge } from './pending-merge';
 import { arrivalWarnings, edgeLinks, edgeOut, fetchAndFollow, gitOff, invalidMerge, openAlong, type Edge, type PreflightWarning } from './promotion-edge';
 import { insertPromotion, toPromotion, type Promotion } from './promotion-state';
@@ -89,7 +89,9 @@ async function preflightOf(ctx: UseCaseContext, remote: GitRemote, config: GitCo
             const pushed = await remote.fetch(branch);
             return !pushed || (await remote.isAncestor(edge.sourceTip!, pushed));
         };
-        checked.blocks.push(...(await mergeSettingsBlocks(ctx, config, { branch: edge.source.branch, fastForward })));
+        const merging = await mergeSettingsChecks(ctx, config, { branch: edge.source.branch, fastForward });
+        checked.blocks.push(...merging.blocks);
+        checked.warnings.push(...merging.warnings);
     }
     const open = await openAlong(ctx, config, edge, { kind: 'backport', source: edge.target.env, target: edge.source.env });
     return { checked: { ...checked, open }, tree, flows };
