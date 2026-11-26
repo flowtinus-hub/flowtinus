@@ -47,7 +47,17 @@ export function GitSection({ handle, readOnly }: { handle: string; readOnly: boo
             </div>
             {saved.state.status === 'loading' && <p className="text-sm text-muted-foreground">Loading...</p>}
             {saved.state.status === 'error' && <p className="text-sm text-destructive">{saved.state.error.message}</p>}
-            {saved.state.status === 'ready' && (
+            {saved.state.status === 'ready' && saved.state.value.local && (
+                <p className="flex gap-1.5 rounded-lg border p-4 text-sm text-muted-foreground" role="status">
+                    <GitBranch className="mt-0.5 size-3.5 shrink-0" />
+                    <span>
+                        This is a local server: it reads the clone at{' '}
+                        <span className="font-mono">{saved.state.value.local.repository}</span>. Git is yours there: commit, push and switch
+                        branches with it.
+                    </span>
+                </p>
+            )}
+            {saved.state.status === 'ready' && !saved.state.value.local && (
                 <>
                     <GitForm
                         key={`form:${JSON.stringify(saved.state.value.config)}`}

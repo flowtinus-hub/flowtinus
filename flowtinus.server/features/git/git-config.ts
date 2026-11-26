@@ -29,11 +29,13 @@ export const DEFAULT_POLL_SECONDS = 60;
 export type GitOptions = {
     clonesDir: string;
     allowFileUrls: boolean;
+    localRepo?: string;
 };
 
 export const gitOptions = (environment: string, options: Partial<GitOptions> = {}): GitOptions => ({
     clonesDir: options.clonesDir ?? join(tmpdir(), 'flowtinus-git'),
     allowFileUrls: options.allowFileUrls ?? environment === 'DEV',
+    ...(options.localRepo ? { localRepo: options.localRepo } : {}),
 });
 
 function repositoryError(value: string, allowFileUrls: boolean): string | null {

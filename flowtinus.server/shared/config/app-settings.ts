@@ -1,3 +1,5 @@
+import { existsSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { LOG_FORMATS, LOG_LEVELS, type LogFormat, type ServerLogLevel } from '../logging/logger';
 import { parseKeys, type KeyEntry } from '../crypto/keyring';
 
@@ -21,6 +23,8 @@ export type AppSettings = {
     /** the keys that encrypt the secrets (SECRETS_KEYS, the last one encrypts); empty = DEV's fixed key, refused elsewhere */
     secretsKeys: KeyEntry[];
     gitClonesDir?: string;
+    /** LOCAL_REPO: the developer's clone a local server reads (environment LOCAL); unset on any other server */
+    localRepo?: string;
     logLevel: ServerLogLevel;
     logFormat: LogFormat;
 };
@@ -81,6 +85,21 @@ function oneOf<T extends string>(name: string, value: string | undefined, allowe
     return v as T;
 }
 
+export const LOCAL_ENVIRONMENT = 'LOCAL';
+
+function clone(name: string, value: string | undefined): string | undefined {
+    if (!value?.trim()) {
+        return undefined;
+    }
+
+    const path = resolve(value.trim());
+    if (!existsSync(path) || !statSync(path).isDirectory() || !existsSync(join(path, '.git'))) {
+        throw new AppSettingsError(`${name} must be the folder of a git clone, its .git included (got "${value}").`);
+    }
+
+    return path;
+}
+
 export const WORKER_COLORS: Record<string, string> = {
     red: '#ef4444',
     orange: '#f97316',
@@ -121,18 +140,22 @@ function color(name: string, value: string | undefined): string | undefined {
 }
 
 export function readAppSettings(env: Record<string, string | undefined> = process.env): AppSettings {
+    const localRepo = clone('LOCAL_REPO', env.LOCAL_REPO);
+    const environment = localRepo ? LOCAL_ENVIRONMENT : env.ENVIRONMENT?.trim() || 'DEV';
     return {
         databaseUrl: env.DATABASE_URL?.trim() || undefined,
-        environment: env.ENVIRONMENT?.trim() || 'DEV',
+        environment,
         port: integer('API_PORT', env.API_PORT, 5190, 1),
         workers: integer('WORKERS', env.WORKERS, 1, 1),
         workerTags: list(env.WORKER_TAGS, ['default']),
         workerColor: color('WORKER_COLOR', env.WORKER_COLOR),
         fireAndForgetPerWorker: integer('FIRE_AND_FORGET_PER_WORKER', env.FIRE_AND_FORGET_PER_WORKER, 4, 1),
         editorUrl:
-            url('EDITOR_URL', env.EDITOR_URL) ?? ((env.ENVIRONMENT?.trim() || 'DEV') === 'DEV' ? 'http://localhost:5180' : undefined),
+            url('EDITOR_URL', env.EDITOR_URL) ??
+            (environment === 'DEV' || environment === LOCAL_ENVIRONMENT ? 'http://localhost:5180' : undefined),
         secretsKeys: keys(env.SECRETS_KEYS),
         gitClonesDir: env.GIT_CLONES_DIR?.trim() || undefined,
+        localRepo,
         logLevel: oneOf('LOG_LEVEL', env.LOG_LEVEL, LOG_LEVELS, 'info'),
         logFormat: oneOf('LOG_FORMAT', env.LOG_FORMAT, LOG_FORMATS, 'pretty'),
     };
