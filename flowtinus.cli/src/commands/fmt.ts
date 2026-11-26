@@ -1,62 +1,43 @@
 import { writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { connectionFromYaml, connectionToYaml, hasComment, projectFromYaml, projectToYaml, repoEntry, repoFlowFromYaml, repoFlowToYaml, workspaceFromYaml, workspaceToYaml, type RepoFileResult } from '@flowtinus/core';
-import { parseCommandArgs, usageError, type Command } from '../command';
-import { readRepository } from '../repository';
+import { join } from 'node:path';
+import { hasComment, repoEntry, type RepoFileResult } from '@flowtinus/core';
+import { NO_WORKSPACE, plural, report, repositoryArgs, type Command } from '../command';
+import { isRepoFileKind, REPO_FILES } from '../repo-files';
 
-const USAGE = 'Usage: flowtinus fmt [dir] [--check]';
+const USAGE = "Usage: flowtinus fmt [dir] [--check]\n  dir: the repository's root, the current folder by default";
 
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
-
-const canonical = <T>(read: RepoFileResult<T>, write: (value: T) => string): RepoFileResult<string> =>
-    read.ok ? { ok: true, value: write(read.value) } : read;
-
-function canonicalForm(path: string, text: string, workspaces: string[]): RepoFileResult<string> | undefined {
+function formatted(path: string, text: string, workspaces: string[]): RepoFileResult<string> | undefined {
     const entry = repoEntry(path);
-    if (!('workspace' in entry) || !workspaces.includes(entry.workspace)) {
+    if (!isRepoFileKind(entry.kind) || !('workspace' in entry) || !workspaces.includes(entry.workspace)) {
         return undefined;
     }
-    switch (entry.kind) {
-        case 'workspace':
-            return canonical(workspaceFromYaml(text), workspaceToYaml);
-        case 'connection':
-            return canonical(connectionFromYaml(text), connectionToYaml);
-        case 'project':
-            return canonical(projectFromYaml(text), projectToYaml);
-        case 'flow':
-            return canonical(repoFlowFromYaml(text, entry.name), ({ flow, ...triggers }) => repoFlowToYaml(flow, triggers));
-        default:
-            return undefined;
-    }
+    return REPO_FILES[entry.kind].format(text, 'name' in entry ? entry.name : '');
 }
 
 export const run: Command = async (args, cwd) => {
-    const parsed = parseCommandArgs(args, { check: { type: 'boolean' } });
-    if ('error' in parsed) {
-        return usageError(parsed.error, USAGE);
-    }
-    if (parsed.positionals.length > 1) {
-        return usageError('fmt takes one folder at most.', USAGE);
+    const parsed = repositoryArgs('fmt', USAGE, args, cwd, { check: { type: 'boolean' } });
+    if (parsed.usage) {
+        return parsed.usage;
     }
     const check = parsed.values.check === true;
-    const { root, files, workspaces } = readRepository(resolve(cwd, parsed.positionals[0] ?? '.'));
+    const { root, files, workspaces } = parsed.repository;
     if (workspaces.length === 0) {
-        return { code: 1, output: '.: error: No workspace here: no folder with a workspace.yaml.\n' };
+        return { code: 1, output: `${NO_WORKSPACE.path}: error: ${NO_WORKSPACE.message}\n` };
     }
     const lines: string[] = [];
     let changed = 0;
-    let unread = 0;
+    let refused = 0;
     for (const [path, text] of Object.entries(files)) {
-        const formatted = canonicalForm(path, text, workspaces);
-        if (formatted === undefined) {
+        const result = formatted(path, text, workspaces);
+        if (result === undefined) {
             continue;
         }
-        if (!formatted.ok) {
-            unread++;
-            lines.push(...formatted.errors.map(message => `${path}: error: ${message}`));
+        if (!result.ok) {
+            refused++;
+            lines.push(...result.errors.map(message => `${path}: error: ${message}`));
             continue;
         }
-        if (formatted.value === text) {
+        if (result.value === text) {
             continue;
         }
         changed++;
@@ -66,14 +47,13 @@ export const run: Command = async (args, cwd) => {
             lines.push(`${path}: warning: ${comment}: a node's notes keep what a comment would.`);
         }
         if (!check) {
-            writeFileSync(join(root, path), formatted.value);
+            writeFileSync(join(root, path), result.value);
         }
     }
     const counts = [
-        ...(changed || !unread ? [`${plural(changed, 'file')} ${check ? 'not formatted' : 'formatted'}`] : []),
-        ...(unread ? [`${plural(unread, 'file')} not read`] : []),
+        ...(changed || !refused ? [`${plural(changed, 'file')} ${check ? 'not formatted' : 'formatted'}`] : []),
+        ...(refused ? [`${plural(refused, 'file')} not read`] : []),
     ];
-    const count = changed || unread ? `${counts.join(', ')}.` : 'No file to format.';
-    const failed = unread > 0 || (check && changed > 0);
-    return { code: failed ? 1 : 0, output: [...lines, count, ''].join('\n') };
+    const count = changed || refused ? `${counts.join(', ')}.` : 'No file to format.';
+    return report(refused > 0 || (check && changed > 0) ? 1 : 0, lines, count);
 };

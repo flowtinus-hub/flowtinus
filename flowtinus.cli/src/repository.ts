@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { repoEntry } from '@flowtinus/core';
 
 export type Repository = { root: string; files: Record<string, string>; workspaces: string[] };
@@ -9,25 +9,29 @@ function gitOutput(root: string, args: string[]): { ok: true; out: string } | { 
     return done.exitCode === 0 ? { ok: true, out: done.stdout.toString() } : { ok: false, err: done.stderr.toString().trim() };
 }
 
-function gitPaths(root: string): string[] | undefined {
-    const inside = gitOutput(root, ['rev-parse', '--is-inside-work-tree']);
-    if (!inside.ok) {
-        if (/not a git repository/i.test(inside.err)) {
+// a folder inside a git repository stands for the whole repository: its top level
+function gitTree(folder: string): { root: string; paths: string[] } | undefined {
+    const top = gitOutput(folder, ['rev-parse', '--show-toplevel']);
+    if (!top.ok) {
+        if (/not a git repository/i.test(top.err)) {
             return undefined;
         }
-        throw new Error(`git: ${inside.err}`);
+        throw new Error(`git: ${top.err}`);
     }
+    const root = resolve(top.out.trim());
     const listed = gitOutput(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']);
     if (!listed.ok) {
         throw new Error(`git: ${listed.err}`);
     }
-    return [...new Set(listed.out.split('\0').filter(Boolean))];
+    return { root, paths: [...new Set(listed.out.split('\0').filter(Boolean))] };
 }
+
+export const slashed = (path: string) => path.split(sep).join('/');
 
 const folderPaths = (root: string): string[] =>
     readdirSync(root, { recursive: true, withFileTypes: true })
         .filter(entry => entry.isFile())
-        .map(entry => relative(root, join(entry.parentPath, entry.name)).split(sep).join('/'))
+        .map(entry => slashed(relative(root, join(entry.parentPath, entry.name))))
         .filter(path => path !== '.git' && !path.startsWith('.git/'));
 
 const readText = (root: string, path: string): string | undefined => {
@@ -38,8 +42,9 @@ const readText = (root: string, path: string): string | undefined => {
     }
 };
 
-export function readRepository(root: string): Repository {
-    const paths = (gitPaths(root) ?? folderPaths(root)).sort();
+export function readRepository(folder: string): Repository {
+    const { root, paths } = gitTree(folder) ?? { root: folder, paths: folderPaths(folder) };
+    paths.sort();
     const files: Record<string, string> = {};
     for (const path of paths) {
         // a tracked file deleted from the working tree, or a submodule's folder

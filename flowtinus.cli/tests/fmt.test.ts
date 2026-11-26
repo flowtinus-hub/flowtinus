@@ -160,6 +160,16 @@ describe('flowtinus fmt', () => {
         );
     });
 
+    test('a file with an unknown key is left as it is and reported, as one its reader refuses', async () => {
+        const misspelt = 'descripton: x\nid: 00000000-0000-4000-8000-00000000b001\n';
+        const root = folderWith({ ...EXPORTED, 'acme/projects/Sales/project.yaml': misspelt });
+        expect(await fmt(root)).toEqual({
+            code: 1,
+            output: 'acme/projects/Sales/project.yaml: error: Unknown key "descripton".\n1 file not read.\n',
+        });
+        expect(contents(root)['acme/projects/Sales/project.yaml']).toBe(misspelt);
+    });
+
     test('each file where a comment was dropped is named', async () => {
         const commented = `# the warehouse\n${EXPORTED['acme/connections/Warehouse.yaml']}`;
         const flow = EXPORTED['acme/projects/Sales/flows/Load.flow.yaml'].replace('nodes:\n', 'nodes: # in order\n');

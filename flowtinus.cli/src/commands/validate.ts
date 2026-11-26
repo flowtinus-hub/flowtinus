@@ -1,35 +1,27 @@
-import { resolve } from 'node:path';
 import { validateWorkspaceTree, type TreeIssue } from '@flowtinus/core';
-import { parseCommandArgs, usageError, type Command } from '../command';
-import { readRepository } from '../repository';
+import { NO_WORKSPACE, plural, report, repositoryArgs, type Command } from '../command';
 
-const USAGE = 'Usage: flowtinus validate [dir] [--strict]';
-
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+const USAGE = "Usage: flowtinus validate [dir] [--strict]\n  dir: the repository's root, the current folder by default";
 
 // a repository-wide issue (a missing .gitattributes) comes from every workspace: once is enough
 const unique = (issues: TreeIssue[]) => [...new Map(issues.map(i => [`${i.path}\0${i.message}`, i])).values()];
 
 export const run: Command = async (args, cwd) => {
-    const parsed = parseCommandArgs(args, { strict: { type: 'boolean' } });
-    if ('error' in parsed) {
-        return usageError(parsed.error, USAGE);
+    const parsed = repositoryArgs('validate', USAGE, args, cwd, { strict: { type: 'boolean' } });
+    if (parsed.usage) {
+        return parsed.usage;
     }
-    if (parsed.positionals.length > 1) {
-        return usageError('validate takes one folder at most.', USAGE);
-    }
-    const { files, workspaces } = readRepository(resolve(cwd, parsed.positionals[0] ?? '.'));
+    const { files, workspaces } = parsed.repository;
     const results = workspaces.map(workspace => validateWorkspaceTree({ workspace, files }));
     const errors = unique(results.flatMap(r => r.errors));
     const warnings = unique(results.flatMap(r => r.warnings));
     if (workspaces.length === 0) {
-        errors.push({ path: '.', message: 'No workspace here: no folder with a workspace.yaml.' });
+        errors.push(NO_WORKSPACE);
     }
     const lines = [...errors.map(i => `${i.path}: error: ${i.message}`), ...warnings.map(i => `${i.path}: warning: ${i.message}`)];
     const count =
         errors.length || warnings.length
             ? `${plural(errors.length, 'error')}, ${plural(warnings.length, 'warning')}.`
             : 'No errors, no warnings.';
-    const failed = errors.length > 0 || (parsed.values.strict === true && warnings.length > 0);
-    return { code: failed ? 1 : 0, output: [...lines, count, ''].join('\n') };
+    return report(errors.length > 0 || (parsed.values.strict === true && warnings.length > 0) ? 1 : 0, lines, count);
 };

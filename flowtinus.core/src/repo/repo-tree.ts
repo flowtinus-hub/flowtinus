@@ -52,6 +52,9 @@ function unknownKeys(value: unknown, schema: Schema, at = ''): string[] {
     });
 }
 
+export const unknownKeyErrors = (text: string, schema: string): string[] =>
+    unknownKeys(yamlOf(text), schemaOf(schema)).map(key => `Unknown key "${key}".`);
+
 export function hasComment(text: string): boolean {
     const doc = parseDocument(text);
     let found = Boolean(doc.commentBefore || doc.comment);
@@ -74,7 +77,7 @@ export function validateWorkspaceTree({ workspace, files, environment, archivedP
             errors.push(...result.errors.map(message => ({ path, message })));
             return undefined;
         }
-        errors.push(...unknownKeys(yamlOf(files[path]!), schemaOf(schema)).map(key => ({ path, message: `Unknown key "${key}".` })));
+        errors.push(...unknownKeyErrors(files[path]!, schema).map(message => ({ path, message })));
         return result.value;
     };
 
