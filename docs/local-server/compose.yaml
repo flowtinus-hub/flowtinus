@@ -1,0 +1,65 @@
+# A local server on this clone: copy this file into the root of your flows repo and run `docker compose up -d` there.
+# What it does and does not do: docs/local-server/README.md in the Flowtinus repo.
+name: flowtinus-local
+
+# the image is built in the Flowtinus repo: docker compose --profile server build
+x-server: &server
+  image: ${FLOWTINUS_IMAGE:-flowtinus-server}
+  restart: unless-stopped
+  # the files it writes into the clone are yours on a Linux host: put UID and GID in a .env next to this file (id -u, id -g)
+  user: '${UID:-1000}:${GID:-1000}'
+  volumes:
+    - .:/repo
+  environment: &server-env
+    DATABASE_URL: postgres://flowtinus:flowtinus@postgres:5432/flowtinus
+    LOCAL_REPO: /repo
+    API_PORT: 5190
+    # empty: the fixed dev key
+    SECRETS_KEYS: ${SECRETS_KEYS:-}
+    WORKERS: ${WORKERS:-1}
+    # Docker Desktop shows the mount as another user's, which git refuses unless it is a safe.directory
+    GIT_CONFIG_COUNT: 1
+    GIT_CONFIG_KEY_0: safe.directory
+    GIT_CONFIG_VALUE_0: /repo
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flowtinus
+      POSTGRES_PASSWORD: flowtinus
+      POSTGRES_DB: flowtinus
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U flowtinus -d flowtinus']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    <<: *server
+    ports:
+      - '5190:5190'
+    healthcheck:
+      test: ['CMD', 'bun', '-e', "fetch('http://localhost:5190/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  supervisor:
+    <<: *server
+    command: ['bun', 'flowtinus.server/supervisor/main.ts']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      server:
+        condition: service_started
+
+volumes:
+  postgres:
