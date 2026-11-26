@@ -2,7 +2,7 @@ import { Check, ChevronsUpDown, Flame, GitBranch, GitBranchPlus, GitMerge, GitPu
 import { useEffect, useRef, useState } from 'react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { getCurrentBranch, GIT_STATUS_CHANGED, listBranches, opensIntoEnvironment, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type MergeRequestLink, type Mode } from '@/data/git/git-api';
+import { CHANGES_CHANGED, getCurrentBranch, GIT_STATUS_CHANGED, listBranches, opensIntoEnvironment, removedBranchText, setCurrentBranch, type BranchInfo, type BranchKind, type CurrentBranch, type MergeRequestLink, type Mode } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { cn } from '@/lib/utils';
@@ -98,15 +98,21 @@ export function BranchPicker({ handle }: { handle: string }) {
 
     useEffect(() => {
         let gone = false;
-        listedOnMount.current = handle;
-        void listBranches(handle).then(
-            result =>
-                !gone &&
-                result.ok &&
-                setBranches({ handle, list: result.value.branches, environment: result.value.environment, mode: result.value.mode }),
-        );
+        const list = () => {
+            listedOnMount.current = handle;
+            void listBranches(handle).then(
+                result =>
+                    !gone &&
+                    result.ok &&
+                    setBranches({ handle, list: result.value.branches, environment: result.value.environment, mode: result.value.mode }),
+            );
+        };
+        list();
+        const events = [CHANGES_CHANGED, GIT_STATUS_CHANGED];
+        events.forEach(event => window.addEventListener(event, list));
         return () => {
             gone = true;
+            events.forEach(event => window.removeEventListener(event, list));
         };
     }, [handle]);
 

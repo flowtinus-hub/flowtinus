@@ -272,6 +272,9 @@ export async function commitScripts(projectId: string, paths: string[], message:
     await flushScripts(projectId);
     const result = await api<{ commit: string }>(`/projects/${projectId}/scripts/commit`, { method: 'POST', body: { paths, message } });
     await reloadScripts(projectId);
+    if (result.ok) {
+        window.dispatchEvent(new Event(CHANGES_CHANGED));
+    }
     return result;
 }
 
@@ -281,6 +284,7 @@ export async function discardScript(projectId: string, path: string): Promise<Ap
     if (result.ok) {
         await loadScriptContent(projectId, path, true);
         await reloadScripts(projectId);
+        window.dispatchEvent(new Event(CHANGES_CHANGED));
     }
     return result;
 }
