@@ -571,7 +571,7 @@ function TurnOnPanel({
                     <CircleCheck className="size-4 text-emerald-600" />
                     {done
                         ? OUTCOMES[done.outcome](done.branch)
-                        : 'Git is on: every deploy and change of the workspace is a commit, pushed before it applies.'}
+                        : "Git is on: a change of the workspace waits in Changes until it is committed; a Commit is pushed before it applies, and what git's branch receives applies here."}
                 </p>
                 {done && <Issues tone="warn" issues={done.warnings} />}
             </div>
