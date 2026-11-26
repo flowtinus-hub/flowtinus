@@ -30,14 +30,12 @@ export type GitHubRepository = {
     allow_rebase_merge: boolean;
     delete_branch_on_merge: boolean;
     rulesets: GitHubRuleset[];
-    /** classic branch protection, by branch name */
     classic: Record<string, { enforce_admins: boolean }>;
     pullRequests: GitHubPullRequest[];
 };
 
 type Level = 'none' | 'read' | 'write';
 
-/** a classic token lists its scopes; a fine-grained one has permissions on the repositories it was given */
 export type GitHubToken =
     { kind: 'classic'; scopes: string[] } | { kind: 'fine-grained'; contents: Level; pullRequests: Level; administration: Level };
 
@@ -52,10 +50,10 @@ export type FakeGitHub = {
     refuse(method: string, path: RegExp, status: number, message?: unknown): () => void;
     close(path: string, number: number): void;
     merge(path: string, number: number): void;
-    /** a pull request from a fork owned by owner, with the same branch name as one of the repository's */
     fork(path: string, owner: string, branch: string, base: string): GitHubPullRequest;
     ruleset(path: string, ruleset: { branches: string[]; rules: GitHubRule[]; bypass?: GitHubBypass; name?: string }): number;
     protect(path: string, branch: string, options?: { enforceAdmins?: boolean }): void;
+    deniesProtectionWith(status: 403 | 404): () => void;
     route(handler: FakeRoute): void;
     stop(): Promise<void>;
 };
@@ -80,6 +78,7 @@ export function fakeGitHub(): FakeGitHub {
     const refusals: { method: string; path: RegExp; status: number; message: unknown }[] = [];
     let failing: number | null = null;
     let nextRuleset = 1;
+    let protectionDenied: 403 | 404 = 403;
     let origin = '';
 
     const repo = (path: string): GitHubRepository => {
@@ -234,7 +233,7 @@ export function fakeGitHub(): FakeGitHub {
         const protection = /^\/branches\/(.+)\/protection$/.exec(rest);
         if (method === 'GET' && protection) {
             if (token.kind === 'fine-grained' ? token.administration === 'none' : !token.scopes.includes('repo')) {
-                return json(NOT_ACCESSIBLE, 403);
+                return protectionDenied === 403 ? json(NOT_ACCESSIBLE, 403) : json({ message: 'Not Found', status: '404' }, 404);
             }
             const classic = r.classic[protection[1]!];
             return classic
@@ -346,6 +345,12 @@ export function fakeGitHub(): FakeGitHub {
         },
         protect: (path, branch, { enforceAdmins = true } = {}) => {
             repo(path).classic[branch] = { enforce_admins: enforceAdmins };
+        },
+        deniesProtectionWith: status => {
+            protectionDenied = status;
+            return () => {
+                protectionDenied = 403;
+            };
         },
         route: handler => void routes.push(handler),
         stop: () => server.stop(true),

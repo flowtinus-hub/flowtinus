@@ -11,29 +11,23 @@ export type FakePullRequest = {
     url: string;
 };
 
-/** extra: what the app sent besides the branches, the title and the description */
 export type SentPullRequest = { source: string; target: string; title: string; description: string; extra: Record<string, unknown> };
 
-/** the same pull request behavior on the fake GitLab and the fake GitHub, in the words of neither */
 export type FakeProvider = {
     provider: Provider;
     name: string;
     pullRequestName: string;
     origin: string;
     repository(path: string): string;
-    /** a token the adapter turns on with */
     allow(token: string): void;
-    /** a token that only reads and writes the repository: the adapter is off */
     gitOnly(token: string): void;
     pullRequests(path: string): FakePullRequest[];
     sent(path: string): SentPullRequest[];
-    /** the listings of pull requests the token asked for */
     listed(path: string, token: string): { target: string | undefined; state: string | undefined }[];
     askedForPullRequests(token: string): boolean;
     close(path: string, number: number): void;
     merge(path: string, number: number): void;
     openedAt(path: string, number: number, at: string): void;
-    /** opening answers status until restored */
     refuseOpening(status: number, message: string): () => void;
     byHand(path: string, token: string, source: string, target: string): Promise<{ number: number; url: string }>;
     newPullRequestLink(path: string, source: string, target: string): string;

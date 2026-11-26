@@ -4,7 +4,7 @@ import { ArrowRight, CircleCheck, CircleX, ExternalLink, GitBranch, GitMerge, Gi
 import { Button } from '@/components/ui/button';
 import { shortSha } from '@/data/deployments/deployment';
 import { useResource } from '@/data/use-resource';
-import { getBackportPreflight, getCommitGraph, getPreflight, openBackport, openPromotion, openRepair, promotionSha, PROVIDERS, setCurrentBranch, type BackportPreflight, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedBackport, type OpenedPromotion, type Preflight, type Promotion, type Provider } from '@/data/git/git-api';
+import { getBackportPreflight, getCommitGraph, getPreflight, getRepairPreflight, openBackport, openPromotion, openRepair, promotionSha, PROVIDERS, pullRequestNamed, setCurrentBranch, type BackportPreflight, type CommitGraph as Graph, type EnvironmentEdge, type FlowChange, type GraphCommit, type OpenedBackport, type OpenedPromotion, type Preflight, type Promotion, type Provider } from '@/data/git/git-api';
 import { landAfterSwitch } from '@/layout/branch-landing';
 import type { ApiResult } from '@/lib/api';
 import { plural } from '@/lib/plural';
@@ -70,7 +70,9 @@ function PullRequestLink({
                 <Button size={size} asChild>
                     <a href={url} target="_blank" rel="noreferrer">
                         <ExternalLink />
-                        {number ? `Open merge request !${number} on ${where}` : `Open the pull request on ${where}`}
+                        {number && provider
+                            ? `Open ${pullRequestNamed(provider, number)} on ${where}`
+                            : `Open the pull request on ${where}`}
                     </a>
                 </Button>
             ) : (
@@ -167,6 +169,7 @@ function BrokenLineage({ promote }: { promote: PromoteEdge }) {
                     until a repair is merged. The repair changes no file and deploys nothing.
                 </span>
             </p>
+            <RepairWarnings handle={promote.handle} into={targetBranch} />
             <ul className="grid gap-2">
                 {edge.broken.map(promotion => (
                     <RepairRow key={promotion.id} promote={promote} promotion={promotion} into={targetBranch} />
@@ -187,6 +190,7 @@ function BrokenBackports({ promote, broken }: { promote: PromoteEdge; broken: Pr
                     the commit. This blocks nothing; a repair mends the history. It changes no file and deploys nothing.
                 </span>
             </p>
+            <RepairWarnings handle={promote.handle} into={sourceBranch} />
             <ul className="grid gap-2">
                 {broken.map(promotion => (
                     <RepairRow key={promotion.id} promote={promote} promotion={promotion} into={sourceBranch} />
@@ -194,6 +198,17 @@ function BrokenBackports({ promote, broken }: { promote: PromoteEdge; broken: Pr
             </ul>
         </div>
     );
+}
+
+function RepairWarnings({ handle, into }: { handle: string; into: string }) {
+    const checked = useResource(`repair:${handle}:${into}`, () => getRepairPreflight(handle, into));
+    const warnings = checked.state.status === 'ready' ? checked.state.value.warnings : [];
+    return warnings.map(warning => (
+        <p key={warning.kind} className="flex gap-2">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+            <span>{emphasized(warning.message)}</span>
+        </p>
+    ));
 }
 
 function RepairRow({ promote, promotion, into }: { promote: PromoteEdge; promotion: Promotion; into: string }) {
@@ -233,12 +248,6 @@ function RepairRow({ promote, promotion, into }: { promote: PromoteEdge; promoti
                     />
                 </span>
             )}
-            {repair?.warnings.map(warning => (
-                <span key={warning.kind} className="flex gap-2">
-                    <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
-                    <span>{emphasized(warning.message)}</span>
-                </span>
-            ))}
             {repair && (
                 <span className="text-xs text-muted-foreground">
                     Merge it with a merge commit: a squash or a rebase would not mend the history.

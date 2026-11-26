@@ -14,10 +14,8 @@ export type NewPullRequest = {
     removeSourceBranch: boolean;
 };
 
-/** 'fast-forward' keeps the commit only when the target is an ancestor of it; 'rebase' writes new commits */
 export type MergeMethod = 'merge-commit' | 'fast-forward' | 'squash' | 'rebase';
 
-/** the provider's settings that leave a merge commit out: GitLab's project, then GitHub's repository and rulesets on the target */
 export type MergeLimit =
     | 'squash-forced'
     | 'fast-forward-only'
@@ -26,17 +24,17 @@ export type MergeLimit =
     | 'linear-history-required'
     | 'merge-commit-not-allowed-by-rule';
 
-/** methods: those a pull request into the target may use */
 export type MergeSettings = { methods: MergeMethod[]; limits: MergeLimit[] };
 
 export type AccessRule = 'nobody' | 'maintainers' | 'developers';
+
+export const OPENNESS: AccessRule[] = ['nobody', 'maintainers', 'developers'];
 
 /** unknown: protection the token may not read (GitHub's classic one), which gives no warning */
 export type BranchProtection = { branch: string; push: AccessRule | 'unknown' };
 
 export interface ProviderAdapter {
     readonly provider: Provider;
-    /** whether a new pull request can be kept from being squashed */
     readonly canTurnSquashOff: boolean;
     openPullRequest(request: NewPullRequest): Promise<ProviderPullRequest>;
     findOpenPullRequest(source: string, target: string): Promise<ProviderPullRequest | null>;
@@ -46,9 +44,8 @@ export interface ProviderAdapter {
     pullRequest(number: number): Promise<ProviderPullRequest>;
     /** null: the provider does not tell this token (GitHub, to a token that cannot write) */
     mergeSettings(target: string): Promise<MergeSettings | null>;
-    /** null: the provider does not tell this token, or removes the source branch per pull request (GitLab) */
-    deletesMergedBranches(): Promise<boolean | null>;
-    /** one per branch asked for, in that order */
+    /** absent on GitLab, which removes the source branch per merge request; null: the provider does not tell this token */
+    deletesMergedBranches?(): Promise<boolean | null>;
     branchProtections(branches: string[]): Promise<BranchProtection[]>;
 }
 

@@ -112,6 +112,7 @@ describe("GitHub's merge settings and rulesets block a promotion, a backport and
             backportPreflight: () => call('GET', '/git/backports/preflight?target=QA'),
             backport: () => call('POST', '/git/backports', { target: 'QA' }),
             repair: (id: string) => call('POST', `/git/promotions/${id}/repair`),
+            repairPreflight: (into: string) => call('GET', `/git/repairs/preflight?into=${into}`),
             bodies: () => github.repo(path).pullRequests.map(p => p.body),
         };
     }
@@ -196,10 +197,22 @@ describe("GitHub's merge settings and rulesets block a promotion, a backport and
         expect(bodies()[0]).not.toContain('squash');
     });
 
-    test('where squash or rebase is allowed, the promotion, backport and repair warn beside the checks, and their descriptions open with it', async () => {
-        const { repository, branchAt, addFile, squashInto, poll, preflight, promote, backportPreflight, backport, repair, bodies } =
-            await workspace();
-        const warning = { kind: 'merge-method', message: SQUASH_AND_REBASE, items: [] };
+    test('where squash or rebase is allowed, the promotion, backport and repair warn before opening, and their descriptions open with it', async () => {
+        const {
+            repository,
+            branchAt,
+            addFile,
+            squashInto,
+            poll,
+            preflight,
+            promote,
+            backportPreflight,
+            backport,
+            repair,
+            repairPreflight,
+            bodies,
+        } = await workspace();
+        const warning = { kind: 'squash-or-rebase', message: SQUASH_AND_REBASE, items: [] };
         branchAt('qa', 'dev');
         const sha = addFile('dev', 'a.txt');
         expect((await preflight(sha)).body.warnings).toEqual([warning]);
@@ -210,9 +223,8 @@ describe("GitHub's merge settings and rulesets block a promotion, a backport and
 
         expect((await backportPreflight()).body.warnings).toEqual([warning]);
         expect((await backport()).status).toBe(200);
-        const repaired = await repair(promoted.id);
-        expect(repaired.status).toBe(200);
-        expect(repaired.body.warnings).toEqual([warning]);
+        expect((await repairPreflight('qa')).body).toEqual({ warnings: [warning] });
+        expect((await repair(promoted.id)).status).toBe(200);
         expect(bodies()).toHaveLength(3);
         for (const body of bodies()) {
             expect(body).toStartWith(`${SQUASH_AND_REBASE}
@@ -254,13 +266,14 @@ describe("GitHub's merge settings and rulesets block a promotion, a backport and
     });
 
     test('settings the token cannot read block nothing and warn of nothing', async () => {
-        const { repository, branchAt, addFile, preflight, promote, bodies } = await workspace('reads');
+        const { repository, branchAt, addFile, preflight, repairPreflight, promote, bodies } = await workspace('reads');
         repository.allow_merge_commit = false;
         branchAt('qa', 'dev');
         const sha = addFile('dev', 'a.txt');
         const checked = (await preflight(sha)).body;
         expect(checked.blocks).toEqual([]);
         expect(checked.warnings).toEqual([]);
+        expect((await repairPreflight('qa')).body).toEqual({ warnings: [] });
         expect((await promote(sha)).status).toBe(200);
         expect(bodies()[0]).not.toContain(SQUASH_AND_REBASE);
     });

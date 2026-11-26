@@ -66,6 +66,18 @@ export type Provider = 'gitlab' | 'github';
 
 export const PROVIDERS: Record<Provider, string> = { gitlab: 'GitLab', github: 'GitHub' };
 
+const PULL_REQUESTS: Record<Provider, { name: string; sign: string }> = {
+    gitlab: { name: 'merge request', sign: '!' },
+    github: { name: 'pull request', sign: '#' },
+};
+
+export const pullRequestName = (provider: Provider) => PULL_REQUESTS[provider].name;
+
+export const pullRequestReference = (provider: Provider, number: number) => `${PULL_REQUESTS[provider].sign}${number}`;
+
+export const pullRequestNamed = (provider: Provider, number: number) =>
+    `${pullRequestName(provider)} ${pullRequestReference(provider, number)}`;
+
 export const promotionSha = (sha: string) => sha.slice(0, 12);
 
 export type EnvironmentCard = {
@@ -155,6 +167,8 @@ export type CommitGraph = {
 export const getCommitGraph = (ws: string, target: string, skip = 0) =>
     api<CommitGraph>(`/w/${ws}/git/promotions/graph?${new URLSearchParams({ target, skip: String(skip) })}`);
 
+export type CheckWarning<K extends string> = { kind: K; message: string; items: string[] };
+
 export type FlowChange = 'added' | 'removed' | 'renamed' | 'changed' | 'deployed' | 'undeployed';
 
 export type Preflight = {
@@ -171,8 +185,7 @@ export type Preflight = {
         issues?: TreeIssue[];
     }[];
     /** emergency-rollback: a flow it carries runs another version here, in an emergency rollback */
-    /** merge-method: the target allows squash or rebase merges, which break the lineage */
-    warnings: { kind: 'connections' | 'triggers' | 'drafts' | 'emergency-rollback' | 'merge-method'; message: string; items: string[] }[];
+    warnings: CheckWarning<'connections' | 'triggers' | 'drafts' | 'emergency-rollback' | 'squash-or-rebase'>[];
     open: Promotion[];
 };
 
@@ -193,7 +206,7 @@ export type BackportPreflight = {
         message: string;
         issues?: TreeIssue[];
     }[];
-    warnings: { kind: 'connections' | 'triggers' | 'ends-emergency-rollback' | 'merge-method'; message: string; items: string[] }[];
+    warnings: CheckWarning<'connections' | 'triggers' | 'ends-emergency-rollback' | 'squash-or-rebase'>[];
     open: Promotion[];
 };
 
@@ -216,13 +229,10 @@ export type MergeRequestLink = { number: number; url: string };
 
 export type OpenedMergeRequest = { mergeRequest?: MergeRequestLink; notice?: string };
 
-export type OpenedRepair = {
-    branch: string;
-    reused: boolean;
-    url: string | null;
-    provider: Provider | null;
-    warnings: { kind: 'merge-method'; message: string; items: string[] }[];
-} & OpenedMergeRequest;
+export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null } & OpenedMergeRequest;
+
+export const getRepairPreflight = (ws: string, into: string) =>
+    api<{ warnings: CheckWarning<'squash-or-rebase'>[] }>(`/w/${ws}/git/repairs/preflight?${new URLSearchParams({ into })}`);
 
 export const openRepair = (ws: string, promotion: string) =>
     api<OpenedRepair>(`/w/${ws}/git/promotions/${promotion}/repair`, { method: 'POST' });
@@ -260,9 +270,14 @@ export const removedBranchText = (lostTip?: boolean) =>
         : REMOVED_BRANCH;
 
 export const listBranches = (ws: string) =>
-    api<{ current: string | null; environment: string | null; mode: Mode; branches: BranchInfo[]; fetchedAt: string | null }>(
-        `/w/${ws}/git/branches`,
-    );
+    api<{
+        current: string | null;
+        environment: string | null;
+        mode: Mode;
+        branches: BranchInfo[];
+        fetchedAt: string | null;
+        provider?: Provider;
+    }>(`/w/${ws}/git/branches`);
 
 export type PullRequest = {
     branch: string;
@@ -456,7 +471,6 @@ export const testGitAccess = (ws: string, config: GitConfig) => api<AccessTest>(
 
 export type ProtectionWarning = { env: string; branch: string; message: string };
 
-/** notices: what the repository does, or the token cannot see, read only here */
 export const getTopology = (ws: string) =>
     api<{ topology: Topology; protection?: ProtectionWarning[]; notices?: string[] }>(`/w/${ws}/git/topology`);
 

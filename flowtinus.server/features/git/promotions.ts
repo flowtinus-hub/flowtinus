@@ -8,10 +8,10 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { validate } from '#shared/use-cases/validate';
 import { flowsIn, targetAhead } from './environments';
 import { shortSha } from './current-branch';
-import { gitAuthorOf, type GitConfig, type GitOptions } from './git-config';
+import { gitAuthorOf, readGitConfig, type GitConfig, type GitOptions } from './git-config';
 import { onWorkspaceRepository } from './git-handlers';
 import type { GitRemote } from './git-remote';
-import { mergeSettingsChecks, type MergeSettingsBlock, type MergeSettingsWarning } from './merge-settings';
+import { mergeSettingsBlocks, mergeSettingsInto, squashOrRebaseWarnings, type MergeSettingsBlock } from './merge-settings';
 import { adapterOf } from './adapter-status';
 import { mergeRequestDescription, openMergeRequest, pullRequestUrl, refusedBy, requestKeepingCommits, reuseOpenRow, type OpenedMergeRequest } from './merge-request';
 import { providerOf, pullRequestLink, type Provider } from './pull-request';
@@ -287,9 +287,9 @@ async function preflightOf(
     const targetTip = edge.targetTip;
     if (targetTip) {
         const fastForward = () => remote.isAncestor(targetTip, sha);
-        const merging = await mergeSettingsChecks(ctx, config, { branch: edge.target.branch, fastForward });
-        checked.blocks.push(...merging.blocks);
-        checked.warnings.push(...merging.warnings);
+        const into = await mergeSettingsInto(ctx, config, edge.target.branch);
+        checked.blocks.push(...(await mergeSettingsBlocks(into, fastForward)));
+        checked.warnings.push(...squashOrRebaseWarnings(into));
     }
     const open = await openAlong(ctx, config, edge, { kind: 'promotion', source: edge.source.env, target: edge.target.env });
     return success({ ...checked, open });
@@ -396,14 +396,28 @@ export class OpenPromotionHandler implements UseCaseHandler<OpenedPromotion> {
     }
 }
 
+export type RepairPreflight = { warnings: PreflightWarning[] };
+
+const RepairPreflightInput = z.object({ into: z.string().min(1, 'The branch the repair goes into') });
+
+export class GetRepairPreflightHandler implements UseCaseHandler<RepairPreflight> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<RepairPreflight>> {
+        const denied = requireRole(ctx, 'viewer') ?? (await gitOff(ctx));
+        if (denied) {
+            return denied;
+        }
+        const parsed = validate(RepairPreflightInput, input);
+        if (!parsed.ok) {
+            return parsed;
+        }
+        const config = await readGitConfig(ctx.db, ctx.workspaceId);
+        const merging = config ? await mergeSettingsInto(ctx, config, parsed.value.into) : null;
+        return success({ warnings: squashOrRebaseWarnings(merging) });
+    }
+}
+
 /** reused: the repair branch was already pushed with the promoted sha in it */
-export type OpenedRepair = {
-    branch: string;
-    reused: boolean;
-    url: string | null;
-    provider: Provider | null;
-    warnings: MergeSettingsWarning[];
-} & OpenedMergeRequest;
+export type OpenedRepair = { branch: string; reused: boolean; url: string | null; provider: Provider | null } & OpenedMergeRequest;
 
 const RepairInput = z.object({ id: z.uuid('Invalid') });
 
@@ -449,7 +463,8 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
                 );
             }
             const fastForward = async () => !pushed || (await remote.isAncestor(intoTip, pushed));
-            const { blocks, warnings } = await mergeSettingsChecks(ctx, config, { branch: into.branch, fastForward });
+            const merging = await mergeSettingsInto(ctx, config, into.branch);
+            const blocks = await mergeSettingsBlocks(merging, fastForward);
             if (blocks.length > 0) {
                 return refusedBy(blocks);
             }
@@ -472,12 +487,12 @@ export class OpenRepairHandler implements UseCaseHandler<OpenedRepair> {
                     title: `Repair the lineage of ${shortSha(row.sha)} into ${into.env}`,
                     description: await mergeRequestDescription(ctx, {
                         notes: [`A merge of ${row.sha} that keeps ${into.branch}'s tree: it changes no file.`],
-                        warnings,
+                        warnings: squashOrRebaseWarnings(merging),
                     }),
                 }),
             );
             const link = provider ? pullRequestLink(config.repository, provider, branch, into.branch) : null;
-            return success({ branch, reused: !!pushed, url: pullRequestUrl(opened, link), provider, warnings, ...opened });
+            return success({ branch, reused: !!pushed, url: pullRequestUrl(opened, link), provider, ...opened });
         });
     }
 }

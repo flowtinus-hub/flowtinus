@@ -8,6 +8,8 @@ import { commitAll, commitFiles, createBranch, git } from '../helpers/git-repos'
 import { Keyring } from '#shared/crypto/keyring';
 import { openDatabase, type Database } from '#shared/database/database';
 import { createApp } from '../../api/app';
+import { fakeGitHub, type FakeGitHub } from '../helpers/fake-github';
+import { fakeGitLab, type FakeGitLab } from '../helpers/fake-gitlab';
 
 setDefaultTimeout(120_000);
 
@@ -16,6 +18,8 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
     let app: ReturnType<typeof createApp>;
     let dir: string;
     let gitConfig: string;
+    let github: FakeGitHub;
+    let gitlab: FakeGitLab;
     const globalBefore = process.env.GIT_CONFIG_GLOBAL;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
@@ -71,6 +75,8 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
         await Bun.write(gitConfig, '');
         process.env.GIT_CONFIG_GLOBAL = gitConfig;
         app = createApp(db, 'DEV', keyring, undefined, { git: { clonesDir: join(dir, 'clones') } });
+        github = fakeGitHub();
+        gitlab = fakeGitLab();
     });
 
     afterAll(async () => {
@@ -79,12 +85,13 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
         } else {
             process.env.GIT_CONFIG_GLOBAL = globalBefore;
         }
+        await Promise.all([github.stop(), gitlab.stop()]);
         await db.close();
         await rm(dir, { recursive: true, force: true });
     });
 
     test('GitHub: a compare link from the work branch into the environment, on a direct or pull-request server only', async () => {
-        const { as, call, repo, handle, commitFlow, setMode } = await workspace('https://github.com/acme/flows.git');
+        const { as, call, repo, handle, commitFlow, setMode } = await workspace(github.repository('acme/flows'));
         const branch = `users/${await handle(ANA)}/labels`;
 
         const onDev = await call('POST', '/git/pull-request');
@@ -106,7 +113,7 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
             commits: 1,
             borrowed: [],
             provider: 'github',
-            url: `https://github.com/acme/flows/compare/dev...${branch}?expand=1`,
+            url: `${github.origin}/acme/flows/compare/dev...${branch}?expand=1`,
         });
 
         expect((await as(BIA)('PUT', '/git/current-branch', { branch })).status).toBe(200);
@@ -133,7 +140,7 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
     });
 
     test("GitLab: a new merge request link, which says what comes from another user's branch not yet merged", async () => {
-        const { as, call, handle, commitFlow } = await workspace('https://gitlab.com/acme/team/flows.git');
+        const { as, call, handle, commitFlow } = await workspace(gitlab.repository('acme/team/flows'));
         const anas = `users/${await handle(ANA)}/base`;
         expect((await call('POST', '/git/branches', { name: anas })).status).toBe(201);
         await commitFlow(ANA, 'Refunds');
@@ -154,7 +161,7 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
             commits: 2,
             borrowed: [{ branch: anas, commits: 1 }],
             provider: 'gitlab',
-            url: `https://gitlab.com/acme/team/flows/-/merge_requests/new?${query}`,
+            url: `${gitlab.origin}/acme/team/flows/-/merge_requests/new?${query}`,
         });
         expect(opened.body.url).toContain('merge_request%5Bsource_branch%5D=users%2F');
     });
@@ -191,7 +198,7 @@ describe('open a pull request: the branch is on the remote, and a link to the pr
     });
 
     test('a branch removed on the remote, or a remote behind, is pushed back; one moved ahead is left as it is', async () => {
-        const { call, repo, projectId, handle, commitFlow } = await workspace('https://github.com/acme/gone.git');
+        const { call, repo, projectId, handle, commitFlow } = await workspace(github.repository('acme/gone'));
         const branch = `users/${await handle(ANA)}/gone`;
         expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
         await commitFlow(ANA, 'Refunds');
