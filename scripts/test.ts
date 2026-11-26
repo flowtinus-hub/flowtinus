@@ -25,6 +25,7 @@ const SUITES: Suite[] = [
         args: ['--path-ignore-patterns=tests/containers/**', '--timeout=30000', ...(SHARDS > 1 ? [`--shard=${i + 1}/${SHARDS}`] : [])],
     })),
     { name: 'core', cwd: 'flowtinus.core', args: ['--timeout=30000'] },
+    { name: 'cli', cwd: 'flowtinus.cli', args: ['--timeout=30000'] },
     { name: 'editor', cwd: 'flowtinus.editor', args: [] },
     // the perf package's own code (its scenarios run with `bun run perf`, not here)
     { name: 'perf', cwd: 'flowtinus.perf', args: [] },

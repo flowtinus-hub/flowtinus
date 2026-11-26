@@ -11,6 +11,20 @@
         "prettier": "^3.9.10",
       },
     },
+    "flowtinus.cli": {
+      "name": "@flowtinus/cli",
+      "version": "0.1.0",
+      "bin": {
+        "flowtinus": "src/bin.ts",
+      },
+      "dependencies": {
+        "@flowtinus/core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.4.4",
+        "typescript": "~7.0.2",
+      },
+    },
     "flowtinus.core": {
       "name": "@flowtinus/core",
       "version": "0.1.0",
@@ -213,6 +227,8 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.9", "", { "dependencies": { "@floating-ui/dom": "^1.8.0" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-JDjEFGCpImxDCA7JJKviA0M9+RtmJdj0m/NVU5IMgBK+AmZouAQQ7/+2GLH0GXXY0YMw9oXPB8hKdbPYg5QLYg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
+
+    "@flowtinus/cli": ["@flowtinus/cli@workspace:flowtinus.cli"],
 
     "@flowtinus/core": ["@flowtinus/core@workspace:flowtinus.core"],
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { GITATTRIBUTES, connectionToYaml, projectToYaml, repoFlowToYaml, validateWorkspaceTree, workspaceToYaml, type FlowFile, type FlowFileNode } from '../../src/index';
+import { GITATTRIBUTES, connectionToYaml, isRepoId, projectToYaml, repoFlowToYaml, validateWorkspaceTree, workspaceToYaml, type FlowFile, type FlowFileNode } from '../../src/index';
 
 const at = (x: number) => ({ x, y: 0 });
 
@@ -136,6 +136,22 @@ describe('errors, which refuse the tree', () => {
                 message: 'The id "00000000-0000-4000-8000-00000000c001" is also in acme/connections/Warehouse.yaml.',
             },
         ]);
+    });
+
+    test('a flow, a project or a connection without an id gives a fresh one to paste, another on each validation', () => {
+        const pasted = () =>
+            errorsOf({
+                [NOTIFY_PATH]: repoFlowToYaml(NOTIFY).replace('id: 00000000-0000-4000-8000-00000000f002\n', ''),
+                'acme/projects/Sales/project.yaml': 'description: Sales\n',
+                'acme/connections/Warehouse.yaml': 'type: sqlserver\n',
+            })
+                .map(e => /^The (flow|project|connection) has no id: add one, such as "id: (.+)"\.$/.exec(e.message))
+                .filter(match => match !== null)
+                .map(([, kind, id]) => ({ kind, id: id! }));
+        const first = pasted();
+        expect(first.map(p => p.kind).sort()).toEqual(['connection', 'flow', 'project']);
+        expect(first.every(p => isRepoId(p.id))).toBe(true);
+        expect(new Set([...first, ...pasted()].map(p => p.id)).size).toBe(6);
     });
 
     test('an id that is not a UUID in lower case', () => {
@@ -413,6 +429,10 @@ describe('warnings, which do not refuse the tree', () => {
             nodes: withSince.nodes.map(n => (n.type === 'start' ? { ...n, config: { acceptsInput: true } } : n)),
         };
         expect(warningsOf({ [NOTIFY_PATH]: repoFlowToYaml(takesInput, { schedules: [{ ...EVERY_HOUR, input: { a: 1 } }] }) })).toEqual([]);
+    });
+
+    test('without a server (no environment), none of the warnings only a server can give', () => {
+        expect(validateWorkspaceTree({ workspace: W, files: validTree() })).toEqual({ errors: [], warnings: [] });
     });
 
     test('a file of the workspace that is not part of the format', () => {
