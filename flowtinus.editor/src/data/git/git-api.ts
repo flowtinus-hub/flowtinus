@@ -481,3 +481,19 @@ export const getTurnOnPlan = (ws: string) => api<TurnOnPlan>(`/w/${ws}/git/on`);
 
 export const turnGitOn = (ws: string, options: { createBranch?: boolean; choice?: 'git' | 'server' }) =>
     api<TurnOnResult>(`/w/${ws}/git/on`, { method: 'POST', body: options });
+
+/** uncommitted: archived by a Delete here not committed yet (a Discard brings it back), not by git */
+export type ArchivedConnection = {
+    id: string;
+    name: string;
+    type: string;
+    archivedAt: string;
+    archivedBy: string | null;
+    archivedByName?: string;
+    uncommitted: boolean;
+};
+
+export const listArchivedConnections = (ws: string) => api<{ items: ArchivedConnection[] }>(`/w/${ws}/git/archived-connections`);
+
+export const deleteArchivedConnection = (ws: string, id: string) =>
+    api<{ id: string }>(`/w/${ws}/git/archived-connections/${id}`, { method: 'DELETE' });

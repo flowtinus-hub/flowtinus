@@ -9,6 +9,7 @@ import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { getEnvironments, getGitStatus, GIT_STATUS_CHANGED, type EnvironmentCard, type EnvironmentEdge, type Environments, type FlowCell, type FlowRow, type GitStatus, type PromotionState } from '@/data/git/git-api';
 import { cn } from '@/lib/utils';
 import { WorkspacePage } from '@/pages/workspaces/workspace-page';
+import { ArchivedConnectionsPanel } from './archived-connections-panel';
 import { GitStatusPanel } from './git-status-panel';
 import { PromotePanel } from './promote-panel';
 
@@ -66,6 +67,7 @@ export function EnvironmentsPage() {
                                 onOpened={() => void environments.run(fresh())}
                             />
                             <RunsWhere value={value} />
+                            <ArchivedConnectionsPanel handle={handle} canDelete={isAdmin} />
                             <Activity value={value} />
                         </div>
                     )
