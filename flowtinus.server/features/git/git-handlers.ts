@@ -21,12 +21,23 @@ import { workspaceHandle } from '#features/folders/project-tree';
 import { providerAdapter } from './adapter-status';
 import { protectionWarningsWithNotices, type ProtectionWarning } from './branch-protection';
 import type { Provider } from './pull-request';
+import { localRepoOf } from './local-server';
 
 /** with git on, on a provider the app has an adapter for: whether it is on, and why not */
 export type AdapterView = { provider: Provider; on: boolean; notice?: string };
 
-/** hook (admins): the webhook's path on the server; lastPoll: the last fetch of the environment's branch, and why it could not reconcile */
-export type GitConfigView = { config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll; adapter?: AdapterView };
+/**
+ * hook (admins): the webhook's path on the server; lastPoll: the last fetch of the environment's branch, and why it could
+ * not reconcile; local: on a local server, the clone it reads (git is then neither on nor off: the developer's)
+ */
+export type GitConfigView = {
+    config: GitConfig | null;
+    on: boolean;
+    hook?: string;
+    lastPoll?: LastPoll;
+    adapter?: AdapterView;
+    local?: { repository: string };
+};
 
 async function adapterView(ctx: UseCaseContext, config: GitConfig): Promise<AdapterView | null> {
     const access = await gitAccess(ctx, config);
@@ -45,6 +56,11 @@ export class GetGitConfigHandler implements UseCaseHandler<GitConfigView> {
         const denied = requireRole(ctx, 'viewer');
         if (denied) {
             return denied;
+        }
+
+        const localRepo = localRepoOf(ctx.git);
+        if (localRepo) {
+            return success({ config: null, on: false, local: { repository: localRepo } });
         }
 
         const state = await readGitState(ctx.db, ctx.workspaceId);
