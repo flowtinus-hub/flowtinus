@@ -139,7 +139,11 @@ export async function gitAccess(ctx: UseCaseContext, config: GitConfig): Promise
     }
 
     try {
-        return success({ repository: config.repository, token: await ctx.keyring.decrypt(secret, secret.id, secret.name) });
+        return success({
+            repository: config.repository,
+            token: await ctx.keyring.decrypt(secret, secret.id, secret.name),
+            allowFileUrls: ctx.git?.allowFileUrls ?? false,
+        });
     } catch (e) {
         return fail('unavailable', `The token in the secret ${secret.name} cannot be decrypted: ${(e as Error).message}`);
     }

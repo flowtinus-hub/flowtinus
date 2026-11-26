@@ -90,6 +90,23 @@ describe("a workspace's git configuration", () => {
         expect((await call('GET', '/git')).body).toEqual({ config: null, on: false });
     });
 
+    test('git reaches a file: repository only on a server that allows file URLs, whatever was saved before', async () => {
+        const { id, call } = await newWorkspace();
+        const repo = await newRepo(`${id}-file.git`);
+        expect((await call('PUT', '/git', { repository: repo.url, tokenSecret: 'git-token', environment: 'DEV' })).status).toBe(200);
+        const strict = createApp(db, 'QA', keyring, undefined, { git: { clonesDir: join(dir, 'clones-strict') } });
+        const topology = await strict.request(wsPath(id, '/git/topology'), {
+            method: 'POST',
+            headers: { 'x-user-id': ANA, 'content-type': 'application/json' },
+            body: JSON.stringify({ confirm: true }),
+        });
+        const refused = (await topology.json()) as any;
+        expect([topology.status, refused.error.message]).toEqual([502, "The repository answered: fatal: transport 'file' not allowed"]);
+        expect(git(repo.path, 'branch', '--list')).toBe('');
+
+        expect((await call('POST', '/git/topology', { confirm: true })).status).toBe(201);
+    });
+
     test('the access test, before saving: reads, pushes and deletes a throwaway branch, and says it does not prove a branch is protected', async () => {
         const { call } = await newWorkspace();
         const repo = await newRepo('tested.git');
