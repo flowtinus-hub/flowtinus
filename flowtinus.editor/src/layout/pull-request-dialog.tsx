@@ -49,8 +49,10 @@ export function PullRequestDialog({
 
     useEffect(() => {
         gone.current = false;
+        // per run, not the shared ref: a run cleaned up and run again (StrictMode) would otherwise open it twice
+        let cancelled = false;
         void getGitConfig(handle).then(answer => {
-            if (gone.current) {
+            if (cancelled) {
                 return;
             }
             const on = answer.ok && !!answer.value.adapter?.on;
@@ -60,6 +62,7 @@ export function PullRequestDialog({
             }
         });
         return () => {
+            cancelled = true;
             gone.current = true;
         };
     }, [handle, open]);
