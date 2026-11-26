@@ -1,13 +1,13 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { adapterOf } from './adapter-status';
 import type { GitConfig } from './git-config';
-import { PROVIDER_NAME, unlessProviderFails, type MergeSettings } from './provider-adapter';
+import { PROVIDER_NAME, unlessProviderFails, type MergeLimit, type MergeSettings } from './provider-adapter';
 
 export type MergeSettingsBlock = { kind: 'squash' | 'merge-method'; message: string };
 
-const METHOD: Record<Exclude<MergeSettings['mergeMethod'], 'merge'>, string> = {
-    'fast-forward': 'only by fast-forward',
-    'semi-linear': 'only with a semi-linear history',
+const FAST_FORWARD_ONLY: Record<Exclude<MergeLimit, 'squash-forced'>, string> = {
+    'fast-forward-only': 'only by fast-forward',
+    'semi-linear-only': 'only with a semi-linear history',
 };
 
 /** fastForward: whether the target branch is already an ancestor of the commit the pull request brings */
@@ -17,21 +17,27 @@ export async function mergeSettingsBlocks(
     target: { branch: string; fastForward: () => Promise<boolean> },
 ): Promise<MergeSettingsBlock[]> {
     const adapter = await adapterOf(ctx, config);
-    const settings = adapter && (await unlessProviderFails<MergeSettings | null>(adapter.mergeSettings(), null));
-    if (!adapter || !settings) {
+    const settings = adapter && (await unlessProviderFails<MergeSettings | null>(adapter.mergeSettings(target.branch), null));
+    if (!adapter || !settings || settings.methods.includes('merge-commit')) {
+        return [];
+    }
+    let fastForward: boolean | undefined;
+    const canFastForward = async () => (fastForward ??= await target.fastForward());
+    if (settings.methods.includes('fast-forward') && (await canFastForward())) {
         return [];
     }
 
     const name = PROVIDER_NAME[adapter.provider];
     const blocks: MergeSettingsBlock[] = [];
-    if (settings.squash === 'always') {
-        blocks.push({ kind: 'squash', message: `This ${name} project forces squash: turn it off in the project's merge settings.` });
-    }
-    if (settings.mergeMethod !== 'merge' && !(await target.fastForward())) {
-        blocks.push({
-            kind: 'merge-method',
-            message: `This ${name} project merges ${METHOD[settings.mergeMethod]}, and ${target.branch} cannot be fast-forwarded now: set the merge method to "Merge commit" in the project's merge settings.`,
-        });
+    for (const limit of settings.limits) {
+        if (limit === 'squash-forced') {
+            blocks.push({ kind: 'squash', message: `This ${name} project forces squash: turn it off in the project's merge settings.` });
+        } else if (!(await canFastForward())) {
+            blocks.push({
+                kind: 'merge-method',
+                message: `This ${name} project merges ${FAST_FORWARD_ONLY[limit]}, and ${target.branch} cannot be fast-forwarded now: set the merge method to "Merge commit" in the project's merge settings.`,
+            });
+        }
     }
     return blocks;
 }
