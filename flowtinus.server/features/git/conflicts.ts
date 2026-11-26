@@ -105,6 +105,42 @@ export async function mergeSegments(mine: string, base: string, theirs: string):
 
 const hunksOf = (segments: Segment[]) => segments.flatMap(s => ('hunk' in s ? [s.hunk] : []));
 
+const TOP_KEY = /^[A-Za-z_][\w-]*:\s*$/;
+
+// a side made of whole top-level blocks ("schedules:" and its items), by key; null when it is not
+function topBlocks(lines: string[]): Map<string, string[]> | null {
+    if (lines.length === 0 || !TOP_KEY.test(lines[0]!)) {
+        return null;
+    }
+    const blocks = new Map<string, string[]>();
+    let current: string[] = [];
+    for (const line of lines) {
+        if (TOP_KEY.test(line)) {
+            if (blocks.has(line.trim())) {
+                return null;
+            }
+            current = [];
+            blocks.set(line.trim(), current);
+        } else if (/^\S/.test(line)) {
+            return null;
+        } else {
+            current.push(line);
+        }
+    }
+    return blocks;
+}
+
+// both sides opened the same list (each added the first schedule, say): one key with the items of both, not the key twice
+function bothSides(hunk: Hunk): string[] {
+    const mine = topBlocks(hunk.mine);
+    const theirs = topBlocks(hunk.theirs);
+    if (!mine || !theirs || ![...mine.keys()].some(key => theirs.has(key))) {
+        return [...hunk.mine, ...hunk.theirs];
+    }
+    const keys = [...new Set([...mine.keys(), ...theirs.keys()])];
+    return keys.flatMap(key => [key, ...(mine.get(key) ?? []), ...(theirs.get(key) ?? [])]);
+}
+
 export function joinSegments(segments: Segment[], choices: HunkChoice[], newline: boolean): string | null {
     const lines: string[] = [];
     let i = 0;
@@ -117,10 +153,13 @@ export function joinSegments(segments: Segment[], choices: HunkChoice[], newline
         if (choice === undefined) {
             return null;
         }
-        if (choice === 'mine' || choice === 'both') {
+        if (choice === 'both') {
+            lines.push(...bothSides(segment.hunk));
+        }
+        if (choice === 'mine') {
             lines.push(...segment.hunk.mine);
         }
-        if (choice === 'theirs' || choice === 'both') {
+        if (choice === 'theirs') {
             lines.push(...segment.hunk.theirs);
         }
         if (typeof choice === 'object' && choice.edit !== '') {

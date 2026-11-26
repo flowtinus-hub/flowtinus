@@ -248,6 +248,57 @@ describe('the conflict screen: a marked file resolved per hunk, or by a choice w
         expect(raw(repo, 'dev', path)).toContain(theirsId);
     });
 
+    for (const trigger of ['schedules', 'webhooks'] as const) {
+        test(`both added the first of the flow's ${trigger}: Both keeps one list with the two`, async () => {
+            const { call, orders, ordersPath, userHandle, conflict, push, poll } = await workspace();
+            const branch = `users/${userHandle}/${trigger}`;
+            expect((await call('POST', '/git/branches', { name: branch })).status).toBe(201);
+            const mine =
+                trigger === 'schedules'
+                    ? await call('POST', `/flows/${orders}/triggers/schedules`, { cron: '0 6 * * *', timezone: 'UTC' })
+                    : await call('POST', `/flows/${orders}/triggers/webhooks`, { name: 'Mine' });
+            expect(mine.status).toBe(201);
+            const theirsId = crypto.randomUUID();
+            push(branch, files => {
+                const read = repoFlowFromYaml(files[ordersPath]!, 'Orders');
+                if (!read.ok) {
+                    throw new Error('Orders does not read');
+                }
+                const added =
+                    trigger === 'schedules'
+                        ? { schedules: [{ id: theirsId, cron: '0 7 * * *', timezone: 'UTC', misfire: 'relaxed' as const, parameters: {} }] }
+                        : { webhooks: [{ id: theirsId, name: 'Theirs', response: 'async' as const }] };
+                return { ...files, [ordersPath]: repoFlowToYaml(read.value.flow, { ...read.value, ...added }) };
+            });
+            await poll();
+
+            const read = await conflict(ordersPath);
+            expect(read.body.conflict.type).toBe('content');
+            const found = hunks(read.body.conflict.segments);
+            expect(found.length).toBeGreaterThan(0);
+            const resolved = await call('POST', '/git/conflict', {
+                path: ordersPath,
+                revision: read.body.revision,
+                hunks: found.map(() => 'both'),
+            });
+            expect(resolved.status).toBe(200);
+            const listed = (await call('GET', `/flows/${orders}/triggers`)).body[trigger] as { id: string }[];
+            expect(listed.map(t => t.id).sort()).toEqual([mine.body.id, theirsId].sort());
+            const whole =
+                trigger === 'schedules'
+                    ? [
+                          { id: mine.body.id, cron: '0 6 * * *', timezone: 'UTC' },
+                          { id: theirsId, cron: '0 7 * * *', timezone: 'UTC' },
+                      ]
+                    : [
+                          { id: mine.body.id, name: 'Mine', response: 'async' },
+                          { id: theirsId, name: 'Theirs', response: 'async' },
+                      ];
+            expect(listed).toMatchObject(whole.sort((a, b) => listed.findIndex(t => t.id === a.id) - listed.findIndex(t => t.id === b.id)));
+            expect((await commitAll(call, `Both ${trigger}`)).status).toBe(200);
+        });
+    }
+
     test('both added a flow at the same path with different ids, met by an Update: one is renamed, and the merge commits both', async () => {
         const { call, repo, at, orders, ordersPath, userHandle, changes, conflict, push, inGit } = await workspace();
         const branch = `users/${userHandle}/refunds`;
