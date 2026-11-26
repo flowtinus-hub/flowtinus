@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { ANA, insertWorkspace, wsPath } from '../helpers/workspaces';
 import { commitFiles, createBranch, git } from '../helpers/git-repos';
 import { fakeGitLab, type FakeGitLab } from '../helpers/fake-gitlab';
+import { fakeGitHub, type FakeGitHub } from '../helpers/fake-github';
 import { gitOptions } from '#features/git/git-config';
 import { GitPoller } from '#features/git/git-poller';
 import { Keyring } from '#shared/crypto/keyring';
@@ -37,16 +38,20 @@ const GIT_SCOPES = ['read_repository', 'write_repository'];
 const PROD_OPEN = 'Production is protected in the topology, but developers may push to main on GitLab.';
 const DEV_REFUSES = 'Development is direct in the topology, but GitLab refuses pushes to dev.';
 
-describe("the branches' protection on GitLab, where it disagrees with the topology's modes, shows as a warning", () => {
+const PROD_OPEN_ON_GITHUB = 'Production is protected in the topology, but developers may push to main on GitHub.';
+const DEV_REFUSES_ON_GITHUB = 'Development is direct in the topology, but GitHub refuses pushes to dev.';
+
+describe("the branches' protection on GitLab or GitHub, where it disagrees with the topology's modes, shows as a warning", () => {
     let db: Database;
     let app: ReturnType<typeof createApp>;
     let dir: string;
     let gitConfig: string;
     let gitlab: FakeGitLab;
+    let github: FakeGitHub;
     const globalBefore = process.env.GIT_CONFIG_GLOBAL;
     const keyring = new Keyring([{ version: 't', key: new Uint8Array(32).fill(7) }]);
 
-    async function workspace(scopes = ['api', ...GIT_SCOPES]) {
+    async function workspace(scopes = ['api', ...GIT_SCOPES], on?: { github: 'classic' | 'fine-grained' }) {
         const id = crypto.randomUUID();
         await insertWorkspace(db, id);
         const call = async (method: string, path: string, body?: unknown) => {
@@ -61,9 +66,15 @@ describe("the branches' protection on GitLab, where it disagrees with the topolo
         git(dir, 'init', '--bare', '--quiet', '--initial-branch=main', repo);
         createBranch(repo, 'dev');
         const path = `omc/${id}`;
-        const repository = gitlab.repository(path);
+        const repository = on ? github.repository(path) : gitlab.repository(path);
         git(dir, 'config', '--file', gitConfig, '--add', `url.${pathToFileURL(repo).href}.insteadOf`, repository);
-        gitlab.token(id, scopes);
+        if (!on) {
+            gitlab.token(id, scopes);
+        } else if (on.github === 'classic') {
+            github.classic(id, ['repo']);
+        } else {
+            github.fineGrained(id);
+        }
         await call('POST', '/secrets', { name: 'git-token', value: id });
         expect((await call('PUT', '/git', { repository, tokenSecret: 'git-token', environment: 'DEV' })).status).toBe(200);
         expect((await call('POST', '/git/topology', { confirm: true })).status).toBe(201);
@@ -91,6 +102,7 @@ describe("the branches' protection on GitLab, where it disagrees with the topolo
         await Bun.write(gitConfig, '');
         process.env.GIT_CONFIG_GLOBAL = gitConfig;
         gitlab = fakeGitLab();
+        github = fakeGitHub();
         app = createApp(db, 'DEV', keyring, undefined, { git: { clonesDir: join(dir, 'clones') } });
     });
 
@@ -101,6 +113,7 @@ describe("the branches' protection on GitLab, where it disagrees with the topolo
             process.env.GIT_CONFIG_GLOBAL = globalBefore;
         }
         await gitlab.stop();
+        await github.stop();
         await db.close();
         await rm(dir, { recursive: true, force: true });
     });
@@ -160,5 +173,35 @@ describe("the branches' protection on GitLab, where it disagrees with the topolo
         const poller = new GitPoller(db, gitOptions('DEV', { clonesDir: join(dir, 'clones') }), keyring);
         await poller.tick();
         expect(protectionReads()).toBe(0);
+    });
+
+    test("on GitHub, a ruleset on an environment's branch that disagrees with its mode warns, unless the token may bypass it", async () => {
+        const { path, warnings } = await workspace(undefined, { github: 'classic' });
+        expect(await warnings()).toEqual({
+            section: [{ env: 'PROD', branch: 'main', message: PROD_OPEN_ON_GITHUB }],
+            cards: { PROD: PROD_OPEN_ON_GITHUB },
+        });
+
+        github.ruleset(path, { branches: ['main'], rules: [{ type: 'pull_request', parameters: { allowed_merge_methods: ['merge'] } }] });
+        github.ruleset(path, { branches: ['dev'], rules: [{ type: 'update' }] });
+        expect(await warnings()).toEqual({
+            section: [{ env: 'DEV', branch: 'dev', message: DEV_REFUSES_ON_GITHUB }],
+            cards: { DEV: DEV_REFUSES_ON_GITHUB },
+        });
+
+        github.repo(path).rulesets.find(r => r.branches.includes('dev'))!.bypass = 'always';
+        expect(await warnings()).toEqual({ section: [], cards: {} });
+    });
+
+    test('on GitHub, classic protection the token cannot read is unknown and warns of nothing; read by an admin, it counts', async () => {
+        const fine = await workspace(undefined, { github: 'fine-grained' });
+        github.protect(fine.path, 'main');
+        github.protect(fine.path, 'dev');
+        expect(await fine.warnings()).toEqual({ section: [], cards: {} });
+
+        const admin = await workspace(undefined, { github: 'classic' });
+        github.protect(admin.path, 'main', { enforceAdmins: true });
+        github.protect(admin.path, 'dev', { enforceAdmins: true });
+        expect((await admin.warnings()).cards).toEqual({ DEV: DEV_REFUSES_ON_GITHUB });
     });
 });

@@ -77,24 +77,49 @@ describe("the GitLab adapter: what it asks GitLab's API, and what it makes of th
         expect((await gl.pullRequest(3)).state).toBe('merged');
     });
 
-    test("reads the project's merge settings and the branches' protection", async () => {
+    test('lists the pull requests into a branch opened after a date, in every state, by asking GitLab for those only', async () => {
+        const gl = await adapter('omc/since');
+        await gl.openPullRequest({ source: 'a', target: 'qa', title: 'a', description: '', removeSourceBranch: true });
+        await gl.openPullRequest({ source: 'b', target: 'qa', title: 'b', description: '', removeSourceBranch: true });
+        gitlab.project('omc/since').mergeRequests[0]!.created_at = '2026-11-01T00:00:00.000Z';
+        gitlab.close('omc/since', 2);
+
+        const listed = await gl.pullRequestsInto('qa', new Date('2026-11-10T00:00:00.000Z'));
+        expect(listed.map(p => [p.number, p.state])).toEqual([[2, 'closed']]);
+        expect(gitlab.requests.at(-1)!.query).toMatchObject({ target_branch: 'qa', created_after: '2026-11-10T00:00:00.000Z' });
+    });
+
+    test("reads the project's merge settings as the methods allowed into a target, and says it can turn squash off", async () => {
         const gl = await adapter('omc/settings');
-        expect(await gl.mergeSettings()).toEqual({ squash: 'optional', mergeMethod: 'merge' });
+        expect(gl.canTurnSquashOff).toBe(true);
+        expect(await gl.mergeSettings('qa')).toEqual({ methods: ['merge-commit', 'squash'], limits: [] });
 
         const project = gitlab.project('omc/settings');
         project.squash_option = 'always';
         project.merge_method = 'ff';
-        expect(await gl.mergeSettings()).toEqual({ squash: 'always', mergeMethod: 'fast-forward' });
+        expect(await gl.mergeSettings('qa')).toEqual({ methods: ['squash'], limits: ['squash-forced', 'fast-forward-only'] });
         project.squash_option = 'never';
         project.merge_method = 'rebase_merge';
-        expect(await gl.mergeSettings()).toEqual({ squash: 'never', mergeMethod: 'semi-linear' });
+        expect(await gl.mergeSettings('qa')).toEqual({ methods: ['fast-forward'], limits: ['semi-linear-only'] });
+        project.squash_option = 'always';
+        project.merge_method = 'merge';
+        expect(await gl.mergeSettings('qa')).toEqual({ methods: ['squash'], limits: ['squash-forced'] });
+    });
 
-        expect(await gl.branchProtections()).toEqual([]);
-        gitlab.protect('omc/settings', 'main', { push: 0, merge: 40 });
-        gitlab.protect('omc/settings', 'dev', { push: 30, merge: 30 });
-        expect(await gl.branchProtections()).toEqual([
+    test("answers the protection of the branches asked for, matching the project's patterns, the most permissive one winning", async () => {
+        const gl = await adapter('omc/protection');
+        const branches = ['main', 'dev', 'qa', 'release/1'];
+        expect(await gl.branchProtections(branches)).toEqual(branches.map(branch => ({ branch, push: 'developers' })));
+
+        gitlab.protect('omc/protection', 'main', { push: 0, merge: 40 });
+        gitlab.protect('omc/protection', 'dev', { push: 30, merge: 30 });
+        gitlab.protect('omc/protection', 'release/*', { push: 40 });
+        gitlab.protect('omc/protection', 'release/1', { push: 0 });
+        expect(await gl.branchProtections(branches)).toEqual([
             { branch: 'main', push: 'nobody' },
             { branch: 'dev', push: 'developers' },
+            { branch: 'qa', push: 'developers' },
+            { branch: 'release/1', push: 'maintainers' },
         ]);
     });
 
@@ -106,13 +131,13 @@ describe("the GitLab adapter: what it asks GitLab's API, and what it makes of th
         await expect(duplicate).rejects.toMatchObject({ status: 409, message: expect.stringContaining('!1') });
 
         const restore = gitlab.refuse('GET', /\/protected_branches$/, 403, { message: '403 Forbidden' });
-        await expect(gl.branchProtections()).rejects.toMatchObject({ status: 403, message: '403 Forbidden' });
+        await expect(gl.branchProtections(['main'])).rejects.toMatchObject({ status: 403, message: '403 Forbidden' });
         restore();
-        expect(await gl.branchProtections()).toEqual([]);
+        expect(await gl.branchProtections(['main'])).toEqual([{ branch: 'main', push: 'developers' }]);
 
         gitlab.fail(502);
         try {
-            await expect(gl.mergeSettings()).rejects.toMatchObject({ status: 502 });
+            await expect(gl.mergeSettings('qa')).rejects.toMatchObject({ status: 502 });
         } finally {
             gitlab.fail(null);
         }
@@ -124,7 +149,7 @@ describe("the GitLab adapter: what it asks GitLab's API, and what it makes of th
             expect(await providerAdapter({ repository: gitlab.repository('omc/off'), token })).toEqual({
                 provider: 'gitlab',
                 adapter: null,
-                notice: API_NOTICE,
+                notice: API_NOTICE.gitlab,
             });
         }
 

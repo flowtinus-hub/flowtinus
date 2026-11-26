@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getGitConfig, GIT_STATUS_CHANGED, openPullRequest, PROVIDERS, type PullRequest } from '@/data/git/git-api';
+import { getGitConfig, GIT_STATUS_CHANGED, openPullRequest, PROVIDERS, pullRequestName, pullRequestNamed, type Provider, type PullRequest } from '@/data/git/git-api';
 import { plural } from '@/lib/plural';
 
 function titleFrom(branch: string): string {
@@ -26,7 +26,7 @@ export function PullRequestDialog({
     uncommitted: number;
     onClose: () => void;
 }) {
-    const [adapter, setAdapter] = useState<boolean | null>(null);
+    const [adapter, setAdapter] = useState<Provider | false | null>(null);
     const [title, setTitle] = useState(() => titleFrom(branch));
     const [opening, setOpening] = useState(false);
     const [result, setResult] = useState<{ value?: PullRequest; error?: string } | null>(null);
@@ -55,7 +55,7 @@ export function PullRequestDialog({
             if (cancelled) {
                 return;
             }
-            const on = answer.ok && !!answer.value.adapter?.on;
+            const on = answer.ok && answer.value.adapter?.on ? answer.value.adapter.provider : false;
             setAdapter(on);
             if (!on) {
                 void open();
@@ -68,7 +68,7 @@ export function PullRequestDialog({
     }, [handle, open]);
 
     const pr = result?.value;
-    const asking = adapter === true && !result;
+    const asking = adapter && !result ? adapter : null;
     return (
         <Dialog open onOpenChange={next => !next && onClose()}>
             <DialogContent>
@@ -116,7 +116,9 @@ export function PullRequestDialog({
                                 The remote did not have the last commit of <span className="font-mono">{pr.branch}</span>: it is pushed now.
                             </p>
                         )}
-                        {pr.mergeRequest && <p>Merge request !{pr.mergeRequest.number} is open.</p>}
+                        {pr.mergeRequest && pr.provider && (
+                            <p className="first-letter:uppercase">{pullRequestNamed(pr.provider, pr.mergeRequest.number)} is open.</p>
+                        )}
                         {pr.notice && <p className="text-xs text-amber-700 dark:text-amber-400">{pr.notice}</p>}
                         {pr.endsEmergencyRollback && <WarningLine>{pr.endsEmergencyRollback}</WarningLine>}
                         {pr.borrowed.map(b => (
@@ -146,7 +148,7 @@ export function PullRequestDialog({
                     {asking && (
                         <Button type="submit" form="pull-request-title" disabled={opening || !title.trim()}>
                             <GitPullRequestArrow />
-                            Open the merge request
+                            Open the {pullRequestName(asking)}
                         </Button>
                     )}
                     {pr?.url && (

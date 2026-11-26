@@ -1,9 +1,10 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { gitAuthorOf } from './git-config';
+import type { PreflightWarning } from './promotion-edge';
 import type { Promotion, PromotionRow } from './promotion-state';
 import type { FileChange, FlowImpact } from './promotions';
-import { providerNotice, unlessProviderFails, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
+import { providerNotice, PULL_REQUEST_NAME, unlessProviderFails, type NewPullRequest, type ProviderAdapter, type ProviderPullRequest } from './provider-adapter';
 
 export type MergeRequestLink = { number: number; url: string };
 
@@ -13,7 +14,7 @@ export type OpenedMergeRequest = { mergeRequest?: MergeRequestLink; notice?: str
 export type CheckedChanges = {
     files?: FileChange[];
     flows?: FlowImpact[];
-    warnings?: { message: string; items?: string[] }[];
+    warnings?: (Pick<PreflightWarning, 'message'> & Partial<PreflightWarning>)[];
     notes?: string[];
 };
 
@@ -39,7 +40,7 @@ export async function openMergeRequest(adapter: ProviderAdapter | null, request:
         const opened = (await adapter.findOpenPullRequest(request.source, request.target)) ?? (await adapter.openPullRequest(request));
         return { mergeRequest: { number: opened.number, url: opened.url } };
     } catch (e) {
-        return { notice: `The merge request was not opened: ${providerNotice(adapter.provider, e)}` };
+        return { notice: `The ${PULL_REQUEST_NAME[adapter.provider]} was not opened: ${providerNotice(adapter.provider, e)}` };
     }
 }
 
@@ -70,7 +71,7 @@ export async function reuseOpenRow(
             return success({
                 closed: false,
                 promotion: row,
-                notice: `The merge request could not be read: ${providerNotice(adapter.provider, e)}`,
+                notice: `The ${PULL_REQUEST_NAME[adapter.provider]} could not be read: ${providerNotice(adapter.provider, e)}`,
             });
         }
         await ctx.db.query(`UPDATE promotions SET state = 'closed', state_at = now() WHERE id = $1 AND state = 'open'`, [row.id]);
@@ -127,12 +128,16 @@ export async function mergeRequestsOfRows(
     return found;
 }
 
+const opensDescription = (warning: { kind?: PreflightWarning['kind'] }) => warning.kind === 'squash-or-rebase';
+
 const descriptionSection = (title: string, lines: string[]) => (lines.length > 0 ? [`### ${title}`, '', ...lines, ''] : []);
 
 export async function mergeRequestDescription(ctx: UseCaseContext, checked: CheckedChanges): Promise<string> {
     const user = (await gitAuthorOf(ctx))?.name ?? ctx.userId;
+    const warnings = checked.warnings ?? [];
+    const notes = [...warnings.filter(opensDescription).map(w => w.message), ...(checked.notes ?? [])];
     return [
-        ...(checked.notes?.length ? [...checked.notes, ''] : []),
+        ...(notes.length ? [...notes, ''] : []),
         ...descriptionSection(
             'Files',
             (checked.files ?? []).map(f => `- ${f.status} \`${f.path}\``),
@@ -143,7 +148,7 @@ export async function mergeRequestDescription(ctx: UseCaseContext, checked: Chec
         ),
         ...descriptionSection(
             'Warnings',
-            (checked.warnings ?? []).flatMap(w => [`- ${w.message}`, ...(w.items ?? []).map(item => `  - ${item}`)]),
+            warnings.filter(w => !opensDescription(w)).flatMap(w => [`- ${w.message}`, ...(w.items ?? []).map(item => `  - ${item}`)]),
         ),
         `Opened from Flowtinus by ${user}.`,
     ].join('\n');

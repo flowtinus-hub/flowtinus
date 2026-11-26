@@ -13,7 +13,7 @@ import { readTopology } from './workspace-topology';
 export type Edge = { source: EnvironmentDecl; target: EnvironmentDecl; sourceTip: string | null; targetTip: string | null };
 
 export type PreflightWarning = {
-    kind: 'connections' | 'triggers' | 'drafts' | 'emergency-rollback' | 'ends-emergency-rollback';
+    kind: 'connections' | 'triggers' | 'drafts' | 'emergency-rollback' | 'ends-emergency-rollback' | 'squash-or-rebase';
     message: string;
     items: string[];
 };

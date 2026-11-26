@@ -11,6 +11,7 @@ import { readHeads, recordHeads } from './git-heads';
 import { adapterOf } from './adapter-status';
 import type { MergeRequestLink } from './merge-request';
 import { unlessProviderFails } from './provider-adapter';
+import type { Provider } from './pull-request';
 import { ENVIRONMENT_BRANCH, type WorkingRow } from './working-copy';
 import { changeCount } from './working-copy-changes';
 
@@ -37,6 +38,8 @@ export type BranchesView = {
     mode: Mode;
     branches: BranchView[];
     fetchedAt: string | null;
+    /** with the adapter on: the provider the merge requests are on */
+    provider?: Provider;
 };
 
 async function changesPerBranch(db: Database, workspaceId: string, environment: string | null): Promise<Map<string, number>> {
@@ -55,11 +58,17 @@ async function changesPerBranch(db: Database, workspaceId: string, environment: 
     return new Map([...byBranch].map(([name, list]) => [name, changeCount(list)]));
 }
 
-async function openMergeRequestsInto(ctx: UseCaseContext, environment: string | null): Promise<Map<string, MergeRequestLink>> {
+async function openMergeRequestsInto(
+    ctx: UseCaseContext,
+    environment: string | null,
+): Promise<{ provider?: Provider; links: Map<string, MergeRequestLink> }> {
     const config = environment ? await readGitConfig(ctx.db, ctx.workspaceId) : null;
     const adapter = config ? await adapterOf(ctx, config) : null;
-    const open = adapter && environment ? await unlessProviderFails(adapter.openPullRequestsInto(environment), []) : [];
-    return new Map(open.map(m => [m.source, { number: m.number, url: m.url }]));
+    if (!adapter || !environment) {
+        return { links: new Map() };
+    }
+    const open = await unlessProviderFails(adapter.openPullRequestsInto(environment), []);
+    return { provider: adapter.provider, links: new Map(open.map(m => [m.source, { number: m.number, url: m.url }])) };
 }
 
 const KIND_ORDER = { environment: 0, hotfix: 1, user: 2, shared: 3, backport: 4 };
@@ -113,7 +122,7 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 continue;
             }
             const changes = counts.get(head.name) ?? 0;
-            const mergeRequest = mergeRequests.get(head.name);
+            const mergeRequest = mergeRequests.links.get(head.name);
             branches.push({
                 name: head.name,
                 kind,
@@ -134,6 +143,13 @@ export class ListBranchesHandler implements UseCaseHandler<BranchesView> {
                 Number(b.mine) - Number(a.mine) ||
                 (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
         );
-        return success({ current, environment, mode: git.mode, branches, fetchedAt: heads.at });
+        return success({
+            current,
+            environment,
+            mode: git.mode,
+            branches,
+            fetchedAt: heads.at,
+            ...(mergeRequests.provider ? { provider: mergeRequests.provider } : {}),
+        });
     }
 }

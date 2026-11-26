@@ -4,7 +4,7 @@ export type PullRequestState = 'open' | 'merged' | 'closed';
 
 export type ProviderPullRequest = { number: number; url: string; source: string; target: string; state: PullRequestState };
 
-/** squash: false turns it off, absent keeps the project's default */
+/** squash: false turns it off, absent keeps the project's default; neither it nor removeSourceBranch reaches GitHub */
 export type NewPullRequest = {
     source: string;
     target: string;
@@ -14,30 +14,44 @@ export type NewPullRequest = {
     removeSourceBranch: boolean;
 };
 
-/** squash 'default': on unless the author turns it off; 'optional': off unless turned on */
-export type MergeSettings = {
-    squash: 'never' | 'optional' | 'default' | 'always';
-    mergeMethod: 'merge' | 'semi-linear' | 'fast-forward';
-};
+export type MergeMethod = 'merge-commit' | 'fast-forward' | 'squash' | 'rebase';
+
+export type MergeLimit =
+    | 'squash-forced'
+    | 'fast-forward-only'
+    | 'semi-linear-only'
+    | 'merge-commits-off'
+    | 'linear-history-required'
+    | 'merge-commit-not-allowed-by-rule';
+
+export type MergeSettings = { methods: MergeMethod[]; limits: MergeLimit[] };
 
 export type AccessRule = 'nobody' | 'maintainers' | 'developers';
 
-/** branch: a name or a wildcard pattern; a branch no rule matches takes pushes from developers */
-export type BranchProtection = { branch: string; push: AccessRule };
+export const OPENNESS: AccessRule[] = ['nobody', 'maintainers', 'developers'];
+
+/** unknown: protection the token may not read (GitHub's classic one), which gives no warning */
+export type BranchProtection = { branch: string; push: AccessRule | 'unknown' };
 
 export interface ProviderAdapter {
     readonly provider: Provider;
+    readonly canTurnSquashOff: boolean;
     openPullRequest(request: NewPullRequest): Promise<ProviderPullRequest>;
     findOpenPullRequest(source: string, target: string): Promise<ProviderPullRequest | null>;
     openPullRequestsInto(target: string): Promise<ProviderPullRequest[]>;
     /** in every state */
     pullRequestsInto(target: string, openedSince: Date): Promise<ProviderPullRequest[]>;
     pullRequest(number: number): Promise<ProviderPullRequest>;
-    mergeSettings(): Promise<MergeSettings>;
-    branchProtections(): Promise<BranchProtection[]>;
+    /** null: the provider does not tell this token (GitHub, to a token that cannot write) */
+    mergeSettings(target: string): Promise<MergeSettings | null>;
+    /** absent on GitLab, which removes the source branch per merge request; null: the provider does not tell this token */
+    deletesMergedBranches?(): Promise<boolean | null>;
+    branchProtections(branches: string[]): Promise<BranchProtection[]>;
 }
 
 export const PROVIDER_NAME: Record<Provider, string> = { gitlab: 'GitLab', github: 'GitHub' };
+
+export const PULL_REQUEST_NAME: Record<Provider, string> = { gitlab: 'merge request', github: 'pull request' };
 
 /** status null: the provider did not answer */
 export class ProviderError extends Error {
@@ -50,14 +64,17 @@ export class ProviderError extends Error {
     }
 }
 
-export const API_NOTICE = 'The API is not reachable with this token: add the `api` scope to use the adapter.';
+export const API_NOTICE: Record<Provider, string> = {
+    gitlab: 'The API is not reachable with this token: add the `api` scope to use the adapter.',
+    github: 'The API is not reachable with this token: a classic token needs the `repo` scope (`public_repo` for a public repository); a fine-grained one needs Contents and Pull requests, read and write, on this repository.',
+};
 
 export function providerNotice(provider: Provider, error: unknown): string {
     if (!(error instanceof ProviderError)) {
         throw error;
     }
     if (error.status === 401 || error.status === 403) {
-        return API_NOTICE;
+        return API_NOTICE[provider];
     }
     if (error.status === null || error.status >= 500) {
         return `${PROVIDER_NAME[provider]}'s API did not answer: ${error.message}`;

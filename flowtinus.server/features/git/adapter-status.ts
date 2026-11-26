@@ -1,6 +1,7 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { gitAccess, type GitConfig } from './git-config';
 import type { GitAccess } from './git-remote';
+import { githubAdapter } from './github-adapter';
 import { gitlabAdapter } from './gitlab-adapter';
 import type { ProviderAdapter } from './provider-adapter';
 import { providerOf, type Provider } from './pull-request';
@@ -10,13 +11,18 @@ export type AdapterStatus =
     | { provider: Provider | null; adapter: ProviderAdapter; notice: null }
     | { provider: Provider | null; adapter: null; notice: string | null };
 
+const ADAPTERS: Record<Provider, (access: GitAccess) => Promise<{ adapter: ProviderAdapter } | { notice: string }>> = {
+    gitlab: gitlabAdapter,
+    github: githubAdapter,
+};
+
 export async function providerAdapter(access: GitAccess): Promise<AdapterStatus> {
     const provider = await providerOf(access.repository);
-    if (provider !== 'gitlab') {
+    if (!provider) {
         return { provider, adapter: null, notice: null };
     }
-    const gitlab = await gitlabAdapter(access);
-    return 'adapter' in gitlab ? { provider, adapter: gitlab.adapter, notice: null } : { provider, adapter: null, notice: gitlab.notice };
+    const found = await ADAPTERS[provider](access);
+    return 'adapter' in found ? { provider, adapter: found.adapter, notice: null } : { provider, adapter: null, notice: found.notice };
 }
 
 export async function adapterOf(ctx: UseCaseContext, config: GitConfig): Promise<ProviderAdapter | null> {
