@@ -18,8 +18,6 @@ export type PreflightWarning = {
     items: string[];
 };
 
-const NO_ENVIRONMENT = { connections: [], secrets: [], variables: [] };
-
 export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export async function gitOff(ctx: UseCaseContext): Promise<UseCaseResult<never> | null> {
@@ -77,7 +75,7 @@ export function invalidMerge(
     merged: RepoFiles,
     into: string,
 ): { kind: 'invalid'; message: string; issues: TreeIssue[] } | null {
-    const { errors } = validateWorkspaceTree({ workspace: handle, files: merged, environment: NO_ENVIRONMENT });
+    const { errors } = validateWorkspaceTree({ workspace: handle, files: merged });
     return errors.length > 0
         ? {
               kind: 'invalid',

@@ -15,7 +15,8 @@ import { REPO_SCHEMAS } from './repo-schemas';
 export type WorkspaceTree = {
     workspace: string;
     files: Record<string, string>;
-    environment: { connections: string[]; secrets: string[]; variables: string[] };
+    // none without a server (the CLI): the warnings only a server can give are left out
+    environment?: { connections: string[]; secrets: string[]; variables: string[] };
     archivedProjects?: string[];
 };
 
@@ -51,7 +52,10 @@ function unknownKeys(value: unknown, schema: Schema, at = ''): string[] {
     });
 }
 
-function hasComment(text: string): boolean {
+export const unknownKeyErrors = (text: string, schema: string): string[] =>
+    unknownKeys(yamlOf(text), schemaOf(schema)).map(key => `Unknown key "${key}".`);
+
+export function hasComment(text: string): boolean {
     const doc = parseDocument(text);
     let found = Boolean(doc.commentBefore || doc.comment);
     visit(doc, (_key, node) => {
@@ -73,7 +77,7 @@ export function validateWorkspaceTree({ workspace, files, environment, archivedP
             errors.push(...result.errors.map(message => ({ path, message })));
             return undefined;
         }
-        errors.push(...unknownKeys(yamlOf(files[path]!), schemaOf(schema)).map(key => ({ path, message: `Unknown key "${key}".` })));
+        errors.push(...unknownKeyErrors(files[path]!, schema).map(message => ({ path, message })));
         return result.value;
     };
 
@@ -192,7 +196,7 @@ export function validateWorkspaceTree({ workspace, files, environment, archivedP
             checkName(path, entry.name, 'connection');
             const connection = read(path, connectionFromYaml(text), 'connection.schema.json');
             identify('connection', path);
-            if (connection && !environment.connections.includes(connection.id)) {
+            if (connection && environment && !environment.connections.includes(connection.id)) {
                 warnings.push({ path, message: `The connection "${entry.name}" is not configured on this server.` });
             }
         } else if (entry.kind === 'project') {
@@ -263,12 +267,14 @@ export function validateWorkspaceTree({ workspace, files, environment, archivedP
                 });
             }
         }
-        const { secrets, variables } = flowResources(flow);
-        for (const name of secrets.filter(name => !environment.secrets.includes(name))) {
-            warnings.push({ path, message: `The secret "${name}" has no value on this server.` });
-        }
-        for (const name of variables.filter(name => !environment.variables.includes(name))) {
-            warnings.push({ path, message: `The variable "${name}" has no value on this server.` });
+        if (environment) {
+            const { secrets, variables } = flowResources(flow);
+            for (const name of secrets.filter(name => !environment.secrets.includes(name))) {
+                warnings.push({ path, message: `The secret "${name}" has no value on this server.` });
+            }
+            for (const name of variables.filter(name => !environment.variables.includes(name))) {
+                warnings.push({ path, message: `The variable "${name}" has no value on this server.` });
+            }
         }
     }
     for (const link of scriptLinks([...scripts].map(([path, s]) => ({ path, content: s.content }))).filter(l => !scripts.has(l.to))) {
