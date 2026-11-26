@@ -1,12 +1,16 @@
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { repoEntry } from '@flowtinus/core';
+import { repoEntry } from '../repo/repo-layout';
 
 export type Repository = { root: string; files: Record<string, string>; workspaces: string[] };
 
 function gitOutput(root: string, args: string[]): { ok: true; out: string } | { ok: false; err: string } {
-    const done = Bun.spawnSync(['git', ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-    return done.exitCode === 0 ? { ok: true, out: done.stdout.toString() } : { ok: false, err: done.stderr.toString().trim() };
+    const done = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: Infinity });
+    if (done.error) {
+        throw new Error(`git: ${done.error.message}`);
+    }
+    return done.status === 0 ? { ok: true, out: done.stdout } : { ok: false, err: done.stderr.trim() };
 }
 
 // a folder inside a git repository stands for the whole repository: its top level
