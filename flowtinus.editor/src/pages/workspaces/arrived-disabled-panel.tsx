@@ -1,29 +1,45 @@
 import { useEffect, useState } from 'react';
 import { CirclePause } from 'lucide-react';
-import { ArrivedDisabledList } from '@/components/arrived-disabled-list';
-import { arrivedCount, CHANGES_CHANGED, GIT_STATUS_CHANGED, listArrivedDisabled, type ArrivedDisabled } from '@/data/git/git-api';
+import { ArrivedDisabledList, type ShownToken } from '@/components/arrived-disabled-list';
+import { arrivedCount, CHANGES_CHANGED, GIT_STATUS_CHANGED, listArrivedDisabled, TREE_APPLIED, type ArrivedDisabled } from '@/data/git/git-api';
+import { TokenDialog } from '@/pages/flow-editor/webhooks-menu';
+
+type Read = { handle: string; value: ArrivedDisabled[]; requestedAt: number };
 
 export function ArrivedDisabledPanel({ handle }: { handle: string }) {
-    const [items, setItems] = useState<{ handle: string; value: ArrivedDisabled[]; read: number } | null>(null);
+    const [items, setItems] = useState<Read | null>(null);
+    const [token, setToken] = useState<(ShownToken & { handle: string }) | null>(null);
     useEffect(() => {
         let gone = false;
-        const read = () =>
-            void listArrivedDisabled(handle).then(
-                result => !gone && result.ok && setItems(current => ({ handle, value: result.value, read: (current?.read ?? 0) + 1 })),
-            );
+        const read = () => {
+            const requestedAt = performance.now();
+            void listArrivedDisabled(handle).then(result => {
+                if (gone || !result.ok) {
+                    return;
+                }
+                setItems(current => {
+                    if (current?.handle === handle && current.requestedAt > requestedAt) {
+                        return current;
+                    }
+                    return { handle, value: result.value, requestedAt };
+                });
+            });
+        };
+        const events = [GIT_STATUS_CHANGED, CHANGES_CHANGED, TREE_APPLIED];
         read();
-        window.addEventListener(GIT_STATUS_CHANGED, read);
-        window.addEventListener(CHANGES_CHANGED, read);
+        events.forEach(event => window.addEventListener(event, read));
         return () => {
             gone = true;
-            window.removeEventListener(GIT_STATUS_CHANGED, read);
-            window.removeEventListener(CHANGES_CHANGED, read);
+            events.forEach(event => window.removeEventListener(event, read));
         };
     }, [handle]);
 
     const shown = items?.handle === handle ? items : null;
+    const dialog = token?.handle === handle && (
+        <TokenDialog webhook={token.webhook} token={token.token} acceptsInput onClose={() => setToken(null)} />
+    );
     if (!shown) {
-        return null;
+        return dialog || null;
     }
     const count = arrivedCount(shown.value);
     return (
@@ -39,7 +55,15 @@ export function ArrivedDisabledPanel({ handle }: { handle: string }) {
                     </span>
                 </div>
             </div>
-            {count > 0 && <ArrivedDisabledList key={shown.read} handle={handle} items={shown.value} />}
+            {count > 0 && (
+                <ArrivedDisabledList
+                    handle={handle}
+                    items={shown.value}
+                    readAt={shown.requestedAt}
+                    onToken={value => setToken({ ...value, handle })}
+                />
+            )}
+            {dialog}
         </div>
     );
 }

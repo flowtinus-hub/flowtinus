@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useLocalServer } from '@/lib/server-connection';
-import { getGitStatus, GIT_STATUS_CHANGED, type GitStatus } from './git-api';
+import { getGitStatus, GIT_STATUS_CHANGED, TREE_APPLIED, type GitStatus } from './git-api';
 
-export const GIT_STATUS_MS = 60_000;
+const GIT_STATUS_MS = 60_000;
 const DISK_STATUS_MS = 5_000;
 
 type Watched = { value: GitStatus | null; listeners: Set<() => void>; reading: boolean; stop?: () => void };
@@ -18,6 +18,16 @@ const entryOf = (handle: string): Watched => {
     return entry;
 };
 
+function treeApplied(before: GitStatus | null, after: GitStatus): boolean {
+    if (before?.on && after.on) {
+        return before.deploy?.sha !== after.deploy?.sha;
+    }
+    if (before && !before.on && before.disk && !after.on && after.disk) {
+        return before.disk.appliedAt !== after.disk.appliedAt;
+    }
+    return false;
+}
+
 function read(handle: string): void {
     const entry = entryOf(handle);
     if (entry.reading) {
@@ -27,8 +37,12 @@ function read(handle: string): void {
     void getGitStatus(handle).then(result => {
         entry.reading = false;
         if (result.ok) {
+            const applied = treeApplied(entry.value, result.value);
             entry.value = result.value;
             entry.listeners.forEach(listener => listener());
+            if (applied) {
+                window.dispatchEvent(new Event(TREE_APPLIED));
+            }
         }
     });
 }
