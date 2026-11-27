@@ -329,6 +329,8 @@ export const branchNamePart = (name: string) =>
 /** said on window when the git status changed here (Reconcile now): the sidebar reads it again */
 export const GIT_STATUS_CHANGED = 'flowtinus:git-status-changed';
 
+export const TREE_APPLIED = 'flowtinus:tree-applied';
+
 /** what the editor says where it turns off the Commit and the tree's actions */
 export const ONLY_PULL_REQUESTS = 'This environment only takes pull requests: edit in git.';
 

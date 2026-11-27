@@ -12,12 +12,28 @@ import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { TokenDialog } from '@/pages/flow-editor/webhooks-menu';
 import { cn } from '@/lib/utils';
 
-export function ArrivedDisabledList({ handle, items, className }: { handle: string; items: ArrivedDisabled[]; className?: string }) {
+export type ShownToken = { webhook: Webhook; token: string };
+
+type Props = {
+    handle: string;
+    items: ArrivedDisabled[];
+    className?: string;
+    /** when the items were requested (performance.now()): a switch made before it gives way to the items' value */
+    readAt?: number;
+    onToken?: (shown: ShownToken) => void;
+};
+
+export function ArrivedDisabledList({ handle, items, className, readAt, onToken }: Props) {
     const { canEdit } = useWorkspace();
-    const [enabled, setEnabled] = useState<Record<string, boolean>>({});
+    const [enabled, setEnabled] = useState<Record<string, { on: boolean; at: number }>>({});
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [shown, setShown] = useState<{ webhook: Webhook; token: string } | null>(null);
+    const [shown, setShown] = useState<ShownToken | null>(null);
+
+    const isOn = (id: string, stored: boolean) => {
+        const switched = enabled[id];
+        return switched && (readAt === undefined || switched.at > readAt) ? switched.on : stored;
+    };
 
     const turn = async (id: string, on: boolean, switching: () => Promise<{ ok: true } | { ok: false; error: { message: string } }>) => {
         setBusy(id);
@@ -25,7 +41,7 @@ export function ArrivedDisabledList({ handle, items, className }: { handle: stri
         const result = await switching();
         setBusy(null);
         if (result.ok) {
-            setEnabled(current => ({ ...current, [id]: on }));
+            setEnabled(current => ({ ...current, [id]: { on, at: performance.now() } }));
             window.dispatchEvent(new Event(TRIGGERS_SWITCHED));
         } else {
             setError(result.error.message);
@@ -36,7 +52,7 @@ export function ArrivedDisabledList({ handle, items, className }: { handle: stri
         turn(id, on, async () => {
             const result = await switchWebhook(id, on);
             if (result.ok && result.value.token) {
-                setShown({ webhook: result.value.webhook, token: result.value.token });
+                (onToken ?? setShown)({ webhook: result.value.webhook, token: result.value.token });
             }
             return result;
         });
@@ -75,7 +91,7 @@ export function ArrivedDisabledList({ handle, items, className }: { handle: stri
                         {item.schedules.map(s =>
                             row(
                                 s.id,
-                                enabled[s.id] ?? s.enabled,
+                                isOn(s.id, s.enabled),
                                 on => void turnSchedule(s.id, on),
                                 <CalendarClock className="size-4 shrink-0 text-muted-foreground" />,
                                 describeCron(s.cron) ?? s.cron,
@@ -85,7 +101,7 @@ export function ArrivedDisabledList({ handle, items, className }: { handle: stri
                         {item.webhooks.map(w =>
                             row(
                                 w.id,
-                                enabled[w.id] ?? w.enabled,
+                                isOn(w.id, w.enabled),
                                 on => void turnWebhook(w.id, on),
                                 <WebhookIcon className="size-4 shrink-0 text-muted-foreground" />,
                                 w.name,

@@ -1,6 +1,6 @@
 import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, CirclePause, Layers } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { arrivedCount, CHANGES_CHANGED, GIT_STATUS_CHANGED, gitAhead, listArrivedDisabled, ONLY_PULL_REQUESTS, TRIGGERS_SWITCHED, type GitStatus } from '@/data/git/git-api';
+import { arrivedCount, CHANGES_CHANGED, GIT_STATUS_CHANGED, gitAhead, listArrivedDisabled, ONLY_PULL_REQUESTS, TREE_APPLIED, TRIGGERS_SWITCHED, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -11,7 +11,7 @@ import { ROLE_LABEL, type Membership } from '@/data/workspaces/workspace';
 import { NewWorkspaceDialog } from '@/pages/workspaces/new-workspace-dialog';
 import { NavUser } from './nav-user';
 import { WorkerIcon } from '@/components/worker-icon';
-import { GIT_STATUS_MS, useGitStatus } from '@/data/git/git-status';
+import { useGitStatus } from '@/data/git/git-status';
 import { DiskStatusItem } from './disk-status-item';
 
 // an item is also active on its sub-pages (/w/dev/projects/...)
@@ -123,15 +123,18 @@ function ArrivedDisabledItem({ handle, pathname }: { handle: string; pathname: s
     const [count, setCount] = useState<{ handle: string; value: number } | null>(null);
     useEffect(() => {
         let gone = false;
-        const read = () =>
-            void listArrivedDisabled(handle).then(result => !gone && result.ok && setCount({ handle, value: arrivedCount(result.value) }));
+        let latest = 0;
+        const read = () => {
+            const request = ++latest;
+            void listArrivedDisabled(handle).then(
+                result => !gone && request === latest && result.ok && setCount({ handle, value: arrivedCount(result.value) }),
+            );
+        };
         read();
-        const timer = setInterval(read, GIT_STATUS_MS);
-        const events = [GIT_STATUS_CHANGED, CHANGES_CHANGED, TRIGGERS_SWITCHED];
+        const events = [GIT_STATUS_CHANGED, CHANGES_CHANGED, TRIGGERS_SWITCHED, TREE_APPLIED];
         events.forEach(event => window.addEventListener(event, read));
         return () => {
             gone = true;
-            clearInterval(timer);
             events.forEach(event => window.removeEventListener(event, read));
         };
     }, [handle, pathname]);
