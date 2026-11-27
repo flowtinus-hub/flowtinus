@@ -7,7 +7,7 @@ import { useResource } from '@/data/use-resource';
 import { shortSha } from '@/data/deployments/deployment';
 import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { getEnvironments, getGitStatus, GIT_STATUS_CHANGED, type EnvironmentCard, type EnvironmentEdge, type Environments, type FlowCell, type FlowRow, type GitStatus, type PromotionState } from '@/data/git/git-api';
-import { useLocalServer } from '@/lib/server-connection';
+import { useServerKind } from '@/lib/server-connection';
 import { cn } from '@/lib/utils';
 import { WorkspacePage } from '@/pages/workspaces/workspace-page';
 import { ArchivedConnectionsPanel } from './archived-connections-panel';
@@ -20,7 +20,19 @@ const MODE_LABEL = { direct: 'Direct', 'pull-request': 'Pull requests', protecte
 
 export function EnvironmentsPage() {
     const { handle } = useWorkspace();
-    return useLocalServer() ? <Navigate to={`${workspaceSettingsPath(handle)}?tab=git#git`} replace /> : <EnvironmentsOfServer />;
+    const kind = useServerKind();
+    if (kind === 'local') {
+        return <Navigate to={`${workspaceSettingsPath(handle)}?tab=git#git`} replace />;
+    }
+    return kind === 'server' ? (
+        <EnvironmentsOfServer />
+    ) : (
+        <WorkspacePage title="Environments">
+            <ResourceView state={{ status: 'loading' }} onRetry={() => {}} empty={{ icon: Layers, text: '' }} isEmpty={() => false}>
+                {() => null}
+            </ResourceView>
+        </WorkspacePage>
+    );
 }
 
 function EnvironmentsOfServer() {

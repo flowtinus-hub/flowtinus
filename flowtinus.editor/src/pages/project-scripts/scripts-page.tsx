@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { useLocalServer } from '@/lib/server-connection';
+import { useServerKind } from '@/lib/server-connection';
 import { useParams, useSearchParams } from 'react-router';
 import { ChevronRight, Copy, Ellipsis, FileCode2, Folder, FolderOpen, FolderPlus, GitCommitHorizontal, LoaderCircle, Pencil, Plus, Trash } from 'lucide-react';
 import { normalizeScriptPath } from '@flowtinus/core';
@@ -71,11 +71,14 @@ function treeRows(folders: string[], scripts: string[], open: { has: (path: stri
 export function ScriptsPage() {
     const { projectId = '', ws = '' } = useParams();
     const gitStatus = useResource(`git-status:${ws}`, () => getGitStatus(ws));
-    const local = useLocalServer();
+    const kind = useServerKind();
+    const local = kind === 'local';
     // on a pull-request server a branch the user may edit (a work branch) takes a Commit; its environment's branch does not
     const branch = useResource(`current-branch:${ws}`, () => getCurrentBranch(ws));
     const editable = branch.state.status === 'ready' && branch.state.value.editable;
-    const branches = useResource(`branches:${ws}`, () => listBranches(ws));
+    const branches = useResource(`branches:${ws}:${kind}`, () =>
+        kind === 'server' ? listBranches(ws) : Promise.resolve({ ok: true as const, value: null }),
+    );
     const listed = branches.state.status === 'ready' ? branches.state.value : null;
     const onHotfix = editable && listed?.branches.find(b => b.name === listed.current)?.kind === 'hotfix';
     const pullRequestsOnly =
