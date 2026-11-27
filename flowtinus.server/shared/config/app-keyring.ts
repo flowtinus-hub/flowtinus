@@ -1,5 +1,6 @@
 import { DEV_KEY, Keyring } from '../crypto/keyring';
-import { LOCAL_ENVIRONMENT, type AppSettings } from './app-settings';
+import { LOCAL_ENVIRONMENT } from '@flowtinus/core';
+import type { AppSettings } from './app-settings';
 
 /**
  * The keyring of the secrets (the api encrypts, the supervisor decrypts): SECRETS_KEYS, or in DEV only a fixed key so

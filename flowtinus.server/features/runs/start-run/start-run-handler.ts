@@ -96,7 +96,6 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('validation', 'Run from here is a test run only: a run for real runs the whole flow.');
         }
 
-        // on a local server the Run runs the disk as it is: what is on it now applied first
         if (isLocalServer(ctx.git)) {
             const disk = await reconcileFromDisk(ctx);
             if (!disk.ok) {

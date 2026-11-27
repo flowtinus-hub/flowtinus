@@ -1,4 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
+import { LOCAL_ENVIRONMENT } from '@flowtinus/core';
 import { join, resolve } from 'node:path';
 import { LOG_FORMATS, LOG_LEVELS, type LogFormat, type ServerLogLevel } from '../logging/logger';
 import { parseKeys, type KeyEntry } from '../crypto/keyring';
@@ -23,7 +24,6 @@ export type AppSettings = {
     /** the keys that encrypt the secrets (SECRETS_KEYS, the last one encrypts); empty = DEV's fixed key, refused elsewhere */
     secretsKeys: KeyEntry[];
     gitClonesDir?: string;
-    /** LOCAL_REPO: the developer's clone a local server reads (environment LOCAL); unset on any other server */
     localRepo?: string;
     logLevel: ServerLogLevel;
     logFormat: LogFormat;
@@ -85,9 +85,7 @@ function oneOf<T extends string>(name: string, value: string | undefined, allowe
     return v as T;
 }
 
-export const LOCAL_ENVIRONMENT = 'LOCAL';
-
-function clone(name: string, value: string | undefined): string | undefined {
+function gitClonePath(name: string, value: string | undefined): string | undefined {
     if (!value?.trim()) {
         return undefined;
     }
@@ -140,7 +138,7 @@ function color(name: string, value: string | undefined): string | undefined {
 }
 
 export function readAppSettings(env: Record<string, string | undefined> = process.env): AppSettings {
-    const localRepo = clone('LOCAL_REPO', env.LOCAL_REPO);
+    const localRepo = gitClonePath('LOCAL_REPO', env.LOCAL_REPO);
     const environment = localRepo ? LOCAL_ENVIRONMENT : env.ENVIRONMENT?.trim() || 'DEV';
     return {
         databaseUrl: env.DATABASE_URL?.trim() || undefined,

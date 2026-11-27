@@ -11,7 +11,9 @@ import { membershipsOf, type Membership } from './memberships';
 import { workspaces, type Workspace } from './workspace';
 import { WORKSPACE_ROLES, workspaceMembers, type WorkspaceRole } from './workspace-member';
 import { projects } from '#features/projects/project';
-import { DISK_SETTING } from '#features/git/git-config';
+import { goneFromDisk } from '#features/git/disk-reconcile';
+
+const dateOrNull = (at: string | undefined) => (at ? new Date(at) : null);
 
 const NAME_MAX = 100;
 const DESCRIPTION_MAX = 500;
@@ -105,19 +107,21 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: WorkspaceL
             secrets: number | string;
             variables: number | string;
             members: number | string;
-            gone: string | null;
         }>(
             `SELECT w.id, w.handle, w.name, w.description, w.icon, w.color, w.created_at, w.deleted_at, m.role,
               (SELECT count(*) FROM projects p WHERE p.workspace_id = w.id AND p.deleted_at IS NULL) AS projects,
               (SELECT count(*) FROM connections c WHERE c.workspace_id = w.id AND c.deleted_at IS NULL) AS connections,
               (SELECT count(*) FROM secrets s WHERE s.workspace_id = w.id) AS secrets,
               (SELECT count(*) FROM variables v WHERE v.workspace_id = w.id) AS variables,
-              (SELECT count(*) FROM workspace_members x WHERE x.workspace_id = w.id) AS members,
-              (SELECT s.value->>'gone' FROM workspace_settings s WHERE s.workspace_id = w.id AND s.key = $3) AS gone
+              (SELECT count(*) FROM workspace_members x WHERE x.workspace_id = w.id) AS members
          FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
         WHERE m.user_id::text = $1 AND (w.deleted_at IS NULL) = $2
         ORDER BY lower(w.name), w.handle`,
-            [ctx.userId, parsed.value.status === 'active', DISK_SETTING],
+            [ctx.userId, parsed.value.status === 'active'],
+        );
+        const gone = await goneFromDisk(
+            ctx.db,
+            rows.map(r => r.id),
         );
         return success({
             items: rows.map(r => ({
@@ -137,7 +141,7 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: WorkspaceL
                     variables: Number(r.variables),
                     members: Number(r.members),
                 },
-                gone: r.gone ? new Date(r.gone) : null,
+                gone: dateOrNull(gone.get(r.id)),
             })),
         });
     }

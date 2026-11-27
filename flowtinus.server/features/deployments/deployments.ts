@@ -429,17 +429,19 @@ export async function deployedDefinitions(
  * stop being deployed, as an undeploy in their history, and their schedules and webhooks are turned off (restoring one
  * turns nothing back on). In the archive's transaction.
  */
+export type UndeployCause = { by: 'editor' } | { by: 'import'; commit: string | null };
+
 export async function undeployArchived(
     db: Database,
     ctx: Actor,
     flowIds: string[],
-    applied: { commit: string | null } | null = null,
+    cause: UndeployCause = { by: 'editor' },
 ): Promise<void> {
     // with git on, an archive is a change of the working copy: the flow runs as deployed until its Commit
-    if (flowIds.length === 0 || (!applied && (await isGitOn(db, ctx.workspaceId)))) {
+    if (flowIds.length === 0 || (cause.by === 'editor' && (await isGitOn(db, ctx.workspaceId)))) {
         return;
     }
-    const commit = applied?.commit ?? null;
+    const commit = cause.by === 'import' ? cause.commit : null;
 
     await turnOffTriggers(db, ctx, flowIds);
 

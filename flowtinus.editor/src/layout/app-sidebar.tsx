@@ -1,6 +1,6 @@
 import { Check, ChevronsUpDown, FolderKanban, History, KeyRound, LayoutGrid, Plug, Plus, Settings, TriangleAlert, GitPullRequest, CirclePause, Layers } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { arrivedCount, CHANGES_CHANGED, getGitStatus, GIT_STATUS_CHANGED, gitAhead, listArrivedDisabled, ONLY_PULL_REQUESTS, TRIGGERS_SWITCHED, type GitStatus } from '@/data/git/git-api';
+import { arrivedCount, CHANGES_CHANGED, GIT_STATUS_CHANGED, gitAhead, listArrivedDisabled, ONLY_PULL_REQUESTS, TRIGGERS_SWITCHED, type GitStatus } from '@/data/git/git-api';
 import { NavLink, useLocation, useNavigate } from 'react-router';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
@@ -11,7 +11,7 @@ import { ROLE_LABEL, type Membership } from '@/data/workspaces/workspace';
 import { NewWorkspaceDialog } from '@/pages/workspaces/new-workspace-dialog';
 import { NavUser } from './nav-user';
 import { WorkerIcon } from '@/components/worker-icon';
-import { isLocalServer, useServerConnection } from '@/lib/server-connection';
+import { GIT_STATUS_MS, useGitStatus } from '@/data/git/git-status';
 import { DiskStatusItem } from './disk-status-item';
 
 // an item is also active on its sub-pages (/w/dev/projects/...)
@@ -71,32 +71,6 @@ function WorkspaceSwitcher({
             <NewWorkspaceDialog open={creating} onOpenChange={setCreating} />
         </>
     );
-}
-
-/** looked at again on this interval, and on each page */
-const GIT_STATUS_MS = 60_000;
-const DISK_STATUS_MS = 5_000;
-
-function useGitStatus(handle: string | null, pathname: string): GitStatus | null {
-    const [status, setStatus] = useState<{ handle: string; value: GitStatus } | null>(null);
-    const local = isLocalServer(useServerConnection());
-    useEffect(() => {
-        if (!handle) {
-            return;
-        }
-        let gone = false;
-        const read = () => void getGitStatus(handle).then(result => !gone && result.ok && setStatus({ handle, value: result.value }));
-        read();
-        const timer = setInterval(read, local ? DISK_STATUS_MS : GIT_STATUS_MS);
-        window.addEventListener(GIT_STATUS_CHANGED, read);
-        return () => {
-            gone = true;
-            clearInterval(timer);
-            window.removeEventListener(GIT_STATUS_CHANGED, read);
-        };
-    }, [handle, pathname, local]);
-
-    return status?.handle === handle ? status.value : null;
 }
 
 function GitItems({ handle, pathname, value }: { handle: string; pathname: string; value: GitStatus | null }) {

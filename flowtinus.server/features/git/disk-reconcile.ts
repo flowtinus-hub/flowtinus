@@ -32,6 +32,14 @@ const EMPTY: DiskState = { applied: null, refused: null, warnings: [], caseRenam
 export const readDiskState = async (db: Database, workspaceId: string) =>
     (await readWorkspaceSetting(db, workspaceId, DISK_SETTING)) as DiskState | null;
 
+export async function goneFromDisk(db: Database, workspaceIds: string[]): Promise<Map<string, string>> {
+    const rows = await db.query<{ workspace_id: string; value: DiskState }>(
+        'SELECT workspace_id, value FROM workspace_settings WHERE key = $1 AND workspace_id = ANY($2::uuid[])',
+        [DISK_SETTING, workspaceIds],
+    );
+    return new Map(rows.flatMap(({ workspace_id: id, value }) => (value.gone ? [[id, value.gone] as const] : [])));
+}
+
 const writeDiskState = (db: Database, workspaceId: string, state: DiskState) =>
     writeWorkspaceSetting(db, workspaceId, DISK_SETTING, state, DISK_USER);
 

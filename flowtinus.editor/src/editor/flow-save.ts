@@ -3,7 +3,7 @@ import type { Edge, Node } from '@xyflow/react';
 import type { FlowFile } from '@flowtinus/core';
 import { getDraft, getPins, saveDraft, setPin, unpin, type Pinned, type Revision } from '@/data/flows/flows-api';
 import type { ApiError } from '@/lib/api';
-import { isLocalServer, useServerConnection } from '@/lib/server-connection';
+import { useLocalServer, useServerConnection } from '@/lib/server-connection';
 import { canvasToFlowFile, flowFileToCanvas } from './flow-file';
 
 /*
@@ -104,7 +104,7 @@ export function useFlowDraft(
     const heldRef = useRef(held);
     const connection = useServerConnection();
     const online = connection.state === 'online';
-    const local = isLocalServer(connection);
+    const local = useLocalServer();
     // what the server has: its revision, the flow's name, and what was saved (to tell a real change)
     const server = useRef<{ revision: Revision; name: string; saved: string } | null>(null);
     const saving = useRef(false);
