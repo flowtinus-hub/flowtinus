@@ -233,6 +233,41 @@ describe('Run from here', () => {
         const outputOnly = first.components.map(c => (c.nodeId === 'log' ? { ...c, samplesNotKept: { input: 0, output: 2 } } : c));
         expect(planRunFrom(wf, 'log', outputOnly).ok).toBe(true);
     });
+
+    test("a flow called during Run from here is not run from the caller's component, even with a component of that id", async () => {
+        const marking = (name: string, target: string, after: ExecutableFlow['nodes'] = []): ExecutableFlow => {
+            const nodes: ExecutableFlow['nodes'] = [
+                { id: 'start', type: 'start', label: 'Start', config: { acceptsInput: true } },
+                { id: 'mark', type: 'mapper', label: 'Mark', config: { fields: [{ target, value: 'yes', expression: false }] } },
+                ...after,
+                { id: 'end', type: 'end', label: 'End', config: {} },
+            ];
+            return { project: 'Test', flow: name, parameters: [], nodes, edges: nodes.slice(1).map((n, i) => edge(nodes[i]!.id, n.id)) };
+        };
+        const wf = marking('Caller', 'caller', [
+            { id: 'call', type: 'flow', label: 'Call', config: { flowId: 'child', sendEnvelope: true } },
+        ]);
+        const flows = { child: marking('Child', 'called') };
+        const first = await flowRunner(wf, { mode: 'validation', id: 'f1', evaluate, flows, input: [{ n: 1 }] });
+        const planned = planRunFrom(wf, 'mark', first.components);
+        if (!planned.ok) {
+            throw new Error(planned.error);
+        }
+
+        const r = await flowRunner(applyRunFrom(wf, planned.plan), {
+            mode: 'validation',
+            id: 'f2',
+            evaluate,
+            flows,
+            runFrom: planned.plan,
+        });
+        expect(r.status).toBe('completed');
+        expect(r.from).toEqual({ nodeId: 'mark', label: 'Mark' });
+        const called = r.components.find(c => c.nodeId === 'call')!.subRuns![0]!.record!;
+        expect(called.from).toBeUndefined();
+        expect(called.components.find(c => c.nodeId === 'mark')!.inputs).toEqual({ 'in-0': 1 });
+        expect(r.components.find(c => c.nodeId === 'end')!.inputSample).toEqual([{ n: 1, caller: 'yes', called: 'yes' }]);
+    });
 });
 
 test('a pin from a run: what went out of each port as the record kept it, or only one port; how many it does not have', () => {
