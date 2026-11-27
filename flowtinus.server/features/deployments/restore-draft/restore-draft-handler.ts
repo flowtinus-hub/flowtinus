@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { inWorkingCopy } from '#features/git/disk-write';
 import type { FlowFile } from '@flowtinus/core';
 import { writeDraft } from '#features/flows/flow-draft';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
@@ -39,7 +40,7 @@ export class RestoreDraftHandler implements UseCaseHandler<{ revision: number }>
             return fail('not-found', 'Version not found.');
         }
 
-        const revision = await ctx.db.transaction(db =>
+        const revision = await inWorkingCopy(ctx, db =>
             writeDraft(db, ctx.workspaceId, row, { ...version.definition, id: row.id, name: row.name }, ctx.userId),
         );
         return success({ revision: revision ?? 0 });

@@ -10,15 +10,17 @@ import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
 import { writeDraft } from '../flow-draft';
+import { saveDiskDraft } from '../disk-draft';
+import { isLocalServer } from '#features/git/local-server';
 
 export const SaveDraftCommand = z.object({
     id: z.uuid('Invalid'),
-    revision: z.number().int().min(0),
+    revision: z.union([z.number().int().min(0), z.string()]),
     flow: z.unknown(),
 });
 
-export class SaveDraftHandler implements UseCaseHandler<{ revision: number }> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ revision: number }>> {
+export class SaveDraftHandler implements UseCaseHandler<{ revision: number | string }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ revision: number | string }>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
             return denied;
@@ -28,17 +30,17 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number }> {
         if (!parsed.ok) {
             return parsed;
         }
+        const { id, revision } = parsed.value;
         const branch = await workBranch(ctx);
         if (branch) {
             const checked = validateFlowFile(parsed.value.flow);
             if (!checked.ok) {
                 return fail('validation', `The flow is not valid: ${checked.errors.join(' ')}`);
             }
-            return saveDraftOnBranch(ctx, branch, { id: parsed.value.id, revision: parsed.value.revision, flow: checked.value });
+            return typeof revision === 'number' ? saveDraftOnBranch(ctx, branch, { id, revision, flow: checked.value }) : conflict();
         }
         await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
 
-        const { id, revision } = parsed.value;
         const row = await new FlowRepository(ctx.db, ctx.workspaceId).findById(id);
         const tree = row ? await loadTree(ctx.db, ctx.workspaceId, row.projectId) : null;
         if (!row || !tree || !isFolderVisible(tree.folders, row.folderId)) {
@@ -50,6 +52,12 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number }> {
             return fail('validation', `The flow is not valid: ${checked.errors.join(' ')}`);
         }
 
+        if (isLocalServer(ctx.git)) {
+            return saveDiskDraft(ctx, row, checked.value, revision);
+        }
+        if (typeof revision === 'string') {
+            return conflict();
+        }
         const saved = await ctx.db.transaction(db =>
             writeDraft(db, ctx.workspaceId, row, { ...checked.value, id: row.id, name: row.name }, ctx.userId, revision),
         );

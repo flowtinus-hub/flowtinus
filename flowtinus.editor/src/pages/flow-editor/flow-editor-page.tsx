@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flowFileName, flowToYaml, type FlowCall, type ScriptUse } from '@flowtinus/core';
 import { canvasToFlowFile, saveFile } from '@/editor/flow-file';
-import { useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import type { Flow, Folder } from '@/data/flows/flow';
-import { getFlow, getProjectContents, restoreFlow } from '@/data/flows/flows-api';
+import { createFlow, getDraft, getFlow, getProjectContents, restoreFlow, saveDraft } from '@/data/flows/flows-api';
 import { folderPath } from '@/data/flows/project-tree';
 import { useProject } from '@/data/projects/use-project';
 import { ConnectionStatus } from '@/layout/connection-status';
@@ -20,7 +20,7 @@ import { SchedulesMenu, startOf } from './schedules-menu';
 import { WebhooksMenu } from './webhooks-menu';
 import { GitSchedulesMenu, GitWebhooksMenu, type TriggerWindowProps } from './trigger-windows';
 import type { FlowVersion } from '@/data/deployments/deployment';
-import { useServerConnection } from '@/lib/server-connection';
+import { isLocalServer, useServerConnection } from '@/lib/server-connection';
 import type { DraftSave } from '@/editor/flow-save';
 import { shortcutsBusy } from '@/editor/history';
 import { FlowCanvas, type CanvasHandle } from './flow-canvas';
@@ -30,6 +30,7 @@ import { ConfirmDialog, type ConfirmTarget } from '@/components/confirm-dialog';
 import { getCurrentBranch, getGitStatus, REMOVED_BRANCH } from '@/data/git/git-api';
 import { useMe, useWorkspace } from '@/data/workspaces/use-workspace';
 import { BranchPicker } from '@/layout/branch-picker';
+import { LocalHeadMark } from '@/layout/local-head';
 import { setUnsavedWork } from '@/data/git/unsaved-work';
 import { CreateBranchDialog } from '@/layout/create-branch-dialog';
 import { cancelRun, getLastRun, getRun, startRun, type RunUsage } from '@/data/flows/flows-api';
@@ -91,7 +92,8 @@ export function FlowEditorPage() {
     const [offering, setOffering] = useState<{ replay?: () => Promise<ApiResult<unknown>> } | null>(null);
     const [gitOn, setGitOn] = useState<boolean | null>(null);
     useEffect(() => {
-        void getGitStatus(ws).then(result => setGitOn(result.ok ? result.value.on : false));
+        // a local server's tree comes from files as a commit's does: its triggers are in the flow's file
+        void getGitStatus(ws).then(result => setGitOn(result.ok ? result.value.on || result.value.disk !== undefined : false));
     }, [ws]);
     const offerBranch = useCallback((replay: () => Promise<ApiResult<unknown>>) => setOffering({ replay }), []);
     const [environmentBranch, setEnvironmentBranch] = useState('');
@@ -176,6 +178,50 @@ export function FlowEditorPage() {
     const [runError, setRunError] = useState('');
     const [panelOpen, setPanelOpen] = useState(false);
     const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
+    const local = isLocalServer(connection);
+    const navigate = useNavigate();
+    const reloadFromDisk = () =>
+        setConfirm({
+            title: 'Reload the flow from disk?',
+            description: 'Your changes here are lost: the flow shows its file as it is on disk now.',
+            confirmLabel: 'Reload from disk',
+            busyLabel: 'Reloading…',
+            destructive: true,
+            onConfirm: async () => {
+                save?.reload();
+                return { ok: true, value: null };
+            },
+        });
+    const saveAsNewFlow = () => {
+        const name = `${flowName} (my changes)`;
+        setConfirm({
+            title: `Save your changes as "${name}"?`,
+            description: 'A new flow next to this one takes your changes; this one keeps its file as it is on disk.',
+            confirmLabel: 'Save as a new flow',
+            busyLabel: 'Saving…',
+            onConfirm: async () => {
+                const file = draftNow();
+                if (!file || !current?.flow) {
+                    return { ok: false, error: { code: 'not-found', message: 'The flow is not open.' } };
+                }
+                const created = await createFlow(projectId, { name, folderId: current.flow.folderId });
+                if (!created.ok) {
+                    return created;
+                }
+                const id = created.value.id;
+                const opened = await getDraft(id);
+                if (!opened.ok) {
+                    return opened;
+                }
+                const nodes = file.nodes.map(({ pinned: _pinned, ...node }) => node);
+                const saved = await saveDraft(id, opened.value.revision, { ...file, id, name, nodes });
+                if (saved.ok) {
+                    void navigate(`/w/${ws}/projects/${projectId}/flows/${id}`);
+                }
+                return saved;
+            },
+        });
+    };
     // a port's count clicked on the canvas: the panel shows it
     const [show, setShow] = useState<{ nodeId: string; port: string; at: number } | null>(null);
     // the flow opened (or another one): its latest run that ended and the full test run, from the server, until one
@@ -401,7 +447,7 @@ export function FlowEditorPage() {
                     project={project.status === 'ready' ? project.project : null}
                     folders={current?.folders}
                     flowName={flowName}
-                    after={<BranchPicker handle={ws} />}
+                    after={local ? <LocalHeadMark handle={ws} /> : <BranchPicker handle={ws} />}
                 />
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                     {onBranch &&
@@ -424,6 +470,7 @@ export function FlowEditorPage() {
                         ))}
                     <SaveStatus
                         save={save}
+                        disk={local ? { onReload: reloadFromDisk, onSaveAsNew: saveAsNewFlow } : undefined}
                         archived={
                             archived
                                 ? {

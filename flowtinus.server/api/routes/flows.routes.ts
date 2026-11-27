@@ -42,6 +42,8 @@ import { memberWorkspaces, runContext } from '../middlewares/run-context';
 
 const EMERGENCY_ROLLBACK = "the emergency rollback (a rollback is git's)";
 
+const DEPLOY = 'Deploy (a save writes the file, and the last valid tree on disk is what runs)';
+
 export function flowsRoutes() {
     return new Hono<AppEnv>()
         .get('/:id', async c => {
@@ -108,7 +110,7 @@ export function flowsRoutes() {
         .get('/:id/deployments', async c =>
             toHttpResult(c, await new GetDeploymentsHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
-        .post('/:id/deploy', async c =>
+        .post('/:id/deploy', offOnLocalServer(DEPLOY), async c =>
             toHttpResult(
                 c,
                 await new DeployFlowHandler().handle(
@@ -117,7 +119,7 @@ export function flowsRoutes() {
                 ),
             ),
         )
-        .post('/:id/versions/:versionId/deploy', async c =>
+        .post('/:id/versions/:versionId/deploy', offOnLocalServer(DEPLOY), async c =>
             toHttpResult(
                 c,
                 await new DeployVersionHandler().handle({ id: c.req.param('id'), versionId: c.req.param('versionId') }, c.get('useCase')),
@@ -147,7 +149,7 @@ export function flowsRoutes() {
         .post('/:id/emergency-rollback/match-git', offOnLocalServer(EMERGENCY_ROLLBACK), async c =>
             toHttpResult(c, await new MakeGitMatchHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
-        .post('/:id/undeploy', async c =>
+        .post('/:id/undeploy', offOnLocalServer(DEPLOY), async c =>
             toHttpResult(c, await new UndeployFlowHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
         .post('/:id/versions/:versionId/restore-draft', async c =>

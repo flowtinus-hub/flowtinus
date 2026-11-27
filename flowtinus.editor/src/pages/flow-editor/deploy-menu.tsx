@@ -93,6 +93,7 @@ export function DeployMenu({
     const [compareOpen, setCompareOpen] = useState(false);
     const [resolving, setResolving] = useState<string | null>(null);
     const unsaved = useUnsavedWork();
+    const local = isLocalServer(useServerConnection());
     const [committing, setCommitting] = useState<{ number: number; warnings: string[]; saved: boolean; scripts: string[] } | null>(null);
     const current = deployments?.flowId === flowId ? deployments.value : NO_DEPLOYMENTS;
     const git = current.git;
@@ -351,7 +352,7 @@ export function DeployMenu({
     const restore = (version: FlowVersion) =>
         confirm({
             title: `Restore the draft from v${version.number}?`,
-            description: 'The draft as it is now is replaced.',
+            description: local ? "The flow's file on disk is replaced." : 'The draft as it is now is replaced.',
             confirmLabel: 'Restore draft',
             busyLabel: 'Restoring…',
             destructive: true,
@@ -380,6 +381,32 @@ export function DeployMenu({
         });
 
     const nothingToDeploy = state.kind === 'deployed' && !state.changed && !current.changedScripts?.length && !current.triggersChanged;
+
+    // on a local server a save writes the file and the last valid tree on disk is what runs: no Deploy, no Commit
+    if (local) {
+        return (
+            <>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-card shadow-md"
+                    disabled={disabled || current.versions.length === 0}
+                    title="The versions made from disk: a save writes the file, and the last valid tree on disk is what runs"
+                    onClick={() => setVersionsOpen(true)}
+                >
+                    <History /> Versions
+                    {current.versions.length > 0 && <span className="text-xs text-muted-foreground">{current.versions.length}</span>}
+                </Button>
+                <VersionsDialog
+                    open={versionsOpen}
+                    onClose={() => setVersionsOpen(false)}
+                    deployments={current}
+                    busy={busy}
+                    onRestore={restore}
+                />
+            </>
+        );
+    }
 
     return (
         <>

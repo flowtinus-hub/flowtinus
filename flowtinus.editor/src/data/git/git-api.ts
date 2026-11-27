@@ -56,7 +56,11 @@ export type DiskStatus = {
     refused: { errors: TreeIssue[]; since: string } | null;
     warnings: TreeIssue[];
     gone: string | null;
+    head: LocalHead;
 };
+
+/** what git has checked out on a local server's clone: the sha is null on a branch with no commit yet */
+export type LocalHead = { branch: string | null; sha: string | null };
 
 export type GitStatus =
     | { on: false; disk?: DiskStatus }

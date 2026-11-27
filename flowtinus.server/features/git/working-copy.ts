@@ -227,7 +227,7 @@ export async function mergeText(ours: string, base: string, theirs: string): Pro
     }
 }
 
-const mergedIsValid = (path: string, text: string) => {
+export const mergedIsValid = (path: string, text: string) => {
     const entry = repoEntry(path);
     return entry.kind !== 'flow' || repoFlowFromYaml(text, entry.name).ok;
 };

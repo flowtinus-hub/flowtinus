@@ -16,3 +16,17 @@ export function refuseOnLocalServer(git: GitOptions | undefined, what: string): 
           )
         : null;
 }
+
+export type LocalHead = { branch: string | null; sha: string | null };
+
+const gitOut = async (repo: string, args: string[]) => {
+    const run = Bun.spawn(['git', '-C', repo, ...args], { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore' });
+    const [out, code] = await Promise.all([new Response(run.stdout).text(), run.exited]);
+    return code === 0 ? out.trim() : null;
+};
+
+/** a branch with no commit yet (a new repository) has no sha */
+export const localHead = async (repo: string): Promise<LocalHead> => ({
+    branch: await gitOut(repo, ['symbolic-ref', '--short', '-q', 'HEAD']),
+    sha: await gitOut(repo, ['rev-parse', '--short', '-q', '--verify', 'HEAD']),
+});

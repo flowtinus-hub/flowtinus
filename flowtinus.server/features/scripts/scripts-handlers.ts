@@ -1,4 +1,5 @@
 import { createScriptOnBranch, deleteScriptOnBranch, moveScriptOnBranch, saveScriptOnBranch } from '#features/git/branch-edits';
+import { inWorkingCopy } from '#features/git/disk-write';
 import { refuseOffEditableBranch } from '#features/git/current-branch';
 import { z } from 'zod';
 import { changeTree } from '#features/git/git-first';
@@ -154,7 +155,7 @@ export class SaveScriptHandler implements UseCaseHandler<{ revision: number }> {
         if (!(await getScript(ctx.db, ctx.workspaceId, id, target))) {
             return fail('not-found', 'Script not found.');
         }
-        const saved = await ctx.db.transaction(db => writeScript(db, ctx.workspaceId, id, target, content, ctx.userId, revision));
+        const saved = await inWorkingCopy(ctx, db => writeScript(db, ctx.workspaceId, id, target, content, ctx.userId, revision));
         return saved === null ? conflict() : success({ revision: saved });
     }
 }
