@@ -193,7 +193,7 @@ export function FlowEditorPage() {
             },
         });
     const saveAsNewFlow = () => {
-        const name = `${flowName} (my changes)`;
+        const name = `${flowName} (my draft)`;
         setConfirm({
             title: `Save your changes as "${name}"?`,
             description: 'A new flow next to this one takes your changes; this one keeps its file as it is on disk.',
