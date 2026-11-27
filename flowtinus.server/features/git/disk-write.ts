@@ -4,7 +4,7 @@ import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { reconcileFromDisk } from './disk-reconcile';
-import { isLocalServer, localRepoOf } from './local-server';
+import { localRepoOf } from './local-server';
 import { exportTree, type Tree } from './workspace-export';
 import { canonical, mergedIsValid, mergeText } from './working-copy';
 
@@ -19,20 +19,20 @@ export function readDiskText(root: string, path: string): string | null {
     }
 }
 
-const same = (path: string, a: string, b: string) => a === b || canonical(path, a) === canonical(path, b);
+const sameText = (path: string, a: string, b: string) => a === b || canonical(path, a) === canonical(path, b);
 
-async function settled(root: string, change: DiskChange): Promise<{ text: string | null } | null> {
+async function textToWrite(root: string, change: DiskChange): Promise<{ text: string | null } | null> {
     const { path, text, base, was = path } = change;
     const theirs = readDiskText(root, was);
     const taken = was !== path ? readDiskText(root, path) : null;
-    if (taken !== null && (text === null || !same(path, taken, text))) {
+    if (taken !== null && (text === null || !sameText(path, taken, text))) {
         return null;
     }
-    if (theirs === null ? base === null : base !== null && same(was, theirs, base)) {
+    if (theirs === null ? base === null : base !== null && sameText(was, theirs, base)) {
         return { text };
     }
     if (text === null || base === null || theirs === null) {
-        return theirs !== null && text !== null && same(path, theirs, text) ? { text } : null;
+        return theirs !== null && text !== null && sameText(path, theirs, text) ? { text } : null;
     }
     const merged = await mergeText(canonical(path, text), canonical(was, base), canonical(was, theirs));
     return merged !== null && mergedIsValid(path, merged) ? { text: merged } : null;
@@ -48,15 +48,11 @@ function prune(root: string, path: string): void {
     }
 }
 
-/**
- * Each change merged three ways with the disk when the disk moved since its base; nothing is written unless every one
- * of them settles. Answers what was written per path, or the paths that conflict.
- */
 export async function writeDisk(
     root: string,
     changes: DiskChange[],
 ): Promise<{ ok: true; written: Record<string, string> } | { ok: false; conflicts: string[] }> {
-    const results = await Promise.all(changes.map(async change => ({ change, result: await settled(root, change) })));
+    const results = await Promise.all(changes.map(async change => ({ change, result: await textToWrite(root, change) })));
     const conflicts = results.filter(r => r.result === null).map(r => r.change.was ?? r.change.path);
     if (conflicts.length > 0) {
         return { ok: false, conflicts };
@@ -104,12 +100,12 @@ function treeChanges(before: Tree, after: Tree): DiskChange[] {
 export const changedOnDisk = (paths: string[]) =>
     `${paths.join(', ')} changed on disk since, and the change cannot be merged with this one: nothing was written.`;
 
-/**
- * On a local server the working copy lives only for the request: what `work` writes to it is written to the files, the
- * rows go, and the disk is reconciled once the change is in.
- */
-export async function changeOnDisk<T>(ctx: UseCaseContext, workspaceIds: string[], work: (db: Database) => Promise<T>): Promise<T> {
-    const root = localRepoOf(ctx.git)!;
+export async function changeOnDisk<T>(
+    ctx: UseCaseContext,
+    root: string,
+    workspaceIds: string[],
+    work: (db: Database) => Promise<T>,
+): Promise<T> {
     const value = await ctx.db.transaction(async tx => {
         const before = [];
         for (const workspaceId of workspaceIds) {
@@ -133,6 +129,7 @@ export async function changeOnDisk<T>(ctx: UseCaseContext, workspaceIds: string[
     return value;
 }
 
-/** a write of the working copy outside a change of the tree: to the files on a local server */
-export const inWorkingCopy = <T>(ctx: UseCaseContext, work: (db: Database) => Promise<T>): Promise<T> =>
-    isLocalServer(ctx.git) ? changeOnDisk(ctx, [ctx.workspaceId], work) : ctx.db.transaction(work);
+export function inWorkingCopy<T>(ctx: UseCaseContext, work: (db: Database) => Promise<T>): Promise<T> {
+    const root = localRepoOf(ctx.git);
+    return root ? changeOnDisk(ctx, root, [ctx.workspaceId], work) : ctx.db.transaction(work);
+}

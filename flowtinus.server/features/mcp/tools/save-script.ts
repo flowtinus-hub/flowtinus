@@ -16,7 +16,7 @@ export const saveScript = defineTool({
     name: 'save_script',
     scope: 'flows:write',
     description:
-        "Creates a project script (TypeScript) or replaces its code. A new one: no expectedRevision. An existing one: expectedRevision is the revision get_script (or the last save) gave; when someone saved in between it is refused (conflict) with the current revision, never overwriting a person's change. The code is checked for syntax first (refused when it does not compile). Answers the revision and what the script exports. With git off, a change applies to every flow that uses the script, deployed ones included; with git on, it changes the copy being edited (test runs use it), and deployed flows take it once it is committed in the editor.",
+        "Creates a project script (TypeScript) or replaces its code. A new one: no expectedRevision. An existing one: expectedRevision is the revision get_script (or the last save) gave; when someone saved in between it is refused (conflict) with the current revision, never overwriting a person's change. The code is checked for syntax first (refused when it does not compile). Answers the revision and what the script exports. With git off, a change applies to every flow that uses the script, deployed ones included; with git on, it changes the copy being edited (test runs use it), and deployed flows take it once it is committed in the editor; on a local server it is written to the script's file on disk, and deployed flows take it at once.",
     input: {
         projectId: id('the project'),
         path: z.string().describe("folders/name, no .ts (e.g. 'pricing/tax'); new folders are made as needed"),

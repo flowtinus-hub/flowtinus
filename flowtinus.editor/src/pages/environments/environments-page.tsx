@@ -7,7 +7,7 @@ import { useResource } from '@/data/use-resource';
 import { shortSha } from '@/data/deployments/deployment';
 import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { getEnvironments, getGitStatus, GIT_STATUS_CHANGED, type EnvironmentCard, type EnvironmentEdge, type Environments, type FlowCell, type FlowRow, type GitStatus, type PromotionState } from '@/data/git/git-api';
-import { isLocalServer, useServerConnection } from '@/lib/server-connection';
+import { useLocalServer } from '@/lib/server-connection';
 import { cn } from '@/lib/utils';
 import { WorkspacePage } from '@/pages/workspaces/workspace-page';
 import { ArchivedConnectionsPanel } from './archived-connections-panel';
@@ -20,11 +20,7 @@ const MODE_LABEL = { direct: 'Direct', 'pull-request': 'Pull requests', protecte
 
 export function EnvironmentsPage() {
     const { handle } = useWorkspace();
-    return isLocalServer(useServerConnection()) ? (
-        <Navigate to={`${workspaceSettingsPath(handle)}?tab=git#git`} replace />
-    ) : (
-        <EnvironmentsOfServer />
-    );
+    return useLocalServer() ? <Navigate to={`${workspaceSettingsPath(handle)}?tab=git#git`} replace /> : <EnvironmentsOfServer />;
 }
 
 function EnvironmentsOfServer() {

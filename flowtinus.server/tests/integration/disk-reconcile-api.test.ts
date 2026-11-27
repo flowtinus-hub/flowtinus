@@ -99,7 +99,7 @@ describe('a local server reconciles the disk', () => {
         const options = gitOptions('LOCAL', { clonesDir: join(dir, 'clones'), localRepo: repo });
         app = createApp(db, 'LOCAL', keyring, undefined, { git: options });
         clock = 0;
-        poller = new DiskPoller(db, options, keyring, undefined, () => clock);
+        poller = new DiskPoller(db, options, repo, keyring, undefined, () => clock);
     });
 
     afterEach(async () => {
@@ -259,11 +259,13 @@ describe('a local server reconciles the disk', () => {
         expect((await call('GET', '/w/sales/git/status')).body.disk.warnings).toEqual([]);
 
         renameSync(join(repo, paths.orders), join(repo, renamed));
-        write({ [paths.prices]: "export const price = 'v2';" });
         clock += 1000;
         expect(await settle()).toBe('reconciled');
         expect((await call('GET', '/w/sales/git/status')).body.disk.warnings).toEqual([
             { path: renamed, message: `renamed only in case on disk; git still has \`${paths.orders}\`: use \`git mv\`` },
+        ]);
+        expect((await call('GET', `/w/sales/projects/${ids.sales}/contents`)).body.flows).toEqual([
+            expect.objectContaining({ id: ids.orders, name: 'ORDERS' }),
         ]);
 
         renameSync(join(repo, renamed), join(repo, paths.orders));

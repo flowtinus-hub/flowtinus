@@ -2,7 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { requireScope } from '#features/api-tokens/api-tokens';
 import type { UseCaseError } from '#shared/use-cases/use-case-result';
-import { buildFlowPrompt, debugRunPrompt, SERVER_INSTRUCTIONS } from './prompts';
+import { isLocalServer } from '#features/git/local-server';
+import { buildFlowPrompt, debugRunPrompt, serverInstructions } from './prompts';
 import { registerResources } from './resources';
 import { MCP_TOOLS } from './tools';
 import { failed, toolContext, type McpOptions } from './tools/tool';
@@ -23,7 +24,10 @@ export { DEFAULT_TEST_RUN_WAIT_S, MAX_TEST_RUN_WAIT_S } from './tools/test-run';
  */
 
 export function createMcpServer(options: McpOptions): McpServer {
-    const server = new McpServer({ name: 'flowtinus', version: '0.1.0' }, { instructions: SERVER_INSTRUCTIONS });
+    const server = new McpServer(
+        { name: 'flowtinus', version: '0.1.0' },
+        { instructions: serverInstructions(isLocalServer(options.ctx.git)) },
+    );
     const base = toolContext(options);
     const scoped = async (args: Record<string, unknown>) => {
         const found = await workspaceOfCall(options.ctx, args);

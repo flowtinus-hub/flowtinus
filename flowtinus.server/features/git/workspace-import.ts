@@ -218,6 +218,19 @@ export type { RenamedDraft };
  */
 export type ImportOptions = { from: 'turn-on' } | { from: 'commit'; commit: string; by: string | null } | { from: 'disk' };
 
+const commitOf = (options: ImportOptions): string | null => (options.from === 'commit' ? options.commit : null);
+
+function importerOf(options: ImportOptions, userId: string): string | null {
+    switch (options.from) {
+        case 'commit':
+            return options.by;
+        case 'disk':
+            return null;
+        case 'turn-on':
+            return userId;
+    }
+}
+
 export async function importWorkspace(
     ctx: UseCaseContext,
     handle: string,
@@ -231,7 +244,7 @@ export async function importWorkspace(
         }
     }
 
-    const commit = options.from === 'commit' ? options.commit : null;
+    const commit = commitOf(options);
     const renamedDrafts = commit ? await followGit(ctx.db, ctx.workspaceId, files, commit) : [];
     const working = commit ? await overlay(ctx.db, ctx.workspaceId, files) : files;
     await importStructure(ctx, handle, working, { keep: options.from !== 'turn-on', tip: files, commit });
@@ -503,8 +516,8 @@ async function importFlowPlaces(
 
 async function importDeployed(ctx: UseCaseContext, handle: string, files: RepoFiles, options: ImportOptions): Promise<void> {
     const { db, workspaceId, userId } = ctx;
-    const commit = options.from === 'commit' ? options.commit : null;
-    const by = { workspaceId, userId: options.from === 'commit' ? options.by : options.from === 'disk' ? null : userId };
+    const commit = commitOf(options);
+    const by = { workspaceId, userId: importerOf(options, userId) };
     const entries = entriesOf(files, handle);
     const inTree = entries.flows.map(({ text, entry }) => read(repoFlowFromYaml(text, nfc(entry.name))));
     const ids = inTree.map(f => f.flow.id!);
@@ -517,7 +530,7 @@ async function importDeployed(ctx: UseCaseContext, handle: string, files: RepoFi
             db,
             by,
             gone.map(f => f.flow_id),
-            { commit },
+            { by: 'import', commit },
         );
     }
     const known = new Set(
@@ -578,7 +591,7 @@ async function importScripts(
     options: ImportOptions,
 ): Promise<void> {
     const { db, workspaceId, userId } = ctx;
-    const commit = options.from === 'commit' ? options.commit : null;
+    const commit = commitOf(options);
     const inTree = new Map<string, { projectId: string; path: string; text: string }>();
     for (const { text, entry } of scripts) {
         const projectId = projectIds.get(entry.project)!;

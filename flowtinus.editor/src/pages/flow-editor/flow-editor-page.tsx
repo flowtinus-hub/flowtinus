@@ -20,7 +20,7 @@ import { SchedulesMenu, startOf } from './schedules-menu';
 import { WebhooksMenu } from './webhooks-menu';
 import { GitSchedulesMenu, GitWebhooksMenu, type TriggerWindowProps } from './trigger-windows';
 import type { FlowVersion } from '@/data/deployments/deployment';
-import { isLocalServer, useServerConnection } from '@/lib/server-connection';
+import { useLocalServer, useServerConnection } from '@/lib/server-connection';
 import type { DraftSave } from '@/editor/flow-save';
 import { shortcutsBusy } from '@/editor/history';
 import { FlowCanvas, type CanvasHandle } from './flow-canvas';
@@ -178,7 +178,7 @@ export function FlowEditorPage() {
     const [runError, setRunError] = useState('');
     const [panelOpen, setPanelOpen] = useState(false);
     const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
-    const local = isLocalServer(connection);
+    const local = useLocalServer();
     const navigate = useNavigate();
     const reloadFromDisk = () =>
         setConfirm({
@@ -193,7 +193,7 @@ export function FlowEditorPage() {
             },
         });
     const saveAsNewFlow = () => {
-        const name = `${flowName} (my changes)`;
+        const name = `${flowName} (my draft)`;
         setConfirm({
             title: `Save your changes as "${name}"?`,
             description: 'A new flow next to this one takes your changes; this one keeps its file as it is on disk.',

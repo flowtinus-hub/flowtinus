@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { LOCAL_ENVIRONMENT } from '@flowtinus/core';
 
 /*
  * Whether flowtinus.server answers, shared by the whole app. Nothing polls while online: the app's own requests
@@ -8,12 +9,6 @@ import { useEffect, useSyncExternalStore } from 'react';
  */
 
 export type ServerConnection = { state: 'checking' } | { state: 'online'; environment: string } | { state: 'offline' };
-
-/** what /health says a local server is: one on a developer's clone (LOCAL_REPO), where git is the developer's */
-export const LOCAL_ENVIRONMENT = 'LOCAL';
-
-export const isLocalServer = (connection: ServerConnection) =>
-    connection.state === 'online' && connection.environment === LOCAL_ENVIRONMENT;
 
 const TIMEOUT_MS = 3_000;
 const RETRY_FIRST_MS = 1_000;
@@ -137,4 +132,9 @@ export function useServerConnection(): ServerConnection {
     }, []);
 
     return current;
+}
+
+export function useLocalServer(): boolean {
+    const current = useServerConnection();
+    return current.state === 'online' && current.environment === LOCAL_ENVIRONMENT;
 }

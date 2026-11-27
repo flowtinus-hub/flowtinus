@@ -6,7 +6,7 @@ import { CHANGES_CHANGED, getChanges } from '@/data/git/git-api';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { useMe, useMenuWorkspace } from '@/data/workspaces/use-workspace';
 import { API_WRITE_DONE } from '@/lib/api';
-import { isLocalServer, useServerConnection } from '@/lib/server-connection';
+import { useLocalServer } from '@/lib/server-connection';
 import { BranchPicker } from './branch-picker';
 import { ChangesDialog } from './changes-dialog';
 import { LocalHeadMark } from './local-head';
@@ -69,7 +69,7 @@ export function SourceControlBar() {
     const { pathname } = useLocation();
     const { state } = useMe();
     const current = useMenuWorkspace(state.status === 'ready' ? state.me.workspaces : []);
-    const local = isLocalServer(useServerConnection());
+    const local = useLocalServer();
     if (!current) {
         return null;
     }

@@ -9,18 +9,18 @@ import { requireRole } from '#shared/use-cases/require-role';
 import type { UseCaseHandler } from '#shared/use-cases/use-case-handler';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
 import { validate } from '#shared/use-cases/validate';
-import { writeDraft } from '../flow-draft';
+import { fileHash, REVISION, savesCounted, writeDraft, type Revision } from '../flow-draft';
 import { saveDiskDraft } from '../disk-draft';
-import { isLocalServer } from '#features/git/local-server';
+import { localRepoOf } from '#features/git/local-server';
 
 export const SaveDraftCommand = z.object({
     id: z.uuid('Invalid'),
-    revision: z.union([z.number().int().min(0), z.string()]),
+    revision: REVISION,
     flow: z.unknown(),
 });
 
-export class SaveDraftHandler implements UseCaseHandler<{ revision: number | string }> {
-    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ revision: number | string }>> {
+export class SaveDraftHandler implements UseCaseHandler<{ revision: Revision }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ revision: Revision }>> {
         const denied = requireRole(ctx, 'editor');
         if (denied) {
             return denied;
@@ -31,13 +31,14 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number | str
             return parsed;
         }
         const { id, revision } = parsed.value;
+        const counted = savesCounted(revision);
         const branch = await workBranch(ctx);
         if (branch) {
             const checked = validateFlowFile(parsed.value.flow);
             if (!checked.ok) {
                 return fail('validation', `The flow is not valid: ${checked.errors.join(' ')}`);
             }
-            return typeof revision === 'number' ? saveDraftOnBranch(ctx, branch, { id, revision, flow: checked.value }) : conflict();
+            return counted === null ? conflict() : saveDraftOnBranch(ctx, branch, { id, revision: counted, flow: checked.value });
         }
         await refuseOffEditableBranch(ctx.db, ctx.workspaceId, ctx.userId);
 
@@ -52,14 +53,15 @@ export class SaveDraftHandler implements UseCaseHandler<{ revision: number | str
             return fail('validation', `The flow is not valid: ${checked.errors.join(' ')}`);
         }
 
-        if (isLocalServer(ctx.git)) {
-            return saveDiskDraft(ctx, row, checked.value, revision);
+        const root = localRepoOf(ctx.git);
+        if (root) {
+            return saveDiskDraft(ctx, root, row, checked.value, fileHash(revision));
         }
-        if (typeof revision === 'string') {
+        if (counted === null) {
             return conflict();
         }
         const saved = await ctx.db.transaction(db =>
-            writeDraft(db, ctx.workspaceId, row, { ...checked.value, id: row.id, name: row.name }, ctx.userId, revision),
+            writeDraft(db, ctx.workspaceId, row, { ...checked.value, id: row.id, name: row.name }, ctx.userId, counted),
         );
         return saved === null ? conflict() : success({ revision: saved });
     }

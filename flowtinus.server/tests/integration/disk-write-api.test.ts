@@ -96,7 +96,7 @@ describe('on a local server the editor and the MCP write to disk', () => {
             [paths.orders]: repoFlowToYaml(twoLogs(ids.orders, 'one', 'two')),
             [paths.prices]: "export const price = 'v1';",
         });
-        await reconcileDisk({ db, keyring, git: options });
+        await reconcileDisk({ db, keyring, git: options }, repo);
     });
 
     afterEach(async () => {
@@ -143,6 +143,25 @@ describe('on a local server the editor and the MCP write to disk', () => {
         expect(read(paths.orders)).toBe(theirs);
     });
 
+    test("a file that does not read is shown as last applied, its revision the file's hash; a save on it is merged, not written over it", async () => {
+        const broken = `<<<<<<< HEAD\n${repoFlowToYaml(twoLogs(ids.orders, 'one', 'dos'))}=======\n>>>>>>> theirs\n`;
+        write({ [paths.orders]: broken });
+
+        const { flow, revision } = await draft();
+        expect(messages(flow)).toEqual(['one', 'two']);
+        expect(revision).toBe(new Bun.CryptoHasher('sha256').update(broken).digest('hex'));
+
+        const saved = await call('PUT', `/w/sales/flows/${ids.orders}/draft`, { revision, flow: twoLogs(ids.orders, 'uno', 'two') });
+        expect(saved.status).toBe(409);
+        expect(read(paths.orders)).toBe(broken);
+
+        const fixed = repoFlowToYaml(twoLogs(ids.orders, 'one', 'tres'));
+        write({ [paths.orders]: fixed });
+        const stale = await call('PUT', `/w/sales/flows/${ids.orders}/draft`, { revision, flow: twoLogs(ids.orders, 'one', 'two') });
+        expect(stale.status).toBe(409);
+        expect(read(paths.orders)).toBe(fixed);
+    });
+
     test('tree changes write the files: a new flow, a rename that moves its file, a folder, a script; Deploy is off', async () => {
         const created = await call('POST', `/w/sales/projects/${ids.sales}/flows`, { name: 'Refunds', folderId: null });
         expect(created.status).toBe(201);
@@ -184,6 +203,11 @@ describe('on a local server the editor and the MCP write to disk', () => {
             const result = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
             return { isError: result.isError, body: JSON.parse(result.content[0]!.text) };
         };
+
+        expect(client.getInstructions()).toContain('written to its file on disk');
+        expect(client.getInstructions()).not.toContain('which the user commits in the editor');
+        const { tools } = await client.listTools();
+        expect(tools.find(tool => tool.name === 'save_script')!.description).toContain('on a local server');
 
         const got = await mcp('get_flow', { flowId: ids.orders });
         expect(got.body.revision).toBe(new Bun.CryptoHasher('sha256').update(read(paths.orders)).digest('hex'));

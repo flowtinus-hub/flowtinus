@@ -23,7 +23,7 @@ import type { ApiResult } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
-import { isLocalServer, useServerConnection } from '@/lib/server-connection';
+import { useLocalServer } from '@/lib/server-connection';
 
 /** the chip on the Deploy button */
 export function DeployBadge({ state, emergencyRollback }: { state: DeployState; emergencyRollback?: EmergencyRollback }) {
@@ -93,7 +93,7 @@ export function DeployMenu({
     const [compareOpen, setCompareOpen] = useState(false);
     const [resolving, setResolving] = useState<string | null>(null);
     const unsaved = useUnsavedWork();
-    const local = isLocalServer(useServerConnection());
+    const local = useLocalServer();
     const [committing, setCommitting] = useState<{ number: number; warnings: string[]; saved: boolean; scripts: string[] } | null>(null);
     const current = deployments?.flowId === flowId ? deployments.value : NO_DEPLOYMENTS;
     const git = current.git;
@@ -727,7 +727,7 @@ export function VersionsDialog(props: {
 }) {
     const { open, onClose, deployments, busy, onSwitch, onEmergencyRollback, onEndEmergencyRollback, onRestore } = props;
     const deployed = deployedVersion(deployments);
-    const local = isLocalServer(useServerConnection());
+    const local = useLocalServer();
 
     return (
         <Dialog open={open} onOpenChange={isOpen => !isOpen && onClose()}>

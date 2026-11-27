@@ -1,30 +1,9 @@
 import { GitBranch, GitCommitHorizontal } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { getGitStatus, type LocalHead } from '@/data/git/git-api';
+import { useGitStatus } from '@/data/git/git-status';
 
-const HEAD_MS = 5_000;
-
-/** on a local server, in place of the branch picker: what git has checked out on the clone, read-only */
 export function LocalHeadMark({ handle }: { handle: string }) {
-    const [head, setHead] = useState<{ handle: string; value: LocalHead } | null>(null);
-    useEffect(() => {
-        let gone = false;
-        const read = () =>
-            void getGitStatus(handle).then(result => {
-                const value = result.ok && !result.value.on ? result.value.disk?.head : undefined;
-                if (!gone && value) {
-                    setHead({ handle, value });
-                }
-            });
-        read();
-        const timer = setInterval(read, HEAD_MS);
-        return () => {
-            gone = true;
-            clearInterval(timer);
-        };
-    }, [handle]);
-
-    const value = head?.handle === handle ? head.value : null;
+    const status = useGitStatus(handle);
+    const value = status && !status.on ? status.disk?.head : undefined;
     if (!value) {
         return null;
     }

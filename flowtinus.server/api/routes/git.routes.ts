@@ -28,6 +28,8 @@ const OFF = {
     HOTFIX: 'hotfix',
     COMMIT: 'committing',
     PULL: 'a pull request',
+    BRANCH: 'a branch of the editor (create it, switch to it, update it)',
+    WORKING_COPY: 'the working copy (its changes, discard and conflicts)',
 };
 
 export function gitRoutes(options: GitOptions) {
@@ -82,27 +84,39 @@ export function gitRoutes(options: GitOptions) {
         )
         .get('/arrived-disabled', async c => toHttpResult(c, await new ListArrivedDisabledHandler().handle({}, c.get('useCase'))))
         .get('/branches', async c => toHttpResult(c, await new ListBranchesHandler(options).handle({}, c.get('useCase'))))
-        .post('/branches', async c => toHttpResult(c, await new CreateBranchHandler().handle(await jsonBody(c), c.get('useCase')), 201))
+        .post('/branches', offOnLocalServer(OFF.BRANCH), async c =>
+            toHttpResult(c, await new CreateBranchHandler().handle(await jsonBody(c), c.get('useCase')), 201),
+        )
         .post('/hotfix', offOnLocalServer(OFF.HOTFIX), async c =>
             toHttpResult(c, await new CreateHotfixHandler().handle(await jsonBody(c), c.get('useCase')), 201),
         )
         .get('/current-branch', async c => toHttpResult(c, await new GetCurrentBranchHandler().handle({}, c.get('useCase'))))
-        .put('/current-branch', async c => toHttpResult(c, await new SetCurrentBranchHandler().handle(await jsonBody(c), c.get('useCase'))))
+        .put('/current-branch', offOnLocalServer(OFF.BRANCH), async c =>
+            toHttpResult(c, await new SetCurrentBranchHandler().handle(await jsonBody(c), c.get('useCase'))),
+        )
         .post('/hook-token', offOnLocalServer(OFF.HOOK), async c =>
             toHttpResult(c, await new RenewHookTokenHandler().handle({}, c.get('useCase'))),
         )
-        .get('/changes', async c => toHttpResult(c, await new GetChangesHandler().handle({}, c.get('useCase'))))
+        .get('/changes', offOnLocalServer(OFF.WORKING_COPY), async c =>
+            toHttpResult(c, await new GetChangesHandler().handle({}, c.get('useCase'))),
+        )
         .get('/diff', async c => toHttpResult(c, await new GetFileDiffHandler().handle({ path: c.req.query('path') }, c.get('useCase'))))
         .post('/commit', offOnLocalServer(OFF.COMMIT), async c =>
             toHttpResult(c, await new CommitChangesHandler().handle(await jsonBody(c), c.get('useCase'))),
         )
-        .post('/discard', async c => toHttpResult(c, await new DiscardChangesHandler().handle(await jsonBody(c), c.get('useCase'))))
-        .get('/update', async c => toHttpResult(c, await new GetUpdateHandler().handle({}, c.get('useCase'))))
-        .post('/update', async c => toHttpResult(c, await new UpdateBranchHandler().handle({}, c.get('useCase'))))
-        .get('/conflict', async c =>
+        .post('/discard', offOnLocalServer(OFF.WORKING_COPY), async c =>
+            toHttpResult(c, await new DiscardChangesHandler().handle(await jsonBody(c), c.get('useCase'))),
+        )
+        .get('/update', offOnLocalServer(OFF.BRANCH), async c => toHttpResult(c, await new GetUpdateHandler().handle({}, c.get('useCase'))))
+        .post('/update', offOnLocalServer(OFF.BRANCH), async c =>
+            toHttpResult(c, await new UpdateBranchHandler().handle({}, c.get('useCase'))),
+        )
+        .get('/conflict', offOnLocalServer(OFF.WORKING_COPY), async c =>
             toHttpResult(c, await new GetConflictHandler().handle({ path: c.req.query('path') }, c.get('useCase'))),
         )
-        .post('/conflict', async c => toHttpResult(c, await new ResolveConflictHandler().handle(await jsonBody(c), c.get('useCase'))))
+        .post('/conflict', offOnLocalServer(OFF.WORKING_COPY), async c =>
+            toHttpResult(c, await new ResolveConflictHandler().handle(await jsonBody(c), c.get('useCase'))),
+        )
         .post('/pull-request', offOnLocalServer(OFF.PULL), async c =>
             toHttpResult(c, await new OpenPullRequestHandler().handle(await jsonBody(c), c.get('useCase'))),
         )

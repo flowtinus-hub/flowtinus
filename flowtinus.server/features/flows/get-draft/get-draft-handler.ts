@@ -9,7 +9,7 @@ import { validate } from '#shared/use-cases/validate';
 import { flows } from '../flow';
 import { loadDraft, type FlowDraft } from '../flow-draft';
 import { loadDiskDraft } from '../disk-draft';
-import { isLocalServer } from '#features/git/local-server';
+import { localRepoOf } from '#features/git/local-server';
 
 export const GetDraftQuery = z.object({ id: z.uuid('Invalid') });
 
@@ -30,6 +30,7 @@ export class GetDraftHandler implements UseCaseHandler<FlowDraft> {
         if (!flow) {
             return fail('not-found', 'Flow not found.');
         }
-        return success(isLocalServer(ctx.git) ? await loadDiskDraft(ctx, flow) : await loadDraft(ctx.db, ctx.workspaceId, flow));
+        const root = localRepoOf(ctx.git);
+        return success(root ? await loadDiskDraft(ctx, root, flow) : await loadDraft(ctx.db, ctx.workspaceId, flow));
     }
 }
