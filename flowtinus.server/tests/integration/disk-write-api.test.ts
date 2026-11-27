@@ -185,6 +185,11 @@ describe('on a local server the editor and the MCP write to disk', () => {
             return { isError: result.isError, body: JSON.parse(result.content[0]!.text) };
         };
 
+        expect(client.getInstructions()).toContain('written to its file on disk');
+        expect(client.getInstructions()).not.toContain('which the user commits in the editor');
+        const { tools } = await client.listTools();
+        expect(tools.find(tool => tool.name === 'save_script')!.description).toContain('on a local server');
+
         const got = await mcp('get_flow', { flowId: ids.orders });
         expect(got.body.revision).toBe(new Bun.CryptoHasher('sha256').update(read(paths.orders)).digest('hex'));
         const yaml = got.body.yaml.replace('message: one', 'message: uno');
