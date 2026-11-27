@@ -11,6 +11,9 @@ import { membershipsOf, type Membership } from './memberships';
 import { workspaces, type Workspace } from './workspace';
 import { WORKSPACE_ROLES, workspaceMembers, type WorkspaceRole } from './workspace-member';
 import { projects } from '#features/projects/project';
+import { goneFromDisk } from '#features/git/disk-reconcile';
+
+const dateOrNull = (at: string | undefined) => (at ? new Date(at) : null);
 
 const NAME_MAX = 100;
 const DESCRIPTION_MAX = 500;
@@ -28,6 +31,8 @@ export type WorkspaceView = {
 };
 
 export type WorkspaceSummary = { projects: number; connections: number; secrets: number; variables: number; members: number };
+
+export type WorkspaceListItem = WorkspaceView & { summary: WorkspaceSummary; gone: Date | null };
 
 const toView = (row: Workspace, role: WorkspaceRole): WorkspaceView => ({
     id: row.id,
@@ -80,11 +85,8 @@ export const ListWorkspacesQuery = z.object({
     status: z.enum(['active', 'archived'], 'Use active or archived').default('active'),
 });
 
-export class ListWorkspacesHandler implements UseCaseHandler<{ items: (WorkspaceView & { summary: WorkspaceSummary })[] }> {
-    async handle(
-        input: unknown,
-        ctx: UseCaseContext,
-    ): Promise<UseCaseResult<{ items: (WorkspaceView & { summary: WorkspaceSummary })[] }>> {
+export class ListWorkspacesHandler implements UseCaseHandler<{ items: WorkspaceListItem[] }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ items: WorkspaceListItem[] }>> {
         const parsed = validate(ListWorkspacesQuery, input ?? {});
         if (!parsed.ok) {
             return parsed;
@@ -117,6 +119,10 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
         ORDER BY lower(w.name), w.handle`,
             [ctx.userId, parsed.value.status === 'active'],
         );
+        const gone = await goneFromDisk(
+            ctx.db,
+            rows.map(r => r.id),
+        );
         return success({
             items: rows.map(r => ({
                 id: r.id,
@@ -135,6 +141,7 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
                     variables: Number(r.variables),
                     members: Number(r.members),
                 },
+                gone: dateOrNull(gone.get(r.id)),
             })),
         });
     }

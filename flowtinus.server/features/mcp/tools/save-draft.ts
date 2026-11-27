@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { REVISION } from '#features/flows/flow-draft';
 import { GetDraftHandler } from '#features/flows/get-draft/get-draft-handler';
 import { SaveDraftHandler } from '#features/flows/save-draft/save-draft-handler';
 import { defineTool, failed, id, ok } from './tool';
@@ -11,7 +12,7 @@ export const saveDraft = defineTool({
     input: {
         flowId: id('the flow'),
         yaml: z.string().describe('the whole flow file'),
-        expectedRevision: z.number().int().min(0).describe('the revision the yaml was based on'),
+        expectedRevision: REVISION.describe('the revision the yaml was based on'),
     },
     annotations: { destructiveHint: false, idempotentHint: false },
     editsBranch: true,

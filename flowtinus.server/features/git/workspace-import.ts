@@ -211,27 +211,44 @@ export function issueFields(issues: TreeIssue[]): Record<string, string> {
 }
 export type { RenamedDraft };
 
-// a reconcile (with its commit) archives what git removed and renames a new flow whose path git takes; turning git on
-// deletes the connections and refuses the clash instead, as its preview said
-export type ImportOptions = { commit?: string; by?: string | null };
+/*
+ * A reconcile (with its commit) archives what git removed and renames a new flow whose path git takes; turning git on
+ * deletes the connections and refuses the clash instead, as its preview said. The disk of a local server is reconciled
+ * as a commit with no sha and no working copy: the disk is the working copy.
+ */
+export type ImportOptions = { from: 'turn-on' } | { from: 'commit'; commit: string; by: string | null } | { from: 'disk' };
+
+const commitOf = (options: ImportOptions): string | null => (options.from === 'commit' ? options.commit : null);
+
+function importerOf(options: ImportOptions, userId: string): string | null {
+    switch (options.from) {
+        case 'commit':
+            return options.by;
+        case 'disk':
+            return null;
+        case 'turn-on':
+            return userId;
+    }
+}
 
 export async function importWorkspace(
     ctx: UseCaseContext,
     handle: string,
     files: RepoFiles,
-    options: ImportOptions = {},
+    options: ImportOptions = { from: 'turn-on' },
 ): Promise<{ renamedDrafts: RenamedDraft[] }> {
-    if (!options.commit) {
+    if (options.from === 'turn-on') {
         const clashes = await clashingDrafts(ctx.db, ctx.workspaceId, handle, files);
         if (clashes[0]) {
             throw new ImportConflict(clashMessage(clashes[0]));
         }
     }
 
-    const renamedDrafts = options.commit ? await followGit(ctx.db, ctx.workspaceId, files, options.commit) : [];
-    const working = options.commit ? await overlay(ctx.db, ctx.workspaceId, files) : files;
-    await importStructure(ctx, handle, working, { keep: Boolean(options.commit), tip: files, commit: options.commit ?? null });
-    if (!options.commit) {
+    const commit = commitOf(options);
+    const renamedDrafts = commit ? await followGit(ctx.db, ctx.workspaceId, files, commit) : [];
+    const working = commit ? await overlay(ctx.db, ctx.workspaceId, files) : files;
+    await importStructure(ctx, handle, working, { keep: options.from !== 'turn-on', tip: files, commit });
+    if (options.from === 'turn-on') {
         await keepOnlyDrafts(ctx);
     }
     await importDeployed(ctx, handle, files, options);
@@ -499,12 +516,12 @@ async function importFlowPlaces(
 
 async function importDeployed(ctx: UseCaseContext, handle: string, files: RepoFiles, options: ImportOptions): Promise<void> {
     const { db, workspaceId, userId } = ctx;
-    const commit = options.commit ?? null;
-    const by = { workspaceId, userId: commit ? (options.by ?? null) : userId };
+    const commit = commitOf(options);
+    const by = { workspaceId, userId: importerOf(options, userId) };
     const entries = entriesOf(files, handle);
     const inTree = entries.flows.map(({ text, entry }) => read(repoFlowFromYaml(text, nfc(entry.name))));
     const ids = inTree.map(f => f.flow.id!);
-    if (commit) {
+    if (options.from !== 'turn-on') {
         const gone = await db.query<{ flow_id: string }>(
             'SELECT flow_id FROM deployments WHERE workspace_id = $1 AND NOT (flow_id = ANY($2::uuid[]))',
             [workspaceId, ids],
@@ -513,7 +530,7 @@ async function importDeployed(ctx: UseCaseContext, handle: string, files: RepoFi
             db,
             by,
             gone.map(f => f.flow_id),
-            commit,
+            { by: 'import', commit },
         );
     }
     const known = new Set(
@@ -528,7 +545,7 @@ async function importDeployed(ctx: UseCaseContext, handle: string, files: RepoFi
     }
 
     const projectIds = new Map(entries.projects.map(({ text, entry }) => [entry.project, read(projectFromYaml(text)).id]));
-    await importScripts(ctx, entries.scripts, projectIds, commit);
+    await importScripts(ctx, entries.scripts, projectIds, options);
 }
 
 async function deployAsInTree(
@@ -571,9 +588,10 @@ async function importScripts(
     ctx: UseCaseContext,
     scripts: Entry<'script'>[],
     projectIds: Map<string, string>,
-    commit: string | null,
+    options: ImportOptions,
 ): Promise<void> {
     const { db, workspaceId, userId } = ctx;
+    const commit = commitOf(options);
     const inTree = new Map<string, { projectId: string; path: string; text: string }>();
     for (const { text, entry } of scripts) {
         const projectId = projectIds.get(entry.project)!;
@@ -581,7 +599,7 @@ async function importScripts(
         inTree.set(scriptFileId(projectId, path), { projectId, path, text });
     }
 
-    if (!commit) {
+    if (options.from === 'turn-on') {
         const projects = [...projectIds.values()];
         const rows = await db.query<{ file_id: string; path: string }>(
             `SELECT file_id, path FROM working_copy WHERE workspace_id = $1 AND branch = $2 AND file_id IS NOT NULL

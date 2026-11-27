@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { LOCAL_ENVIRONMENT } from '@flowtinus/core';
 
 /*
  * Whether flowtinus.server answers, shared by the whole app. Nothing polls while online: the app's own requests
@@ -131,4 +132,9 @@ export function useServerConnection(): ServerConnection {
     }, []);
 
     return current;
+}
+
+export function useLocalServer(): boolean {
+    const current = useServerConnection();
+    return current.state === 'online' && current.environment === LOCAL_ENVIRONMENT;
 }

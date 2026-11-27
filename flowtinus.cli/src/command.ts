@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
-import { readRepository } from './repository';
+import { readRepository } from '@flowtinus/core/disk';
 
 export type CommandResult = { code: number; output: string };
 

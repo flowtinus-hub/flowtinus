@@ -37,15 +37,33 @@ export const CONFIG_BRANCH = 'flowtinus/config';
 
 export type AdapterView = { provider: Provider; on: boolean; notice?: string };
 
-/** hook (admins): the webhook's path on the server (git/hook/<workspace>/<token>) */
+/** hook (admins): the webhook's path on the server (git/hook/<workspace>/<token>); local: a local server's clone */
 export const getGitConfig = (ws: string) =>
-    api<{ config: GitConfig | null; on: boolean; hook?: string; lastPoll?: LastPoll; adapter?: AdapterView }>(`/w/${ws}/git`);
+    api<{
+        config: GitConfig | null;
+        on: boolean;
+        hook?: string;
+        lastPoll?: LastPoll;
+        adapter?: AdapterView;
+        local?: { repository: string };
+    }>(`/w/${ws}/git`);
 
 export type GitCommitView = { sha: string; message?: string; author?: string; at?: string };
 
+export type DiskStatus = {
+    appliedAt: string | null;
+    refused: { errors: TreeIssue[]; since: string } | null;
+    warnings: TreeIssue[];
+    gone: string | null;
+    head: LocalHead;
+};
+
+/** what git has checked out on a local server's clone: the sha is null on a branch with no commit yet */
+export type LocalHead = { branch: string | null; sha: string | null };
+
 /** with git on: the commit the deploy is on, a refused commit git is at (errors per file), git unreachable since, warnings */
 export type GitStatus =
-    | { on: false }
+    | { on: false; disk?: DiskStatus }
     | {
           on: true;
           branch: string | null;

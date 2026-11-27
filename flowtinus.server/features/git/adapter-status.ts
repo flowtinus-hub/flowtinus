@@ -1,6 +1,8 @@
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
 import { gitAccess, type GitConfig } from './git-config';
 import type { GitAccess } from './git-remote';
+import { refuseOnLocalServer } from './local-server';
 import { githubAdapter } from './github-adapter';
 import { gitlabAdapter } from './gitlab-adapter';
 import type { ProviderAdapter } from './provider-adapter';
@@ -26,6 +28,10 @@ export async function providerAdapter(access: GitAccess): Promise<AdapterStatus>
 }
 
 export async function adapterOf(ctx: UseCaseContext, config: GitConfig): Promise<ProviderAdapter | null> {
+    const refused = refuseOnLocalServer(ctx.git, "the provider's adapter");
+    if (refused && !refused.ok) {
+        throw new UseCaseFailure(refused.error.code, refused.error.message);
+    }
     const access = await gitAccess(ctx, config);
     return access.ok ? (await providerAdapter(access.value)).adapter : null;
 }

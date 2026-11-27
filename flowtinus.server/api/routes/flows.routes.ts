@@ -14,6 +14,7 @@ import { GetPinsHandler, SetPinHandler, UnpinHandler } from '#features/pins/pin-
 import { SetFlowWorkerTagHandler } from '#features/flows/set-flow-worker-tag/set-flow-worker-tag-handler';
 import { DeployFlowHandler } from '#features/deployments/deploy-flow/deploy-flow-handler';
 import { DeployVersionHandler } from '#features/deployments/deploy-version/deploy-version-handler';
+import { offOnLocalServer } from '../middlewares/local-server';
 import { EmergencyRollbackChecksHandler, EmergencyRollbackHandler, EndEmergencyRollbackHandler } from '#features/deployments/emergency-rollback/emergency-rollback-handlers';
 import { MakeGitMatchHandler } from '#features/deployments/emergency-rollback/make-git-match-handler';
 import { GetDeploymentsHandler } from '#features/deployments/get-deployments/get-deployments-handler';
@@ -38,6 +39,10 @@ import { toHttpResult } from '#shared/use-cases/to-http-result';
 import type { AppEnv } from '../app-env';
 import { bodyWith, jsonBody } from './request-input';
 import { memberWorkspaces, runContext } from '../middlewares/run-context';
+
+const EMERGENCY_ROLLBACK = "the emergency rollback (a rollback is git's)";
+
+const DEPLOY = 'Deploy (a save writes the file, and the last valid tree on disk is what runs)';
 
 export function flowsRoutes() {
     return new Hono<AppEnv>()
@@ -105,7 +110,7 @@ export function flowsRoutes() {
         .get('/:id/deployments', async c =>
             toHttpResult(c, await new GetDeploymentsHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
-        .post('/:id/deploy', async c =>
+        .post('/:id/deploy', offOnLocalServer(DEPLOY), async c =>
             toHttpResult(
                 c,
                 await new DeployFlowHandler().handle(
@@ -114,13 +119,13 @@ export function flowsRoutes() {
                 ),
             ),
         )
-        .post('/:id/versions/:versionId/deploy', async c =>
+        .post('/:id/versions/:versionId/deploy', offOnLocalServer(DEPLOY), async c =>
             toHttpResult(
                 c,
                 await new DeployVersionHandler().handle({ id: c.req.param('id'), versionId: c.req.param('versionId') }, c.get('useCase')),
             ),
         )
-        .get('/:id/versions/:versionId/emergency-rollback', async c =>
+        .get('/:id/versions/:versionId/emergency-rollback', offOnLocalServer(EMERGENCY_ROLLBACK), async c =>
             toHttpResult(
                 c,
                 await new EmergencyRollbackChecksHandler().handle(
@@ -129,7 +134,7 @@ export function flowsRoutes() {
                 ),
             ),
         )
-        .post('/:id/versions/:versionId/emergency-rollback', async c =>
+        .post('/:id/versions/:versionId/emergency-rollback', offOnLocalServer(EMERGENCY_ROLLBACK), async c =>
             toHttpResult(
                 c,
                 await new EmergencyRollbackHandler().handle(
@@ -138,13 +143,13 @@ export function flowsRoutes() {
                 ),
             ),
         )
-        .delete('/:id/emergency-rollback', async c =>
+        .delete('/:id/emergency-rollback', offOnLocalServer(EMERGENCY_ROLLBACK), async c =>
             toHttpResult(c, await new EndEmergencyRollbackHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
-        .post('/:id/emergency-rollback/match-git', async c =>
+        .post('/:id/emergency-rollback/match-git', offOnLocalServer(EMERGENCY_ROLLBACK), async c =>
             toHttpResult(c, await new MakeGitMatchHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
-        .post('/:id/undeploy', async c =>
+        .post('/:id/undeploy', offOnLocalServer(DEPLOY), async c =>
             toHttpResult(c, await new UndeployFlowHandler().handle({ id: c.req.param('id') }, c.get('useCase'))),
         )
         .post('/:id/versions/:versionId/restore-draft', async c =>

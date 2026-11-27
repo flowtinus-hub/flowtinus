@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { useLocalServer } from '@/lib/server-connection';
 import { useParams, useSearchParams } from 'react-router';
 import { ChevronRight, Copy, Ellipsis, FileCode2, Folder, FolderOpen, FolderPlus, GitCommitHorizontal, LoaderCircle, Pencil, Plus, Trash } from 'lucide-react';
 import { normalizeScriptPath } from '@flowtinus/core';
@@ -70,6 +71,7 @@ function treeRows(folders: string[], scripts: string[], open: { has: (path: stri
 export function ScriptsPage() {
     const { projectId = '', ws = '' } = useParams();
     const gitStatus = useResource(`git-status:${ws}`, () => getGitStatus(ws));
+    const local = useLocalServer();
     // on a pull-request server a branch the user may edit (a work branch) takes a Commit; its environment's branch does not
     const branch = useResource(`current-branch:${ws}`, () => getCurrentBranch(ws));
     const editable = branch.state.status === 'ready' && branch.state.value.editable;
@@ -218,8 +220,8 @@ export function ScriptsPage() {
         open,
     );
     const importLine = script?.importPath ?? '';
-    // with git on the list says what changed since it was committed
-    const git = scripts.scripts.some(s => s.changed !== undefined);
+    // with git on the list says what changed since it was committed; a local server's saves are the files, with no commit
+    const git = !local && scripts.scripts.some(s => s.changed !== undefined);
     const changedCount = scripts.scripts.filter(s => s.changed).length;
     const entry = (path: string) => scripts.scripts.find(s => s.path === path);
     const discard = (path: string) =>

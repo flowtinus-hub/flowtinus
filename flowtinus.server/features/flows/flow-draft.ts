@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { dropDanglingEdges, folderPath, newFlowFile, repoFlowFromYaml, repoFlowToYaml, repoPath, validateFlowFile, type FlowFile, type RepoTriggers } from '@flowtinus/core';
 import { loadTree } from '#features/folders/project-tree';
 import { committedFlowText, flowsInRepo } from '#features/git/workspace-export';
@@ -14,15 +15,23 @@ import type { Flow } from './flow';
  * the user's (features/pins).
  */
 
+export type Revision = number | string;
+
+export const REVISION = z.union([z.number().int().min(0), z.string()]);
+
+export const savesCounted = (revision: Revision): number | null => (typeof revision === 'number' ? revision : null);
+
+export const fileHash = (revision: Revision): string | null => (typeof revision === 'string' ? revision : null);
+
 /** conflict: with git on, the commit the draft could not be merged with (it cannot be committed until it is discarded) */
-export type FlowDraft = { flow: FlowFile; revision: number; conflict?: string };
+export type FlowDraft = { flow: FlowFile; revision: Revision; conflict?: string };
 
 function readText(row: Flow, text: string): FlowFile | null {
     const read = repoFlowFromYaml(text, row.name);
     return read.ok ? read.value.flow : null;
 }
 
-export async function loadDraft(db: Database, workspaceId: string, row: Flow): Promise<FlowDraft> {
+export async function loadDraft(db: Database, workspaceId: string, row: Flow): Promise<FlowDraft & { revision: number }> {
     const draft = await fileRow(db, workspaceId, row.id);
     let flow: FlowFile | null = draft?.content ? readText(row, draft.content) : null;
     if (!flow) {

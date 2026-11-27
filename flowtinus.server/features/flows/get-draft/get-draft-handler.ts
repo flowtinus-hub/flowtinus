@@ -8,6 +8,8 @@ import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-re
 import { validate } from '#shared/use-cases/validate';
 import { flows } from '../flow';
 import { loadDraft, type FlowDraft } from '../flow-draft';
+import { loadDiskDraft } from '../disk-draft';
+import { localRepoOf } from '#features/git/local-server';
 
 export const GetDraftQuery = z.object({ id: z.uuid('Invalid') });
 
@@ -25,6 +27,10 @@ export class GetDraftHandler implements UseCaseHandler<FlowDraft> {
         }
 
         const [flow] = await new FlowRepository(ctx.db, ctx.workspaceId).findAll(eq(flows.id, parsed.value.id));
-        return flow ? success(await loadDraft(ctx.db, ctx.workspaceId, flow)) : fail('not-found', 'Flow not found.');
+        if (!flow) {
+            return fail('not-found', 'Flow not found.');
+        }
+        const root = localRepoOf(ctx.git);
+        return success(root ? await loadDiskDraft(ctx, root, flow) : await loadDraft(ctx.db, ctx.workspaceId, flow));
     }
 }

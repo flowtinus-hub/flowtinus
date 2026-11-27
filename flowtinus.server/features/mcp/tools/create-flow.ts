@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CreateFlowHandler } from '#features/flows/create-flow/create-flow-handler';
+import { GetDraftHandler } from '#features/flows/get-draft/get-draft-handler';
 import { SaveDraftHandler } from '#features/flows/save-draft/save-draft-handler';
 import { GetProjectHandler } from '#features/projects/get-project/get-project-handler';
 import { defineTool, failed, id, ok } from './tool';
@@ -33,11 +34,15 @@ export const createFlow = defineTool({
             return failed(created.error);
         }
         const flowId = created.value.id;
+        const draft = await new GetDraftHandler().handle({ id: flowId }, t.ctx);
+        if (!draft.ok) {
+            return failed(draft.error);
+        }
         if (yaml === undefined) {
-            return ok({ flowId, revision: 0, ...t.flowLink(projectId, flowId) });
+            return ok({ flowId, revision: draft.value.revision, ...t.flowLink(projectId, flowId) });
         }
         const checked = await t.check(projectId, yaml, flowId);
-        const saved = await new SaveDraftHandler().handle({ id: flowId, revision: 0, flow: checked.flow }, t.ctx);
+        const saved = await new SaveDraftHandler().handle({ id: flowId, revision: draft.value.revision, flow: checked.flow }, t.ctx);
         return saved.ok
             ? ok({ flowId, revision: saved.value.revision, warnings: checked.warnings, ...t.flowLink(projectId, flowId) })
             : failed({ ...saved.error, message: `The flow was created (${flowId}), but its draft was not saved: ${saved.error.message}` });

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import type { FlowFile } from '@flowtinus/core';
-import { getDraft, getPins, saveDraft, setPin, unpin, type Pinned } from '@/data/flows/flows-api';
+import { getDraft, getPins, saveDraft, setPin, unpin, type Pinned, type Revision } from '@/data/flows/flows-api';
 import type { ApiError } from '@/lib/api';
-import { useServerConnection } from '@/lib/server-connection';
+import { useLocalServer, useServerConnection } from '@/lib/server-connection';
 import { canvasToFlowFile, flowFileToCanvas } from './flow-file';
 
 /*
@@ -17,6 +17,8 @@ import { canvasToFlowFile, flowFileToCanvas } from './flow-file';
 
 /** how long after the last change the draft is saved */
 export const AUTOSAVE_DELAY_MS = 1_000;
+
+const FOLLOW_DISK_MS = 2_000;
 
 export type SaveState =
     | { status: 'loading' }
@@ -100,9 +102,11 @@ export function useFlowDraft(
     const [state, setState] = useState<SaveState>({ status: 'loading' });
     const readOnlyRef = useRef(readOnly);
     const heldRef = useRef(held);
-    const online = useServerConnection().state === 'online';
+    const connection = useServerConnection();
+    const online = connection.state === 'online';
+    const local = useLocalServer();
     // what the server has: its revision, the flow's name, and what was saved (to tell a real change)
-    const server = useRef<{ revision: number; name: string; saved: string } | null>(null);
+    const server = useRef<{ revision: Revision; name: string; saved: string } | null>(null);
     const saving = useRef(false);
     const pinsSynced = useRef(new Map<string, Pinned>());
     const pinning = useRef<Promise<boolean> | null>(null);
@@ -285,6 +289,35 @@ export function useFlowDraft(
         clearTimeout(timer.current);
         timer.current = setTimeout(() => void save(), AUTOSAVE_DELAY_MS);
     }, [canvas.nodes, canvas.edges, fileNow, save, readOnly]);
+
+    // on a local server the file is the developer's too: with nothing unsaved here, what the disk has now is shown
+    useEffect(() => {
+        if (!local || readOnly) {
+            return;
+        }
+
+        const unchanged = (at: typeof server.current) =>
+            at !== null && at === server.current && !saving.current && draftFingerprint(fileNow()) === at.saved;
+        const timer = setInterval(async () => {
+            const at = server.current;
+            if (!unchanged(at)) {
+                return;
+            }
+
+            const result = await getDraft(flowId);
+            if (!result.ok || result.value.revision === at!.revision || !unchanged(at)) {
+                return;
+            }
+
+            const { flow, revision } = result.value;
+            const pins = pinsSynced.current;
+            server.current = { revision, name: flow.name, saved: draftFingerprint(flow) };
+            loadRef.current(
+                flowFileToCanvas({ ...flow, nodes: flow.nodes.map(n => (pins.has(n.id) ? { ...n, pinned: pins.get(n.id) } : n)) }),
+            );
+        }, FOLLOW_DISK_MS);
+        return () => clearInterval(timer);
+    }, [local, readOnly, flowId, fileNow]);
 
     // the server is back: what failed (or never opened) goes now
     useEffect(() => {

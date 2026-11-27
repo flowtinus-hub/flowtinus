@@ -1,13 +1,14 @@
 import { DEV_KEY, Keyring } from '../crypto/keyring';
+import { LOCAL_ENVIRONMENT } from '@flowtinus/core';
 import type { AppSettings } from './app-settings';
 
 /**
  * The keyring of the secrets (the api encrypts, the supervisor decrypts): SECRETS_KEYS, or in DEV only a fixed key so
- * nobody needs setup to develop. Outside DEV without keys, it refuses to start.
+ * nobody needs setup to develop (a local server too). Elsewhere without keys, it refuses to start.
  */
 export function appKeyring(config: AppSettings, warn: (line: string) => void = console.warn): Keyring {
-    if (config.secretsKeys.length === 0 && config.environment !== 'DEV') {
-        throw new Error('SECRETS_KEYS is required outside DEV (see .env.example).');
+    if (config.secretsKeys.length === 0 && config.environment !== 'DEV' && config.environment !== LOCAL_ENVIRONMENT) {
+        throw new Error('SECRETS_KEYS is required outside DEV and a local server (see .env.example).');
     }
 
     if (config.secretsKeys.length === 0) {

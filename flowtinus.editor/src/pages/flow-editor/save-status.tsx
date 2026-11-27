@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, CircleAlert, CircleCheck, LoaderCircle, Pencil, RefreshCw } from 'lucide-react';
+import { Archive, ArchiveRestore, CircleAlert, CircleCheck, Copy, LoaderCircle, Pencil, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { DraftSave } from '@/editor/flow-save';
@@ -12,9 +12,12 @@ import type { DraftSave } from '@/editor/flow-save';
 export function SaveStatus({
     save,
     archived,
+    disk,
 }: {
     save: DraftSave | null;
     archived?: { onRestore: () => void; restoring: boolean; error?: string };
+    /** on a local server, what a conflict with the file on disk offers: never an overwrite */
+    disk?: { onReload: () => void; onSaveAsNew: () => void };
 }) {
     if (archived) {
         return (
@@ -82,7 +85,21 @@ export function SaveStatus({
         case 'read-only':
             return null;
         case 'conflict':
-            return (
+            return disk ? (
+                <span className="flex items-center gap-1.5">
+                    <Status
+                        icon={<CircleAlert className="size-3.5 text-amber-600 dark:text-amber-400" />}
+                        text="Changed on disk"
+                        title="The file changed on disk and cannot be merged with your changes: they are not saved"
+                    />
+                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={disk.onReload}>
+                        <RefreshCw /> Reload from disk
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={disk.onSaveAsNew}>
+                        <Copy /> Save as a new flow
+                    </Button>
+                </span>
+            ) : (
                 <span className="flex items-center gap-1.5">
                     <Status
                         icon={<CircleAlert className="size-3.5 text-amber-600 dark:text-amber-400" />}

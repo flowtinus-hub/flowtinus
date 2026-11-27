@@ -21,6 +21,8 @@ export const HOOK_SETTING = 'git-hook';
 
 export const HEADS_SETTING = 'git-heads';
 
+export const DISK_SETTING = 'disk-reconcile';
+
 /** pollSeconds: how often the server fetches the environment's branch (DEFAULT_POLL_SECONDS when absent) */
 export type GitConfig = { repository: string; tokenSecret: string; environment: string; pollSeconds?: number };
 
@@ -29,11 +31,13 @@ export const DEFAULT_POLL_SECONDS = 60;
 export type GitOptions = {
     clonesDir: string;
     allowFileUrls: boolean;
+    localRepo?: string;
 };
 
 export const gitOptions = (environment: string, options: Partial<GitOptions> = {}): GitOptions => ({
     clonesDir: options.clonesDir ?? join(tmpdir(), 'flowtinus-git'),
     allowFileUrls: options.allowFileUrls ?? environment === 'DEV',
+    ...(options.localRepo ? { localRepo: options.localRepo } : {}),
 });
 
 function repositoryError(value: string, allowFileUrls: boolean): string | null {
@@ -87,7 +91,11 @@ export async function readGitState(db: Database, workspaceId: string): Promise<{
 
 export const readGitConfig = async (db: Database, workspaceId: string) => (await readGitState(db, workspaceId))?.config ?? null;
 
-export const isGitOn = async (db: Database, workspaceId: string) => (await readGitState(db, workspaceId))?.on ?? false;
+/** a workspace of a local server's disk counts as on: its tree comes from files, as a commit's does */
+export async function isGitOn(db: Database, workspaceId: string): Promise<boolean> {
+    const state = await readGitState(db, workspaceId);
+    return state ? state.on : (await readWorkspaceSetting(db, workspaceId, DISK_SETTING)) !== null;
+}
 
 export const refuseTriggerTables = async (db: Database, workspaceId: string) =>
     (await isGitOn(db, workspaceId))

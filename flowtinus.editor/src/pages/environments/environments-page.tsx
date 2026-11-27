@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link, Navigate } from 'react-router';
 import { ArrowRight, GitBranch, Layers, TriangleAlert, Undo2 } from 'lucide-react';
 import { workspaceSettingsPath } from '@/app/paths';
 import { EmergencyRollbackBadge } from '@/components/emergency-rollback-badge';
@@ -7,6 +7,7 @@ import { useResource } from '@/data/use-resource';
 import { shortSha } from '@/data/deployments/deployment';
 import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { getEnvironments, getGitStatus, GIT_STATUS_CHANGED, type EnvironmentCard, type EnvironmentEdge, type Environments, type FlowCell, type FlowRow, type GitStatus, type PromotionState } from '@/data/git/git-api';
+import { useLocalServer } from '@/lib/server-connection';
 import { cn } from '@/lib/utils';
 import { WorkspacePage } from '@/pages/workspaces/workspace-page';
 import { ArchivedConnectionsPanel } from './archived-connections-panel';
@@ -18,6 +19,11 @@ type On = Extract<Environments, { on: true }>;
 const MODE_LABEL = { direct: 'Direct', 'pull-request': 'Pull requests', protected: 'Protected' } as const;
 
 export function EnvironmentsPage() {
+    const { handle } = useWorkspace();
+    return useLocalServer() ? <Navigate to={`${workspaceSettingsPath(handle)}?tab=git#git`} replace /> : <EnvironmentsOfServer />;
+}
+
+function EnvironmentsOfServer() {
     const { handle, canEdit, isAdmin } = useWorkspace();
     const environments = useResource(`environments:${handle}`, () => getEnvironments(handle), { refreshOn: GIT_STATUS_CHANGED });
     const status = useResource(`git-status:${handle}`, () => getGitStatus(handle), { refreshOn: GIT_STATUS_CHANGED });
