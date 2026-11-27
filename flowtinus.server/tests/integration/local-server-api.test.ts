@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ANA, insertWorkspace, workspaceHandleOf, wsPath } from '../helpers/workspaces';
 import { openDatabase, type Database } from '#shared/database/database';
+import { UseCaseFailure } from '#shared/use-cases/use-case-failure';
+import { adapterOf } from '#features/git/adapter-status';
+import { gitOptions } from '#features/git/git-config';
 import { createApp } from '../../api/app';
 
 setDefaultTimeout(30_000);
@@ -92,6 +95,19 @@ describe('a local server: LOCAL reported, the git section read-only, and what be
             const answer = await call(remote)(method, path, body);
             expect(answer.body?.error?.message ?? '').not.toContain('local server');
         }
+    });
+
+    test("the provider's adapter is refused, even to a git config the server was handed", async () => {
+        const ctx = {
+            db,
+            workspaceId,
+            userId: ANA,
+            git: gitOptions('LOCAL', { clonesDir: join(dir, 'clones'), localRepo: join(dir, 'flows') }),
+        };
+        const config = { repository: 'https://github.com/acme/flows.git', tokenSecret: 'git-token', environment: 'DEV' };
+        const refused = await adapterOf(ctx, config).catch((e: unknown) => e);
+        expect(refused).toBeInstanceOf(UseCaseFailure);
+        expect((refused as UseCaseFailure).error).toMatchObject({ code: 'conflict', message: expect.stringContaining('local server') });
     });
 
     test('the git webhook is refused', async () => {
