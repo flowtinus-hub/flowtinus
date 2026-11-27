@@ -458,7 +458,7 @@ export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
                 disk: {
                     appliedAt: disk?.applied?.at ?? null,
                     refused: disk?.refused ? { errors: disk.refused.errors, since: disk.refused.since } : null,
-                    warnings: disk?.warnings ?? [],
+                    warnings: [...(disk?.warnings ?? []), ...(disk?.caseRenames ?? [])],
                     gone: disk?.gone ?? null,
                     head: await localHead(repo),
                 },

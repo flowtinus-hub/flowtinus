@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -247,6 +247,31 @@ describe('a local server reconciles the disk', () => {
         expect(refused.status).toBe(409);
         expect(refused.body.error.message).toContain('The disk is not valid');
         expect(refused.body.error.message).toContain(paths.orders);
+    });
+
+    test('a file renamed only in case on disk, not in git, is a warning on it; renamed with git mv, it is not', async () => {
+        const renamed = 'sales/projects/Sales/flows/ORDERS.flow.yaml';
+        const commit = () => git(repo, '-c', 'user.name=Dev', '-c', 'user.email=dev@example.com', 'commit', '--quiet', '-m', 'files');
+        writeTree();
+        git(repo, 'add', '.');
+        commit();
+        await settle();
+        expect((await call('GET', '/w/sales/git/status')).body.disk.warnings).toEqual([]);
+
+        renameSync(join(repo, paths.orders), join(repo, renamed));
+        write({ [paths.prices]: "export const price = 'v2';" });
+        clock += 1000;
+        expect(await settle()).toBe('reconciled');
+        expect((await call('GET', '/w/sales/git/status')).body.disk.warnings).toEqual([
+            { path: renamed, message: `renamed only in case on disk; git still has \`${paths.orders}\`: use \`git mv\`` },
+        ]);
+
+        renameSync(join(repo, renamed), join(repo, paths.orders));
+        git(repo, 'mv', paths.orders, renamed);
+        commit();
+        clock += 1000;
+        expect(await settle()).toBe('reconciled');
+        expect((await call('GET', '/w/sales/git/status')).body.disk.warnings).toEqual([]);
     });
 
     test('a workspace folder that leaves the disk is gone, not deleted, and is no longer reconciled; back, it is again', async () => {

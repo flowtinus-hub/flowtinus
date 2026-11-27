@@ -5,6 +5,7 @@ import { readWorkspaceSetting, writeWorkspaceSetting } from '#features/workspace
 import type { Database } from '#shared/database/database';
 import type { UseCaseContext } from '#shared/use-cases/use-case-context';
 import { fail, success, type UseCaseResult } from '#shared/use-cases/use-case-result';
+import { caseOnlyRenames } from './case-renames';
 import { DISK_SETTING } from './git-config';
 import { localRepoOf } from './local-server';
 import { lockReconcile } from './reconcile';
@@ -16,6 +17,7 @@ export type DiskState = {
     applied: { tree: string; at: string } | null;
     refused: { tree: string; errors: TreeIssue[]; since: string } | null;
     warnings: TreeIssue[];
+    caseRenames: TreeIssue[];
     gone: string | null;
 };
 
@@ -25,7 +27,7 @@ export type DiskReconcile = { outcome: DiskOutcome; errors: TreeIssue[]; warning
 
 export const DISK_USER = 'disk';
 
-const EMPTY: DiskState = { applied: null, refused: null, warnings: [], gone: null };
+const EMPTY: DiskState = { applied: null, refused: null, warnings: [], caseRenames: [], gone: null };
 
 export const readDiskState = async (db: Database, workspaceId: string) =>
     (await readWorkspaceSetting(db, workspaceId, DISK_SETTING)) as DiskState | null;
@@ -46,22 +48,24 @@ function treeHash(files: RepoFiles, handle: string): string {
     return hash.digest('hex');
 }
 
-export async function reconcileDiskWorkspace(ctx: UseCaseContext, files: RepoFiles): Promise<DiskReconcile> {
+export async function reconcileDiskWorkspace(ctx: UseCaseContext, files: RepoFiles, root: string): Promise<DiskReconcile> {
     const handle = await workspaceHandleIn(ctx.db, ctx.workspaceId);
     const tree = treeHash(files, handle);
+    const caseRenames = caseOnlyRenames(root, inWorkspace(files, handle));
     return ctx.db.transaction(async db => {
         const tx = { ...ctx, db, userId: DISK_USER };
         await lockReconcile(db, ctx.workspaceId);
         const stored = await readDiskState(db, ctx.workspaceId);
-        const state = { ...EMPTY, ...stored, gone: null };
+        const state = { ...EMPTY, ...stored, caseRenames, gone: null };
+        const renamesChanged = JSON.stringify(stored?.caseRenames ?? []) !== JSON.stringify(caseRenames);
         if (state.applied?.tree === tree) {
-            if (stored?.refused || stored?.gone) {
+            if (stored?.refused || stored?.gone || renamesChanged) {
                 await writeDiskState(db, ctx.workspaceId, { ...state, refused: null });
             }
-            return { outcome: 'up-to-date', errors: [], warnings: state.warnings };
+            return { outcome: 'up-to-date', errors: [], warnings: [...state.warnings, ...caseRenames] };
         }
         if (state.refused?.tree === tree) {
-            if (stored?.gone) {
+            if (stored?.gone || renamesChanged) {
                 await writeDiskState(db, ctx.workspaceId, state);
             }
             return { outcome: 'refused', errors: state.refused.errors, warnings: [] };
@@ -76,8 +80,14 @@ export async function reconcileDiskWorkspace(ctx: UseCaseContext, files: RepoFil
         }
 
         await importWorkspace(tx, handle, files, { from: 'disk' });
-        await writeDiskState(db, ctx.workspaceId, { applied: { tree, at: now }, refused: null, warnings: validation.warnings, gone: null });
-        return { outcome: 'applied', errors: [], warnings: validation.warnings };
+        await writeDiskState(db, ctx.workspaceId, {
+            applied: { tree, at: now },
+            refused: null,
+            warnings: validation.warnings,
+            caseRenames,
+            gone: null,
+        });
+        return { outcome: 'applied', errors: [], warnings: [...validation.warnings, ...caseRenames] };
     });
 }
 
@@ -91,7 +101,7 @@ export async function reconcileFromDisk(ctx: UseCaseContext): Promise<UseCaseRes
     if (!repository.workspaces.includes(handle)) {
         return fail('conflict', `The folder ${handle} of this workspace is no longer on the disk.`);
     }
-    return success(await reconcileDiskWorkspace(ctx, repository.files));
+    return success(await reconcileDiskWorkspace(ctx, repository.files, repository.root));
 }
 
 export const diskRefusal = (errors: TreeIssue[]) =>
@@ -133,7 +143,7 @@ export async function reconcileDisk(
         results.push({
             handle,
             workspaceId,
-            ...(await reconcileDiskWorkspace({ ...base, workspaceId, userId: DISK_USER }, repository.files)),
+            ...(await reconcileDiskWorkspace({ ...base, workspaceId, userId: DISK_USER }, repository.files, repository.root)),
         });
     }
 
