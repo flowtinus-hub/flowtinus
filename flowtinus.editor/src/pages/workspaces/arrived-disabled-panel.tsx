@@ -6,7 +6,19 @@ import { TokenDialog } from '@/pages/flow-editor/webhooks-menu';
 
 type Read = { handle: string; value: ArrivedDisabled[]; requestedAt: number };
 
-export function ArrivedDisabledPanel({ handle }: { handle: string }) {
+const TEXT = {
+    git: {
+        waiting: 'Schedules and webhooks git created or brought back. None runs until it is turned on in this environment.',
+        none: 'Nothing waits to be turned on: every schedule and webhook git brought was turned on, or left.',
+    },
+    disk: {
+        waiting:
+            'Schedules and webhooks the disk brought: a new file, or one a checkout brought back. None runs until it is turned on here.',
+        none: 'Nothing waits to be turned on: every schedule and webhook the disk brought was turned on, or left.',
+    },
+};
+
+export function ArrivedDisabledPanel({ handle, local = false }: { handle: string; local?: boolean }) {
     const [items, setItems] = useState<Read | null>(null);
     const [token, setToken] = useState<(ShownToken & { handle: string }) | null>(null);
     useEffect(() => {
@@ -42,17 +54,14 @@ export function ArrivedDisabledPanel({ handle }: { handle: string }) {
         return dialog || null;
     }
     const count = arrivedCount(shown.value);
+    const text = TEXT[local ? 'disk' : 'git'];
     return (
         <div id="arrived-disabled" className="grid scroll-mt-4 gap-3 rounded-lg border p-4 text-sm">
             <div className="flex items-start gap-2">
                 <CirclePause className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                 <div className="grid gap-0.5">
                     <span className="font-medium">Arrived disabled{count > 0 ? ` · ${count}` : ''}</span>
-                    <span className="text-muted-foreground">
-                        {count > 0
-                            ? 'Schedules and webhooks git created or brought back. None runs until it is turned on in this environment.'
-                            : 'Nothing waits to be turned on: every schedule and webhook git brought was turned on, or left.'}
-                    </span>
+                    <span className="text-muted-foreground">{count > 0 ? text.waiting : text.none}</span>
                 </div>
             </div>
             {count > 0 && (

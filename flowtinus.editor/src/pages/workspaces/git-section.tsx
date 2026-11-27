@@ -57,6 +57,7 @@ export function GitSection({ handle, readOnly }: { handle: string; readOnly: boo
                     </span>
                 </p>
             )}
+            {saved.state.status === 'ready' && saved.state.value.local && <ArrivedDisabledPanel handle={handle} local />}
             {saved.state.status === 'ready' && !saved.state.value.local && (
                 <>
                     <GitForm

@@ -10,6 +10,8 @@ import { LOCAL_ENVIRONMENT } from '@flowtinus/core';
 
 export type ServerConnection = { state: 'checking' } | { state: 'online'; environment: string } | { state: 'offline' };
 
+export type ServerKind = 'unknown' | 'local' | 'server';
+
 const TIMEOUT_MS = 3_000;
 const RETRY_FIRST_MS = 1_000;
 const RETRY_MAX_MS = 15_000;
@@ -35,6 +37,7 @@ export async function pingServer(timeoutMs = TIMEOUT_MS): Promise<string | null>
 // ---- the shared state
 
 let connection: ServerConnection = { state: 'checking' };
+let lastEnvironment: string | null = null;
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setTimeout> | undefined;
 let attempt = 0;
@@ -49,6 +52,9 @@ function set(next: ServerConnection) {
     }
 
     connection = next;
+    if (next.state === 'online') {
+        lastEnvironment = next.environment;
+    }
     listeners.forEach(listener => listener());
 }
 
@@ -134,7 +140,13 @@ export function useServerConnection(): ServerConnection {
     return current;
 }
 
-export function useLocalServer(): boolean {
-    const current = useServerConnection();
-    return current.state === 'online' && current.environment === LOCAL_ENVIRONMENT;
+/** unknown only until /health first answers: offline afterwards keeps the kind last answered */
+export function useServerKind(): ServerKind {
+    useServerConnection();
+    if (lastEnvironment === null) {
+        return 'unknown';
+    }
+    return lastEnvironment === LOCAL_ENVIRONMENT ? 'local' : 'server';
 }
+
+export const useLocalServer = () => useServerKind() === 'local';
