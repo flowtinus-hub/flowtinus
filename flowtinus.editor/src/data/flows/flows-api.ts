@@ -77,8 +77,8 @@ export function deleteFolder(id: string): Promise<ApiResult<{ id: string; flows:
 
 // ---- flows
 
-/** the draft the editor opens: the core's flow file and the revision it is at */
-export type FlowDraft = { flow: FlowFile; revision: number };
+/** the draft the editor opens: the core's flow file and the revision it is at (on a local server, the hash of its text) */
+export type FlowDraft = { flow: FlowFile; revision: number | string };
 
 export function getDraft(id: string): Promise<ApiResult<FlowDraft>> {
     return api<FlowDraft>(`/flows/${id}/draft`);
@@ -88,8 +88,13 @@ export function getDraft(id: string): Promise<ApiResult<FlowDraft>> {
  * saves the draft from the revision it started from; a conflict when another save came in between. `keepalive`: sent
  * while the page closes
  */
-export function saveDraft(id: string, revision: number, flow: FlowFile, keepalive = false): Promise<ApiResult<{ revision: number }>> {
-    return api<{ revision: number }>(`/flows/${id}/draft`, { method: 'PUT', body: { revision, flow }, keepalive });
+export function saveDraft(
+    id: string,
+    revision: number | string,
+    flow: FlowFile,
+    keepalive = false,
+): Promise<ApiResult<{ revision: number | string }>> {
+    return api<{ revision: number | string }>(`/flows/${id}/draft`, { method: 'PUT', body: { revision, flow }, keepalive });
 }
 
 export type Pinned = Record<string, Record<string, unknown>[]>;

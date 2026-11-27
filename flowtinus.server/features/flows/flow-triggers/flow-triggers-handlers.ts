@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { inWorkingCopy } from '#features/git/disk-write';
 import type { RepoSchedule, RepoTriggers, RepoWebhook, TriggerKind } from '@flowtinus/core';
 import { activeFlow } from '#features/deployments/deployments';
 import { branchFlow, workBranch, type BranchFlow, type WorkBranch } from '#features/git/branch-read';
@@ -135,7 +136,7 @@ async function changeFile(ctx: UseCaseContext, flowId: string, change: Change, k
     if (!next) {
         return fail('not-found', missing);
     }
-    const saved = await ctx.db.transaction(db =>
+    const saved = await inWorkingCopy(ctx, db =>
         writeDraft(db, ctx.workspaceId, row, draft.flow, ctx.userId, draft.revision, { triggers: next }),
     );
     return saved === null ? fail('conflict', 'This flow was changed elsewhere. Reload it to see the latest version.') : success(next);

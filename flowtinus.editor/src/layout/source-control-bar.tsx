@@ -6,8 +6,10 @@ import { CHANGES_CHANGED, getChanges } from '@/data/git/git-api';
 import { useUnsavedWork } from '@/data/git/unsaved-work';
 import { useMe, useMenuWorkspace } from '@/data/workspaces/use-workspace';
 import { API_WRITE_DONE } from '@/lib/api';
+import { isLocalServer, useServerConnection } from '@/lib/server-connection';
 import { BranchPicker } from './branch-picker';
 import { ChangesDialog } from './changes-dialog';
+import { LocalHeadMark } from './local-head';
 
 /** looked at again on this interval, and on each page */
 const CHANGES_MS = 60_000;
@@ -67,8 +69,12 @@ export function SourceControlBar() {
     const { pathname } = useLocation();
     const { state } = useMe();
     const current = useMenuWorkspace(state.status === 'ready' ? state.me.workspaces : []);
+    const local = isLocalServer(useServerConnection());
     if (!current) {
         return null;
+    }
+    if (local) {
+        return <LocalHeadMark handle={current.handle} />;
     }
     return (
         <div className="flex min-w-0 items-center gap-1">

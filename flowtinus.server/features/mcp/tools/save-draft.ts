@@ -11,7 +11,7 @@ export const saveDraft = defineTool({
     input: {
         flowId: id('the flow'),
         yaml: z.string().describe('the whole flow file'),
-        expectedRevision: z.number().int().min(0).describe('the revision the yaml was based on'),
+        expectedRevision: z.union([z.number().int().min(0), z.string()]).describe('the revision the yaml was based on'),
     },
     annotations: { destructiveHint: false, idempotentHint: false },
     editsBranch: true,

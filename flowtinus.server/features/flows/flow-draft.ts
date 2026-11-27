@@ -15,14 +15,14 @@ import type { Flow } from './flow';
  */
 
 /** conflict: with git on, the commit the draft could not be merged with (it cannot be committed until it is discarded) */
-export type FlowDraft = { flow: FlowFile; revision: number; conflict?: string };
+export type FlowDraft = { flow: FlowFile; revision: number | string; conflict?: string };
 
 function readText(row: Flow, text: string): FlowFile | null {
     const read = repoFlowFromYaml(text, row.name);
     return read.ok ? read.value.flow : null;
 }
 
-export async function loadDraft(db: Database, workspaceId: string, row: Flow): Promise<FlowDraft> {
+export async function loadDraft(db: Database, workspaceId: string, row: Flow): Promise<FlowDraft & { revision: number }> {
     const draft = await fileRow(db, workspaceId, row.id);
     let flow: FlowFile | null = draft?.content ? readText(row, draft.content) : null;
     if (!flow) {

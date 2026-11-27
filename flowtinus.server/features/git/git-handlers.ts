@@ -21,7 +21,7 @@ import { workspaceHandle } from '#features/folders/project-tree';
 import { providerAdapter } from './adapter-status';
 import { protectionWarningsWithNotices, type ProtectionWarning } from './branch-protection';
 import type { Provider } from './pull-request';
-import { isLocalServer, localRepoOf } from './local-server';
+import { localHead, localRepoOf, type LocalHead } from './local-server';
 import { readDiskState } from './disk-reconcile';
 
 /** with git on, on a provider the app has an adapter for: whether it is on, and why not */
@@ -441,6 +441,7 @@ export type DiskStatusView = {
     refused: { errors: TreeIssue[]; since: string } | null;
     warnings: TreeIssue[];
     gone: string | null;
+    head: LocalHead;
 };
 
 export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
@@ -449,7 +450,8 @@ export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
         if (denied) {
             return denied;
         }
-        if (isLocalServer(ctx.git)) {
+        const repo = localRepoOf(ctx.git);
+        if (repo) {
             const disk = await readDiskState(ctx.db, ctx.workspaceId);
             return success({
                 on: false,
@@ -458,6 +460,7 @@ export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
                     refused: disk?.refused ? { errors: disk.refused.errors, since: disk.refused.since } : null,
                     warnings: [...(disk?.warnings ?? []), ...(disk?.caseRenames ?? [])],
                     gone: disk?.gone ?? null,
+                    head: await localHead(repo),
                 },
             });
         }
