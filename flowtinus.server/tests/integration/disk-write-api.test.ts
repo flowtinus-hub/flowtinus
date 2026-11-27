@@ -96,7 +96,7 @@ describe('on a local server the editor and the MCP write to disk', () => {
             [paths.orders]: repoFlowToYaml(twoLogs(ids.orders, 'one', 'two')),
             [paths.prices]: "export const price = 'v1';",
         });
-        await reconcileDisk({ db, keyring, git: options });
+        await reconcileDisk({ db, keyring, git: options }, repo);
     });
 
     afterEach(async () => {

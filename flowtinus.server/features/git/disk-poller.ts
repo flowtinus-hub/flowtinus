@@ -4,7 +4,6 @@ import type { Database } from '#shared/database/database';
 import type { Logger } from '#shared/logging/logger';
 import { reconcileDisk } from './disk-reconcile';
 import type { GitOptions } from './git-config';
-import { localRepoOf } from './local-server';
 
 export const SETTLE_MS = 1000;
 
@@ -20,6 +19,7 @@ export class DiskPoller {
     constructor(
         private readonly db: Database,
         private readonly git: GitOptions,
+        private readonly root: string,
         private readonly keyring?: Keyring,
         private readonly logger?: Logger,
         private readonly now = () => Date.now(),
@@ -45,7 +45,7 @@ export class DiskPoller {
 
         let current: string;
         try {
-            current = fingerprint(localRepoOf(this.git)!);
+            current = fingerprint(this.root);
         } catch (e) {
             this.logger?.error('the local repository could not be read', { error: e instanceof Error ? e.message : String(e) });
             return 'unchanged';
@@ -69,7 +69,7 @@ export class DiskPoller {
 
     private async reconcile(): Promise<void> {
         try {
-            for (const result of await reconcileDisk({ db: this.db, keyring: this.keyring, git: this.git })) {
+            for (const result of await reconcileDisk({ db: this.db, keyring: this.keyring, git: this.git }, this.root)) {
                 if (result.outcome === 'refused' || result.outcome === 'not-a-handle') {
                     this.logger?.warn(`the disk's workspace ${result.handle} is ${result.outcome}`, { workspace: result.handle });
                 }

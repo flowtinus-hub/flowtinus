@@ -129,7 +129,8 @@ async function diskWorkspace(db: Database, handle: string): Promise<string> {
 
 export async function reconcileDisk(
     base: Omit<UseCaseContext, 'workspaceId' | 'userId'>,
-    repository: Repository = readRepository(localRepoOf(base.git)!),
+    root: string,
+    repository: Repository = readRepository(root),
 ): Promise<DiskWorkspaceReconcile[]> {
     const results: DiskWorkspaceReconcile[] = [];
     const seen = new Set<string>();

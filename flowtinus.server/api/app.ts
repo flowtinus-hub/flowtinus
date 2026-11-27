@@ -55,7 +55,7 @@ export function createApp(db: Database, environment: string, keyring?: Keyring, 
     // the MCP (Streamable HTTP, stateless) for agents: outside the editor's api too, a personal access token says who calls
     const gitConfig = gitOptions(environment, git);
     const gitPoller = new GitPoller(db, gitConfig, keyring, logger);
-    const diskPoller = gitConfig.localRepo ? new DiskPoller(db, gitConfig, keyring, logger) : null;
+    const diskPoller = gitConfig.localRepo ? new DiskPoller(db, gitConfig, gitConfig.localRepo, keyring, logger) : null;
 
     // the workspace's git webhook, for the git provider: its token says who may call; the payload is ignored
     app.post('/git/hook/:workspace/:token', async c => {

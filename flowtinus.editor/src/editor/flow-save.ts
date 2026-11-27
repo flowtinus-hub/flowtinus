@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import type { FlowFile } from '@flowtinus/core';
-import { getDraft, getPins, saveDraft, setPin, unpin, type Pinned } from '@/data/flows/flows-api';
+import { getDraft, getPins, saveDraft, setPin, unpin, type Pinned, type Revision } from '@/data/flows/flows-api';
 import type { ApiError } from '@/lib/api';
 import { isLocalServer, useServerConnection } from '@/lib/server-connection';
 import { canvasToFlowFile, flowFileToCanvas } from './flow-file';
@@ -106,7 +106,7 @@ export function useFlowDraft(
     const online = connection.state === 'online';
     const local = isLocalServer(connection);
     // what the server has: its revision, the flow's name, and what was saved (to tell a real change)
-    const server = useRef<{ revision: number | string; name: string; saved: string } | null>(null);
+    const server = useRef<{ revision: Revision; name: string; saved: string } | null>(null);
     const saving = useRef(false);
     const pinsSynced = useRef(new Map<string, Pinned>());
     const pinning = useRef<Promise<boolean> | null>(null);

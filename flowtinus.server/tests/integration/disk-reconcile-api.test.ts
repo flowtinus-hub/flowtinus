@@ -99,7 +99,7 @@ describe('a local server reconciles the disk', () => {
         const options = gitOptions('LOCAL', { clonesDir: join(dir, 'clones'), localRepo: repo });
         app = createApp(db, 'LOCAL', keyring, undefined, { git: options });
         clock = 0;
-        poller = new DiskPoller(db, options, keyring, undefined, () => clock);
+        poller = new DiskPoller(db, options, repo, keyring, undefined, () => clock);
     });
 
     afterEach(async () => {
