@@ -1,6 +1,7 @@
 import { Channel } from '../channel';
 import { FlowExecution } from '#engine/flow-execution';
 import { keptSubRun } from '#engine/invoke-flow';
+import { subRunOptions } from '#engine/sub-run-options';
 import type { ComponentContext } from '#types/component-context.type';
 import type { Envelope } from '#types/envelope.type';
 import type { ExecutableNode } from '#types/executable-node.type';
@@ -49,17 +50,12 @@ export function runIteration(
     };
     const inner = new FlowExecution(
         execution.source,
-        {
-            ...options,
+        subRunOptions(options, 'iteration', {
             loop: { id: node.id, index, reach },
-            input: undefined,
-            runFrom: undefined,
             signal,
-            // the timeout is the run's (which cancels the iteration along with it)
-            timeoutMs: undefined,
             onProgress: kept?.onProgress,
             onReachEnd: doc => queue.send(doc),
-        },
+        }),
         parameters,
     );
     const result = inner

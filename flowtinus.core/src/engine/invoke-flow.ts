@@ -2,6 +2,7 @@ import { Channel } from '../channel';
 import { MAX_SUB_RUNS, MAX_FLOW_DEPTH, SUB_RUN_SAMPLE_BYTES, SUB_RUN_SAMPLE_SIZE, SUB_RUNS_TOTAL_SAMPLE_BYTES } from '#engine/constants';
 import { samplesWithin } from '#engine/progress-samples';
 import { flowRunner } from '#engine/flow-runner';
+import { subRunOptions } from '#engine/sub-run-options';
 import { hiddenValues, maskText } from '#engine/component-context';
 import { inputIssues } from '../scripts/type-shape';
 import { normalizedFlowPath } from '../folders/folder-tree';
@@ -120,21 +121,20 @@ export function invokeFlow(
         ...sentParameters(values, options),
         ...(fireAndForget ? { fireAndForget: true as const, ...(Array.isArray(input) ? { envelopes: input.length } : {}) } : {}),
     });
-    const result = flowRunner(child, {
-        ...options,
-        id,
-        parameterValues: values,
-        input,
-        signal,
-        // the timeout is this run's (which cancels the child along with it)
-        timeoutMs: undefined,
-        parentId: run.id,
-        chain,
-        rootName: options.rootName ?? wf.flow,
-        loop: undefined,
-        onReachEnd: doc => queue.send(doc.DATA),
-        onProgress: kept?.onProgress,
-    })
+    const result = flowRunner(
+        child,
+        subRunOptions(options, 'call', {
+            id,
+            parameterValues: values,
+            input,
+            signal,
+            parentId: run.id,
+            chain,
+            rootName: options.rootName ?? wf.flow,
+            onReachEnd: doc => queue.send(doc.DATA),
+            onProgress: kept?.onProgress,
+        }),
+    )
         .then(
             record => {
                 kept?.ended(record);
