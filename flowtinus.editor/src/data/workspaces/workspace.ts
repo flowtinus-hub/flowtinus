@@ -23,6 +23,7 @@ export type Workspace = {
     role: WorkspaceRole;
     /** what it holds (the list has it) */
     summary?: WorkspaceSummary;
+    gone?: Date;
 };
 
 export type WorkspaceSummary = { projects: number; connections: number; secrets: number; variables: number; members: number };

@@ -17,6 +17,8 @@ import { runSnapshot } from './run-snapshot';
 import { hasLiveSupervisor, noSupervisorFor } from '#features/supervisors/supervisors';
 import { runs, testRuns } from '../run';
 import { inRunScope, type RunScope } from '#features/api-tokens/run-scope';
+import { diskRefusal, reconcileFromDisk } from '#features/git/disk-reconcile';
+import { isLocalServer } from '#features/git/local-server';
 
 export const StartRunCommand = z.object({
     id: z.uuid('Invalid'),
@@ -92,6 +94,17 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
         const { id: flowId, mode, parameters, fromNodeId, fromLabel, input: given } = parsed.value;
         if ((fromNodeId || fromLabel) && mode === 'execution') {
             return fail('validation', 'Run from here is a test run only: a run for real runs the whole flow.');
+        }
+
+        // on a local server the Run runs the disk as it is: what is on it now applied first
+        if (isLocalServer(ctx.git)) {
+            const disk = await reconcileFromDisk(ctx);
+            if (!disk.ok) {
+                return disk;
+            }
+            if (disk.value.outcome === 'refused') {
+                return fail('conflict', diskRefusal(disk.value.errors));
+            }
         }
 
         const branch = await workBranch(ctx);

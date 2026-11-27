@@ -21,7 +21,8 @@ import { workspaceHandle } from '#features/folders/project-tree';
 import { providerAdapter } from './adapter-status';
 import { protectionWarningsWithNotices, type ProtectionWarning } from './branch-protection';
 import type { Provider } from './pull-request';
-import { localRepoOf } from './local-server';
+import { isLocalServer, localRepoOf } from './local-server';
+import { readDiskState } from './disk-reconcile';
 
 /** with git on, on a provider the app has an adapter for: whether it is on, and why not */
 export type AdapterView = { provider: Provider; on: boolean; notice?: string };
@@ -421,7 +422,7 @@ export type GitCommitView = { sha: string; message?: string; author?: string; at
  * draft-only flows it renamed "<name> (draft)" to take their names.
  */
 export type GitStatusView =
-    | { on: false }
+    | { on: false; disk?: DiskStatusView }
     | {
           on: true;
           branch: string | null;
@@ -435,11 +436,30 @@ export type GitStatusView =
           lastPoll: LastPoll | null;
       };
 
+export type DiskStatusView = {
+    appliedAt: string | null;
+    refused: { errors: TreeIssue[]; since: string } | null;
+    warnings: TreeIssue[];
+    gone: string | null;
+};
+
 export class GetGitStatusHandler implements UseCaseHandler<GitStatusView> {
     async handle(_input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<GitStatusView>> {
         const denied = requireRole(ctx, 'viewer');
         if (denied) {
             return denied;
+        }
+        if (isLocalServer(ctx.git)) {
+            const disk = await readDiskState(ctx.db, ctx.workspaceId);
+            return success({
+                on: false,
+                disk: {
+                    appliedAt: disk?.applied?.at ?? null,
+                    refused: disk?.refused ? { errors: disk.refused.errors, since: disk.refused.since } : null,
+                    warnings: disk?.warnings ?? [],
+                    gone: disk?.gone ?? null,
+                },
+            });
         }
         if (!(await readGitState(ctx.db, ctx.workspaceId))?.on) {
             return success({ on: false });

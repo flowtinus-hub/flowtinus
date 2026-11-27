@@ -23,6 +23,7 @@ import type { ApiResult } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { relativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
+import { isLocalServer, useServerConnection } from '@/lib/server-connection';
 
 /** the chip on the Deploy button */
 export function DeployBadge({ state, emergencyRollback }: { state: DeployState; emergencyRollback?: EmergencyRollback }) {
@@ -699,6 +700,7 @@ export function VersionsDialog(props: {
 }) {
     const { open, onClose, deployments, busy, onSwitch, onEmergencyRollback, onEndEmergencyRollback, onRestore } = props;
     const deployed = deployedVersion(deployments);
+    const local = isLocalServer(useServerConnection());
 
     return (
         <Dialog open={open} onOpenChange={isOpen => !isOpen && onClose()}>
@@ -720,6 +722,7 @@ export function VersionsDialog(props: {
                                             {version.commitMessage}
                                         </span>
                                     )}
+                                    {!version.commit && local && <span className="text-foreground">From disk</span>}
                                     <span className="truncate" title={formatDateTime(version.createdAt)}>
                                         {relativeTime(version.createdAt)}
                                         {version.createdByName && ` · ${version.createdByName}`}

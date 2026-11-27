@@ -20,7 +20,7 @@ function CommitLine({ commit }: { commit: GitCommitView }) {
     );
 }
 
-function Issues({ issues, tone }: { issues: { path: string; message: string }[]; tone: 'error' | 'warn' }) {
+export function Issues({ issues, tone }: { issues: { path: string; message: string }[]; tone: 'error' | 'warn' }) {
     const byFile = new Map<string, { path: string; message: string }[]>();
     for (const issue of issues) {
         byFile.set(issue.path, [...(byFile.get(issue.path) ?? []), issue]);

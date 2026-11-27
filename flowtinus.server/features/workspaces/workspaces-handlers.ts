@@ -11,6 +11,7 @@ import { membershipsOf, type Membership } from './memberships';
 import { workspaces, type Workspace } from './workspace';
 import { WORKSPACE_ROLES, workspaceMembers, type WorkspaceRole } from './workspace-member';
 import { projects } from '#features/projects/project';
+import { DISK_SETTING } from '#features/git/git-config';
 
 const NAME_MAX = 100;
 const DESCRIPTION_MAX = 500;
@@ -28,6 +29,8 @@ export type WorkspaceView = {
 };
 
 export type WorkspaceSummary = { projects: number; connections: number; secrets: number; variables: number; members: number };
+
+export type WorkspaceListItem = WorkspaceView & { summary: WorkspaceSummary; gone: Date | null };
 
 const toView = (row: Workspace, role: WorkspaceRole): WorkspaceView => ({
     id: row.id,
@@ -80,11 +83,8 @@ export const ListWorkspacesQuery = z.object({
     status: z.enum(['active', 'archived'], 'Use active or archived').default('active'),
 });
 
-export class ListWorkspacesHandler implements UseCaseHandler<{ items: (WorkspaceView & { summary: WorkspaceSummary })[] }> {
-    async handle(
-        input: unknown,
-        ctx: UseCaseContext,
-    ): Promise<UseCaseResult<{ items: (WorkspaceView & { summary: WorkspaceSummary })[] }>> {
+export class ListWorkspacesHandler implements UseCaseHandler<{ items: WorkspaceListItem[] }> {
+    async handle(input: unknown, ctx: UseCaseContext): Promise<UseCaseResult<{ items: WorkspaceListItem[] }>> {
         const parsed = validate(ListWorkspacesQuery, input ?? {});
         if (!parsed.ok) {
             return parsed;
@@ -105,17 +105,19 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
             secrets: number | string;
             variables: number | string;
             members: number | string;
+            gone: string | null;
         }>(
             `SELECT w.id, w.handle, w.name, w.description, w.icon, w.color, w.created_at, w.deleted_at, m.role,
               (SELECT count(*) FROM projects p WHERE p.workspace_id = w.id AND p.deleted_at IS NULL) AS projects,
               (SELECT count(*) FROM connections c WHERE c.workspace_id = w.id AND c.deleted_at IS NULL) AS connections,
               (SELECT count(*) FROM secrets s WHERE s.workspace_id = w.id) AS secrets,
               (SELECT count(*) FROM variables v WHERE v.workspace_id = w.id) AS variables,
-              (SELECT count(*) FROM workspace_members x WHERE x.workspace_id = w.id) AS members
+              (SELECT count(*) FROM workspace_members x WHERE x.workspace_id = w.id) AS members,
+              (SELECT s.value->>'gone' FROM workspace_settings s WHERE s.workspace_id = w.id AND s.key = $3) AS gone
          FROM workspace_members m JOIN workspaces w ON w.id = m.workspace_id
         WHERE m.user_id::text = $1 AND (w.deleted_at IS NULL) = $2
         ORDER BY lower(w.name), w.handle`,
-            [ctx.userId, parsed.value.status === 'active'],
+            [ctx.userId, parsed.value.status === 'active', DISK_SETTING],
         );
         return success({
             items: rows.map(r => ({
@@ -135,6 +137,7 @@ export class ListWorkspacesHandler implements UseCaseHandler<{ items: (Workspace
                     variables: Number(r.variables),
                     members: Number(r.members),
                 },
+                gone: r.gone ? new Date(r.gone) : null,
             })),
         });
     }

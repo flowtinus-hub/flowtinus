@@ -25,8 +25,11 @@ const app = createApp(db, config.environment, keyring, logger, {
     git: { clonesDir: config.gitClonesDir, localRepo: config.localRepo },
 });
 
-// the environments' branches are fetched on their interval, in the server only (never the supervisors); a local server has no remote
-if (!config.localRepo) {
+// the environments' branches are fetched on their interval, in the server only (never the supervisors); a local server
+// has no remote: it scans its clone instead
+if (app.diskPoller) {
+    app.diskPoller.start();
+} else {
     app.gitPoller.start();
 }
 
