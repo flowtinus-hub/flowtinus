@@ -23,11 +23,10 @@ async function fallbackText(ctx: UseCaseContext, row: Flow): Promise<string> {
 export async function loadDiskDraft(ctx: UseCaseContext, row: Flow): Promise<FlowDraft> {
     const text = readDiskText(localRepoOf(ctx.git)!, await flowRepoPath(ctx.db, ctx.workspaceId, row));
     const read = text === null ? null : repoFlowFromYaml(text, row.name);
-    // a file that does not read (conflict markers) is shown as last applied, and a save on it merges with the disk
-    const base = read?.ok ? text! : await fallbackText(ctx, row);
-    const shown = read?.ok ? read : repoFlowFromYaml(base, row.name);
+    const shown = read?.ok ? read : repoFlowFromYaml(await fallbackText(ctx, row), row.name);
     const flow = shown.ok ? shown.value.flow : newFlowFile(row.name, row.id);
-    return { flow: withoutPinned({ ...flow, id: row.id, name: row.name }), revision: await saveBlob(ctx.db, ctx.workspaceId, base) };
+    const revision = await saveBlob(ctx.db, ctx.workspaceId, text ?? (await fallbackText(ctx, row)));
+    return { flow: withoutPinned({ ...flow, id: row.id, name: row.name }), revision };
 }
 
 export const changedOnDiskSince = () =>
@@ -42,13 +41,23 @@ export async function saveDiskDraft(
     flow: FlowFile,
     revision: number | string,
 ): Promise<UseCaseResult<{ revision: string }>> {
-    const base = typeof revision === 'string' ? (await scriptBlobs(ctx.db, ctx.workspaceId, [revision])).get(revision) : undefined;
-    if (base === undefined) {
+    const opened = typeof revision === 'string' ? (await scriptBlobs(ctx.db, ctx.workspaceId, [revision])).get(revision) : undefined;
+    const path = await flowRepoPath(ctx.db, ctx.workspaceId, row);
+    if (opened === undefined) {
         return changedOnDiskSince();
     }
-    const read = repoFlowFromYaml(base, row.name);
+    let read = repoFlowFromYaml(opened, row.name);
+    let base = opened;
+    // a file that did not read (conflict markers) was shown as last applied: the save merges on that, if the file is still the one opened
+    if (!read.ok) {
+        if (readDiskText(localRepoOf(ctx.git)!, path) !== opened) {
+            return changedOnDiskSince();
+        }
+        base = await fallbackText(ctx, row);
+        read = repoFlowFromYaml(base, row.name);
+    }
     const ours = repoFlowToYaml({ ...flow, id: row.id, name: row.name }, read.ok ? read.value : {});
-    const written = await writeDisk(localRepoOf(ctx.git)!, [{ path: await flowRepoPath(ctx.db, ctx.workspaceId, row), text: ours, base }]);
+    const written = await writeDisk(localRepoOf(ctx.git)!, [{ path, text: ours, base }]);
     if (!written.ok) {
         return changedOnDiskSince();
     }
