@@ -3,18 +3,20 @@ import { appearanceOf, type Me, type Member, type NewWorkspace, type Workspace, 
 
 /* The user and their workspaces (the environment's: /me, /workspaces) and a workspace itself (/w/<handle>). */
 
-type WorkspaceDto = Omit<Workspace, 'icon' | 'color' | 'createdAt' | 'archivedAt'> & {
+type WorkspaceDto = Omit<Workspace, 'icon' | 'color' | 'createdAt' | 'archivedAt' | 'gone'> & {
     icon: string;
     color: string;
     createdAt: string;
     archivedAt: string | null;
+    gone?: string | null;
 };
 
-export const toWorkspace = (dto: WorkspaceDto): Workspace => ({
+export const toWorkspace = ({ gone, ...dto }: WorkspaceDto): Workspace => ({
     ...dto,
     ...appearanceOf(dto),
     createdAt: new Date(dto.createdAt),
     archivedAt: dto.archivedAt ? new Date(dto.archivedAt) : null,
+    ...(gone ? { gone: new Date(gone) } : {}),
 });
 
 const asWorkspace = (result: ApiResult<WorkspaceDto>): ApiResult<Workspace> =>

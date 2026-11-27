@@ -51,8 +51,15 @@ export const getGitConfig = (ws: string) =>
 export type GitCommitView = { sha: string; message?: string; author?: string; at?: string };
 
 /** with git on: the commit the deploy is on, a refused commit git is at (errors per file), git unreachable since, warnings */
+export type DiskStatus = {
+    appliedAt: string | null;
+    refused: { errors: TreeIssue[]; since: string } | null;
+    warnings: TreeIssue[];
+    gone: string | null;
+};
+
 export type GitStatus =
-    | { on: false }
+    | { on: false; disk?: DiskStatus }
     | {
           on: true;
           branch: string | null;

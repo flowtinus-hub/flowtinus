@@ -23,7 +23,7 @@ export async function workingScripts(
            WHERE workspace_id = $1 AND branch = $2 AND starts_with(file_id, $3)`,
             [workspaceId, ENVIRONMENT_BRANCH, scriptFileId(projectId, '')],
         ),
-        db.query<{ path: string; content: string; commit_sha: string }>(
+        db.query<{ path: string; content: string; commit_sha: string | null }>(
             `SELECT d.path, b.content, d.commit_sha FROM deployed_scripts d JOIN script_blobs b ON b.workspace_id = d.workspace_id AND b.hash = d.hash
            WHERE d.workspace_id = $1 AND d.project_id = $2`,
             [workspaceId, projectId],

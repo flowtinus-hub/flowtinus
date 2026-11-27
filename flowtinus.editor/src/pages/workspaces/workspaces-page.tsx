@@ -9,7 +9,7 @@ import { useResource } from '@/data/use-resource';
 import { useMe } from '@/data/workspaces/use-workspace';
 import { ROLE_LABEL, type Workspace } from '@/data/workspaces/workspace';
 import { listWorkspaces } from '@/data/workspaces/workspaces-api';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { ProjectIcon } from '@/pages/flows/project-icon';
 import { NewWorkspaceDialog } from './new-workspace-dialog';
@@ -58,6 +58,14 @@ function WorkspaceCard({ workspace }: { workspace: Workspace }) {
                         {workspace.description || 'No description'}
                     </CardDescription>
                 </div>
+                {workspace.gone && (
+                    <span
+                        className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                        title={`Its folder is not on the disk since ${formatDateTime(workspace.gone)}: it is no longer reconciled, and nothing of it is deleted`}
+                    >
+                        Gone from disk
+                    </span>
+                )}
                 <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" title="Your role here">
                     {ROLE_LABEL[workspace.role]}
                 </span>

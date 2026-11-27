@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { repoEntry } from '../repo/repo-layout';
 
@@ -46,8 +47,25 @@ const readText = (root: string, path: string): string | undefined => {
     }
 };
 
+const treeOf = (folder: string) => gitTree(folder) ?? { root: folder, paths: folderPaths(folder) };
+
+/** the paths readRepository would read, with their sizes and mtimes: it changes with the tree, without reading a file */
+export function fingerprint(folder: string): string {
+    const { root, paths } = treeOf(folder);
+    const hash = createHash('sha256');
+    for (const path of paths.sort()) {
+        try {
+            const stat = statSync(join(root, path));
+            hash.update(`${path}\0${stat.size}\0${stat.mtimeMs}\n`);
+        } catch {
+            hash.update(`${path}\0-\n`);
+        }
+    }
+    return hash.digest('hex');
+}
+
 export function readRepository(folder: string): Repository {
-    const { root, paths } = gitTree(folder) ?? { root: folder, paths: folderPaths(folder) };
+    const { root, paths } = treeOf(folder);
     paths.sort();
     const files: Record<string, string> = {};
     for (const path of paths) {

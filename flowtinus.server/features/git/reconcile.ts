@@ -91,7 +91,7 @@ export async function applyCommit(
     warnings: TreeIssue[] = [],
 ): Promise<RenamedDraft[]> {
     const by = await recordCommit(ctx, remote, applied.commit);
-    const { renamedDrafts } = await importWorkspace(ctx, handle, files, { commit: applied.commit, by });
+    const { renamedDrafts } = await importWorkspace(ctx, handle, files, { from: 'commit', commit: applied.commit, by });
     await markApplied(ctx, applied, warnings, renamedDrafts);
     await logReconcile(ctx, applied.commit, 'applied');
     return renamedDrafts;
