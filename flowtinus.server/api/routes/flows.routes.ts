@@ -232,7 +232,14 @@ export function flowsRoutes() {
             ),
         )
         .post('/:id/runs', async c => {
-            const result = await new StartRunHandler().handle(await bodyWith(c, { id: c.req.param('id') }), c.get('useCase'));
+            // PROTOTYPE (#86): a token runs only what its scopes allow (runs:test, runs:execute within its run scope)
+            const scopes = c.get('scopes');
+            const body = (await bodyWith(c, { id: c.req.param('id') })) as { mode?: string };
+            const needed = body.mode === 'execution' ? 'runs:execute' : 'runs:test';
+            if (scopes && !scopes.includes(needed)) {
+                return c.json({ error: { code: 'forbidden', message: `This token has no ${needed}.` } }, 403);
+            }
+            const result = await new StartRunHandler({ runScope: c.get('runScope') ?? null }).handle(body, c.get('useCase'));
             return toHttpResult(c, result, 202);
         });
 }

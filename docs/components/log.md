@@ -17,7 +17,7 @@ Evaluates a message (an expression on the envelope) and records it in the run's 
 | Key       | Label   | Kind       | Required | Default  | Notes                                   |
 | --------- | ------- | ---------- | -------- | -------- | --------------------------------------- |
 | `level`   | Level   | select     |          | `"info"` | one of `debug`, `info`, `warn`, `error` |
-| `message` | Message | expression | yes      |          | e.g. `ˋorder ${$id}ˋ`                   |
+| `message` | Message | expression | yes      |          | e.g. `` `order ${$id}` ``               |
 
 Every component also has `onError` (see [the flow format](../flow-format.md#on-error)).
 

@@ -22,7 +22,11 @@ const CHECK = process.argv.includes('--check');
 
 const catalog = buildCatalog();
 
-const code = (v: unknown) => '`' + String(v).replaceAll('`', 'ˋ').replaceAll('|', '\\|').replaceAll('\n', ' ') + '`';
+// a value with a backtick (a template literal) goes in a double-backtick span, so an agent copies the real character
+const code = (v: unknown) => {
+    const text = String(v).replaceAll('|', '\\|').replaceAll('\n', ' ');
+    return text.includes('`') ? '`` ' + text + ' ``' : '`' + text + '`';
+};
 const cell = (text: string) => text.replaceAll('|', '\\|').replaceAll('\n', ' ');
 
 function settingRows(settings: CatalogSetting[], prefix = ''): string[] {

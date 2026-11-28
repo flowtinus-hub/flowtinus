@@ -13,7 +13,7 @@ nodes:
     - id: unique in the flow; the Start is `start` and the End is `end` by convention
       type: a component type, or `start` / `end`
       label: 'optional: its name on the canvas and in the run record (default: the component name)'
-      position: '{x, y} on the canvas (required; ~300 px apart left to right reads well)'
+      position: "{x, y} on the canvas (required): about 300 apart left to right; a second output's branch a row below (y about 200 more); never two nodes on the same spot (a node added in between moves the ones after it, the End too, further right)"
       config: the component's settings (see each component)
       outputKey: 'optional: the DATA key where it writes its result, for a component with a defaultOutputKey'
       override: 'optional, true: what it produces replaces DATA (only components with usesOverride)'
@@ -37,7 +37,7 @@ groups:
 
 ## Ports
 
-Inputs are in-0, in-1... and outputs out-0, out-1... in the order the component lists them. The error port is `error`, there only while the component's onError is divert. The Start has only out-0 and the End only in-0. A Loop has in-0 and out-0 (one edge each) facing outside, and two inner ports used from inside its loop region: `iteration-start` (a source, where each iteration starts) and `iteration-end` (a target, where the paths of an iteration finish), several edges each.
+Inputs are in-0, in-1... and outputs out-0, out-1... in the order the component lists them. The error port is `error`, there only while the component's onError is divert. The Start has only out-0 and the End only in-0. A Loop has in-0 and out-0 (one edge each) facing outside, and two inner ports used from inside its loop region: `iteration-start` (a source, where each iteration starts) and `iteration-end` (a target, where the paths of an iteration finish), several edges each. An output left unconnected drops what goes out through it, with a warning in the run, unless the component marks it optional (a Filter's false, a Router's else): end a branch you do not need with a Discard. The End is for what the flow gives back (the answer to a webhook, the result a Flow Invoker receives from a flow it calls): connect to it only what should go back.
 
 ## The Start
 

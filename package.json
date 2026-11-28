@@ -24,6 +24,7 @@
     "typecheck": "bun run --cwd=flowtinus.core typecheck && bun run --cwd=flowtinus.cli typecheck && bun run --cwd=flowtinus.server typecheck && bun run --cwd=flowtinus.editor typecheck && bun run --cwd=flowtinus.perf typecheck",
     "perf": "bun flowtinus.perf/src/cli.ts",
     "flowtinus": "bun flowtinus.cli/src/bin.ts",
+    "vscode-prototype": "bun flowtinus.vscode-prototype/scripts/run.ts",
     "migrate": "bun run --cwd=flowtinus.server migrate",
     "docs": "bun docs/components/generate.ts",
     "docs:check": "bun docs/components/generate.ts --check",

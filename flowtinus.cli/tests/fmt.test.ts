@@ -90,7 +90,7 @@ const fmt = (cwd: string, ...args: string[]) => main(['fmt', ...args], cwd);
 describe('flowtinus fmt', () => {
     test('a tree the app exported is left byte for byte', async () => {
         const root = folderWith(EXPORTED);
-        expect(await fmt(root)).toEqual({ code: 0, output: 'No file to format.\n' });
+        expect(await fmt(root)).toEqual({ code: 0, output: expect.stringMatching(/^\d+ files already formatted\.\n$/) });
         expect(contents(root)).toEqual(EXPORTED);
     });
 
@@ -122,7 +122,7 @@ describe('flowtinus fmt', () => {
         expect(after['acme/projects/Sales/flows/Hand.flow.yaml']).toStartWith(
             'version: 1\nid: 00000000-0000-4000-8000-00000000f009\nnodes:\n  - id: end\n',
         );
-        expect(await fmt(root)).toEqual({ code: 0, output: 'No file to format.\n' });
+        expect(await fmt(root)).toEqual({ code: 0, output: expect.stringMatching(/^\d+ files already formatted\.\n$/) });
     });
 
     test('--check writes nothing, names each file that would change and exits 1; 0 on a canonical tree', async () => {
@@ -133,7 +133,10 @@ describe('flowtinus fmt', () => {
             output: 'acme/connections/Warehouse.yaml: not formatted\n1 file not formatted.\n',
         });
         expect(contents(root)).toEqual(hand);
-        expect(await fmt(folderWith(EXPORTED), '--check')).toEqual({ code: 0, output: 'No file to format.\n' });
+        expect(await fmt(folderWith(EXPORTED), '--check')).toEqual({
+            code: 0,
+            output: expect.stringMatching(/^\d+ files already formatted\.\n$/),
+        });
     });
 
     test('file by file: the tree errors between files change nothing; a file that cannot be read is left as it is and reported', async () => {
@@ -213,7 +216,7 @@ describe('flowtinus fmt', () => {
         };
         const root = folderWith({ ...EXPORTED, ...untouched, '.gitignore': 'acme/connections/Ignored.yaml\n' });
         git(root, 'init', '--quiet');
-        expect(await fmt(root)).toEqual({ code: 0, output: 'No file to format.\n' });
+        expect(await fmt(root)).toEqual({ code: 0, output: expect.stringMatching(/^\d+ files already formatted\.\n$/) });
         expect(contents(root)).toMatchObject(untouched);
     });
 
@@ -224,7 +227,7 @@ describe('flowtinus fmt', () => {
         });
         expect(await fmt(folderWith(EXPORTED), '--chek')).toMatchObject({
             code: 2,
-            output: expect.stringContaining('Usage: flowtinus fmt [dir] [--check]'),
+            output: expect.stringContaining('Usage: flowtinus fmt [dir | file...] [--check]'),
         });
         expect((await fmt(folderWith(EXPORTED), 'a', 'b')).code).toBe(2);
     });

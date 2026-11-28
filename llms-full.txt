@@ -62,7 +62,7 @@ nodes:
     - id: unique in the flow; the Start is `start` and the End is `end` by convention
       type: a component type, or `start` / `end`
       label: 'optional: its name on the canvas and in the run record (default: the component name)'
-      position: '{x, y} on the canvas (required; ~300 px apart left to right reads well)'
+      position: "{x, y} on the canvas (required): about 300 apart left to right; a second output's branch a row below (y about 200 more); never two nodes on the same spot (a node added in between moves the ones after it, the End too, further right)"
       config: the component's settings (see each component)
       outputKey: 'optional: the DATA key where it writes its result, for a component with a defaultOutputKey'
       override: 'optional, true: what it produces replaces DATA (only components with usesOverride)'
@@ -86,7 +86,7 @@ groups:
 
 ## Ports
 
-Inputs are in-0, in-1... and outputs out-0, out-1... in the order the component lists them. The error port is `error`, there only while the component's onError is divert. The Start has only out-0 and the End only in-0. A Loop has in-0 and out-0 (one edge each) facing outside, and two inner ports used from inside its loop region: `iteration-start` (a source, where each iteration starts) and `iteration-end` (a target, where the paths of an iteration finish), several edges each.
+Inputs are in-0, in-1... and outputs out-0, out-1... in the order the component lists them. The error port is `error`, there only while the component's onError is divert. The Start has only out-0 and the End only in-0. A Loop has in-0 and out-0 (one edge each) facing outside, and two inner ports used from inside its loop region: `iteration-start` (a source, where each iteration starts) and `iteration-end` (a target, where the paths of an iteration finish), several edges each. An output left unconnected drops what goes out through it, with a warning in the run, unless the component marks it optional (a Filter's false, a Router's else): end a branch you do not need with a Discard. The End is for what the flow gives back (the answer to a webhook, the result a Flow Invoker receives from a flow it calls): connect to it only what should go back.
 
 ## The Start
 
@@ -1802,14 +1802,14 @@ Runs another flow of the project for each envelope, passing its Start's paramete
 
 | Key                  | Label                     | Kind    | Required | Default                           | Notes                                                                                                           |
 | -------------------- | ------------------------- | ------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `flowId`             | Flow                      | flow    | yes      |                                   |                                                                                                                 |
+| `flowId`             | Flow                      | flow    | yes      |                                   | the called flow's id (the `id` in its file)                                                                     |
 | `flowPath`           | Flow path                 | value   | yes      | `{"value":"","expression":true}`  | only when flowId is `"$dynamic"`; e.g. `'Imports/' + $source + '/Load'`                                         |
 | `call`               | Call                      | select  |          | `"wait"`                          | one of `wait`, `fire-and-forget`                                                                                |
 | `batchSize`          | Batch size                | number  |          | `100`                             | 1 to 10000; only when call is `"fire-and-forget"`                                                               |
 | `parameters`         | Parameters                | list    |          |                                   |                                                                                                                 |
 | `parameters[].name`  | Name                      | text    | yes      |                                   |                                                                                                                 |
 | `parameters[].value` | Value                     | value   |          | `{"value":"","expression":false}` | stored as the item's own `value` and `expression`                                                               |
-| `sendEnvelope`       | Send an input to the flow | boolean |          |                                   |                                                                                                                 |
+| `sendEnvelope`       | Send an input to the flow | boolean |          |                                   | the called flow's Start needs `acceptsInput: true`, or its run fails                                            |
 | `inputSource`        | Input                     | select  |          | `"data"`                          | one of `data`, `expression`; only when sendEnvelope is `true`                                                   |
 | `input`              | Input expression          | value   |          | `{"value":"","expression":true}`  | only when sendEnvelope is `true` and inputSource is `"expression"`; e.g. `{id: $id, total: $price * $quantity}` |
 
@@ -1847,7 +1847,7 @@ Evaluates a message (an expression on the envelope) and records it in the run's 
 | Key       | Label   | Kind       | Required | Default  | Notes                                   |
 | --------- | ------- | ---------- | -------- | -------- | --------------------------------------- |
 | `level`   | Level   | select     |          | `"info"` | one of `debug`, `info`, `warn`, `error` |
-| `message` | Message | expression | yes      |          | e.g. `ˋorder ${$id}ˋ`                   |
+| `message` | Message | expression | yes      |          | e.g. `` `order ${$id}` ``               |
 
 Every component also has `onError` (see [the flow format](../flow-format.md#on-error)).
 

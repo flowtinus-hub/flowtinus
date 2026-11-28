@@ -85,7 +85,13 @@ export const flowInvoker: ComponentLogic = {
     outputs: 1,
     usesOverride: true,
     settings: [
-        { key: 'flowId', label: 'Flow', kind: 'flow', required: true },
+        {
+            key: 'flowId',
+            label: 'Flow',
+            kind: 'flow',
+            required: true,
+            description: "the called flow's id (the `id` in its file)",
+        },
         {
             key: 'flowPath',
             label: 'Flow path',
@@ -125,7 +131,12 @@ export const flowInvoker: ComponentLogic = {
                 { key: 'value', label: 'Value', kind: 'value', spread: true, default: { value: '', expression: false } },
             ],
         },
-        { key: 'sendEnvelope', label: 'Send an input to the flow', kind: 'boolean' },
+        {
+            key: 'sendEnvelope',
+            label: 'Send an input to the flow',
+            kind: 'boolean',
+            description: "the called flow's Start needs `acceptsInput: true`, or its run fails",
+        },
         {
             key: 'inputSource',
             label: 'Input',

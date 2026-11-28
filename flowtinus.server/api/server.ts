@@ -27,7 +27,9 @@ const app = createApp(db, config.environment, keyring, logger, {
 
 // the environments' branches are fetched on their interval, in the server only (never the supervisors); a local server
 // has no remote: it scans its clone instead
-if (app.diskPoller) {
+if (process.env.FLOWTINUS_PROTOTYPE_NO_POLLER) {
+    // PROTOTYPE (#86): a second api on the same database, beside the Docker one, that never fetches git
+} else if (app.diskPoller) {
     app.diskPoller.start();
 } else {
     app.gitPoller.start();

@@ -1,5 +1,6 @@
 import { Download, LoaderCircle, Play, Upload, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Can } from '@/host/host';
 import { useServerConnection, type ServerConnection } from '@/lib/server-connection';
 
 const DISCONNECTED = 'Server disconnected';
@@ -27,37 +28,43 @@ export function FlowActionsView(props: {
 
     return (
         <div className="flex items-center gap-1">
-            <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Download"
-                title={online ? 'Download the flow (YAML)' : DISCONNECTED}
-                disabled={!onDownload || !online}
-                onClick={onDownload}
-            >
-                <Download />
-            </Button>
-            {/* Upload comes later: shown, blocked */}
-            <Button variant="ghost" size="icon-sm" aria-label="Upload" title={online ? 'Soon' : DISCONNECTED} disabled>
-                <Upload />
-            </Button>
-            <Button
-                variant="outline"
-                size="sm"
-                disabled={running !== null || !online || !onRun}
-                title={online ? 'Run for real: components that write outside the flow do write' : DISCONNECTED}
-                onClick={() => run('real')}
-            >
-                {running === 'real' ? <LoaderCircle className="animate-spin" /> : <Zap />} Run for real
-            </Button>
-            <Button
-                size="sm"
-                disabled={running !== null || !online || !onRun}
-                title={online ? 'Test run: components that write outside the flow do not write (Ctrl+Enter)' : DISCONNECTED}
-                onClick={() => run('test')}
-            >
-                {running === 'test' ? <LoaderCircle className="animate-spin" /> : <Play />} Run
-            </Button>
+            <Can do="download">
+                <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Download"
+                    title={online ? 'Download the flow (YAML)' : DISCONNECTED}
+                    disabled={!onDownload || !online}
+                    onClick={onDownload}
+                >
+                    <Download />
+                </Button>
+                {/* Upload comes later: shown, blocked */}
+                <Button variant="ghost" size="icon-sm" aria-label="Upload" title={online ? 'Soon' : DISCONNECTED} disabled>
+                    <Upload />
+                </Button>
+            </Can>
+            <Can do="runForReal">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={running !== null || !online || !onRun}
+                    title={online ? 'Run for real: components that write outside the flow do write' : DISCONNECTED}
+                    onClick={() => run('real')}
+                >
+                    {running === 'real' ? <LoaderCircle className="animate-spin" /> : <Zap />} Run for real
+                </Button>
+            </Can>
+            <Can do="run">
+                <Button
+                    size="sm"
+                    disabled={running !== null || !online || !onRun}
+                    title={online ? 'Test run: components that write outside the flow do not write (Ctrl+Enter)' : DISCONNECTED}
+                    onClick={() => run('test')}
+                >
+                    {running === 'test' ? <LoaderCircle className="animate-spin" /> : <Play />} Run
+                </Button>
+            </Can>
         </div>
     );
 }

@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import { ChevronRight, Ellipsis, Folder as FolderIcon } from 'lucide-react';
-import { Link } from 'react-router';
+import { AppLink } from '@/host/host';
 import { projectPath, projectsPath } from '@/app/paths';
 import { useWorkspace } from '@/data/workspaces/use-workspace';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -46,9 +46,9 @@ const folderLabel = (name: string) => (
 export function ProjectBreadcrumb({ project, folders = [], flowName, after }: Props) {
     const { handle: ws, membership } = useWorkspace();
     const workspace = (
-        <Link to={projectsPath(ws)} className={cn(LINK, 'max-w-48 shrink-0 truncate')} title="Projects of this workspace">
+        <AppLink to={projectsPath(ws)} className={cn(LINK, 'max-w-48 shrink-0 truncate')} title="Projects of this workspace">
             {membership?.name ?? ws}
-        </Link>
+        </AppLink>
     );
     if (!project) {
         return (
@@ -97,9 +97,9 @@ export function ProjectBreadcrumb({ project, folders = [], flowName, after }: Pr
                             {step.label}
                         </span>
                     ) : (
-                        <Link to={step.to} className={cn(LINK, 'max-w-48 min-w-7')} title={i === 0 ? project.name : shown[i - 1]?.name}>
+                        <AppLink to={step.to} className={cn(LINK, 'max-w-48 min-w-7')} title={i === 0 ? project.name : shown[i - 1]?.name}>
                             {step.label}
-                        </Link>
+                        </AppLink>
                     )}
                     {i === foldAfter && <FoldedFolders projectId={project.id} folders={folded} />}
                 </Fragment>
@@ -125,9 +125,9 @@ function FoldedFolders({ projectId, folders }: { projectId: string; folders: Fol
                 <DropdownMenuContent align="start">
                     {folders.map(folder => (
                         <DropdownMenuItem key={folder.id} asChild>
-                            <Link to={projectPath(ws, projectId, folder.id)}>
+                            <AppLink to={projectPath(ws, projectId, folder.id)}>
                                 <FolderIcon /> {folder.name}
-                            </Link>
+                            </AppLink>
                         </DropdownMenuItem>
                     ))}
                 </DropdownMenuContent>

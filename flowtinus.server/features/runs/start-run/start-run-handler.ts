@@ -27,6 +27,8 @@ export const StartRunCommand = z.object({
     fromNodeId: z.string().min(1).optional(),
     fromLabel: z.string().trim().min(1).max(200).optional(),
     input: z.unknown().optional(),
+    // PROTOTYPE (#86): a test run of this content (the developer's file in VS Code) instead of the server's draft
+    flow: z.unknown().optional(),
 });
 
 export async function checkedInput(
@@ -91,9 +93,12 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return parsed;
         }
 
-        const { id: flowId, mode, parameters, fromNodeId, fromLabel, input: given } = parsed.value;
+        const { id: flowId, mode, parameters, fromNodeId, fromLabel, input: given, flow: content } = parsed.value;
         if ((fromNodeId || fromLabel) && mode === 'execution') {
             return fail('validation', 'Run from here is a test run only: a run for real runs the whole flow.');
+        }
+        if (content !== undefined && mode === 'execution') {
+            return fail('validation', 'A run of given content is a test run only.');
         }
 
         if (isLocalServer(ctx.git)) {
@@ -123,7 +128,12 @@ export class StartRunHandler implements UseCaseHandler<{ id: string }> {
             return fail('unavailable', noSupervisorFor(row.workerTag));
         }
 
-        const draft = branch ? branchDraft(branchFlow(branch, flowId)!).flow : (await loadDraft(ctx.db, ctx.workspaceId, row)).flow;
+        const draft =
+            content !== undefined
+                ? ({ ...(content as FlowFile), id: flowId, name: row.name } as FlowFile)
+                : branch
+                  ? branchDraft(branchFlow(branch, flowId)!).flow
+                  : (await loadDraft(ctx.db, ctx.workspaceId, row)).flow;
         const scriptSource = editingSource(branch);
         const checked = validateFlowFile(
             mode === 'validation' ? withPins(draft, await pinsOf(ctx.db, ctx.workspaceId, ctx.userId, flowId)) : draft,

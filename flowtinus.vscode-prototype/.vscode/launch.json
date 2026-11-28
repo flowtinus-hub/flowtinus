@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run the prototype extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${env:TEMP}/flowtinus-vscode-prototype-sample-WIPE-ME"],
+      "preLaunchTask": "build"
+    }
+  ]
+}

@@ -1,0 +1,135 @@
+{
+  "name": "flowtinus-vscode-prototype",
+  "displayName": "Flowtinus (PROTOTYPE)",
+  "description": "Throwaway prototype for #86: the canvas, names behind ids and explorer commands in VS Code.",
+  "private": true,
+  "version": "0.0.1",
+  "publisher": "flowtinus-prototype",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/workspace.yaml"
+  ],
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "start": "bun scripts/run.ts"
+  },
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "flowtinus.editor",
+        "displayName": "Flowtinus editor (the web app page)",
+        "selector": [
+          {
+            "filenamePattern": "*.flow.yaml"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "flowtinus.flow",
+        "displayName": "Flowtinus flow (simple canvas)",
+        "selector": [
+          {
+            "filenamePattern": "*.flow.yaml"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "flowtinus.newFlow",
+        "title": "New flow",
+        "category": "Flowtinus"
+      },
+      {
+        "command": "flowtinus.newFolder",
+        "title": "New flow folder",
+        "category": "Flowtinus"
+      },
+      {
+        "command": "flowtinus.newScript",
+        "title": "New script",
+        "category": "Flowtinus"
+      },
+      {
+        "command": "flowtinus.newConnection",
+        "title": "New connection",
+        "category": "Flowtinus"
+      },
+      {
+        "command": "flowtinus.rename",
+        "title": "Rename (git mv)",
+        "category": "Flowtinus"
+      },
+      {
+        "command": "flowtinus.format",
+        "title": "Format to the canonical form",
+        "category": "Flowtinus"
+      },
+      {
+        "command": "flowtinus.openText",
+        "title": "Open as text beside",
+        "category": "Flowtinus",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "flowtinus.connect",
+        "title": "Connect to a server (token)",
+        "category": "Flowtinus"
+      },
+      {
+        "command": "flowtinus.disconnect",
+        "title": "Disconnect from the server",
+        "category": "Flowtinus"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "flowtinus.newFlow",
+          "when": "explorerResourceIsFolder && resourcePath =~ /[\\\\/]flows([\\\\/]|$)/",
+          "group": "flowtinus@1"
+        },
+        {
+          "command": "flowtinus.newFolder",
+          "when": "explorerResourceIsFolder && resourcePath =~ /[\\\\/](flows|scripts)([\\\\/]|$)/",
+          "group": "flowtinus@2"
+        },
+        {
+          "command": "flowtinus.newScript",
+          "when": "explorerResourceIsFolder && resourcePath =~ /[\\\\/]scripts([\\\\/]|$)/",
+          "group": "flowtinus@3"
+        },
+        {
+          "command": "flowtinus.newConnection",
+          "when": "explorerResourceIsFolder && resourceFilename == connections",
+          "group": "flowtinus@4"
+        },
+        {
+          "command": "flowtinus.rename",
+          "when": "resourcePath =~ /[\\\\/](flows|scripts|connections)[\\\\/]/",
+          "group": "flowtinus@5"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "flowtinus.openText",
+          "when": "activeCustomEditorId == flowtinus.flow",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/vscode": "^1.100.0",
+    "@xyflow/react": "^12.12.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}

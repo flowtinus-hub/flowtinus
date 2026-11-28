@@ -11,6 +11,7 @@ import { ThemeToggle } from '@/layout/theme-toggle';
 import { ProjectBreadcrumb } from '@/pages/project-flows/project-breadcrumb';
 import { ServerGate } from '@/components/server-gate';
 import { FlowActions } from './flow-actions';
+import { Can, useCan } from '@/host/host';
 import { FlowCallsPanel } from './flow-calls';
 import { SaveStatus } from './save-status';
 import { WorkerTagMenu } from './worker-tag-menu';
@@ -91,10 +92,14 @@ export function FlowEditorPage() {
     const offersBranch = Boolean(current?.flow?.offersBranch) && !archived && canEdit && userHandle !== null;
     const [offering, setOffering] = useState<{ replay?: () => Promise<ApiResult<unknown>> } | null>(null);
     const [gitOn, setGitOn] = useState<boolean | null>(null);
+    const hostGit = useCan('git');
     useEffect(() => {
+        if (!hostGit) {
+            return;
+        }
         // a local server's tree comes from files as a commit's does: its triggers are in the flow's file
         void getGitStatus(ws).then(result => setGitOn(result.ok ? result.value.on || result.value.disk !== undefined : false));
-    }, [ws]);
+    }, [ws, hostGit]);
     const offerBranch = useCallback((replay: () => Promise<ApiResult<unknown>>) => setOffering({ replay }), []);
     const [environmentBranch, setEnvironmentBranch] = useState('');
     useEffect(() => {
@@ -235,7 +240,14 @@ export function FlowEditorPage() {
         setUsage(null);
     }
 
+    const hostRuns = useCan('run');
+    const canCalls = useCan('calls');
+    const canWorkers = useCan('workers');
+    const canDeploy = useCan('deploy');
     useEffect(() => {
+        if (!hostRuns) {
+            return;
+        }
         let gone = false;
         void getLastRun(flowId).then(answer => {
             if (gone || !answer.ok) {
@@ -250,7 +262,7 @@ export function FlowEditorPage() {
         return () => {
             gone = true;
         };
-    }, [flowId]);
+    }, [flowId, hostRuns]);
     // fromNodeId: Run from here (that component and what follows it, from what reached it in the last run)
     const execute = async (kind: 'test' | 'real', fromNodeId?: string): Promise<ApiResult<unknown>> => {
         if (!current?.flow || running) {
@@ -392,7 +404,7 @@ export function FlowEditorPage() {
     const runFrom = useCallback((nodeId: string) => void executeRef.current('test', nodeId), []);
     // Ctrl+Enter (Cmd on a Mac): a test run, as the top bar's Run, when Run can be clicked; not while typing in a field or in
     // a window or dialog
-    const canRun = Boolean(current?.flow && !archived && !gone && connection.state === 'online');
+    const canRun = Boolean(hostRuns && current?.flow && !archived && !gone && connection.state === 'online');
     const testRun = useRef(() => {});
     useEffect(() => {
         testRun.current = () => canRun && run('test');
@@ -447,7 +459,7 @@ export function FlowEditorPage() {
                     project={project.status === 'ready' ? project.project : null}
                     folders={current?.folders}
                     flowName={flowName}
-                    after={local ? <LocalHeadMark handle={ws} /> : <BranchPicker handle={ws} />}
+                    after={<Can do="git">{local ? <LocalHeadMark handle={ws} /> : <BranchPicker handle={ws} />}</Can>}
                 />
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                     {onBranch &&
@@ -514,6 +526,7 @@ export function FlowEditorPage() {
                                     onScriptUses={setOwnScripts}
                                     onToggleCalls={() => setCallsOpen(open => !open)}
                                     toolsBefore={
+                                        canCalls &&
                                         current?.flow && (
                                             // this flow's calls as the canvas has them now
                                             <FlowCallsPanel
@@ -528,6 +541,7 @@ export function FlowEditorPage() {
                                         )
                                     }
                                     tools={
+                                        canWorkers &&
                                         current?.flow && (
                                             // which workers run it, before Arrange
                                             <WorkerTagMenu
@@ -540,6 +554,7 @@ export function FlowEditorPage() {
                                         )
                                     }
                                     toolsAfter={
+                                        canDeploy &&
                                         current?.flow &&
                                         (onWorkBranch || gitOn ? (
                                             <>

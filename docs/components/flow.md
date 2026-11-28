@@ -16,14 +16,14 @@ Runs another flow of the project for each envelope, passing its Start's paramete
 
 | Key                  | Label                     | Kind    | Required | Default                           | Notes                                                                                                           |
 | -------------------- | ------------------------- | ------- | -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `flowId`             | Flow                      | flow    | yes      |                                   |                                                                                                                 |
+| `flowId`             | Flow                      | flow    | yes      |                                   | the called flow's id (the `id` in its file)                                                                     |
 | `flowPath`           | Flow path                 | value   | yes      | `{"value":"","expression":true}`  | only when flowId is `"$dynamic"`; e.g. `'Imports/' + $source + '/Load'`                                         |
 | `call`               | Call                      | select  |          | `"wait"`                          | one of `wait`, `fire-and-forget`                                                                                |
 | `batchSize`          | Batch size                | number  |          | `100`                             | 1 to 10000; only when call is `"fire-and-forget"`                                                               |
 | `parameters`         | Parameters                | list    |          |                                   |                                                                                                                 |
 | `parameters[].name`  | Name                      | text    | yes      |                                   |                                                                                                                 |
 | `parameters[].value` | Value                     | value   |          | `{"value":"","expression":false}` | stored as the item's own `value` and `expression`                                                               |
-| `sendEnvelope`       | Send an input to the flow | boolean |          |                                   |                                                                                                                 |
+| `sendEnvelope`       | Send an input to the flow | boolean |          |                                   | the called flow's Start needs `acceptsInput: true`, or its run fails                                            |
 | `inputSource`        | Input                     | select  |          | `"data"`                          | one of `data`, `expression`; only when sendEnvelope is `true`                                                   |
 | `input`              | Input expression          | value   |          | `{"value":"","expression":true}`  | only when sendEnvelope is `true` and inputSource is `"expression"`; e.g. `{id: $id, total: $price * $quantity}` |
 

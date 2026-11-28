@@ -1,0 +1,97 @@
+html,
+body,
+#root,
+.shell {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+body {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: 12px;
+}
+.shell {
+    display: flex;
+    flex-direction: column;
+}
+.bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+.bar button {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: 0;
+    padding: 3px 8px;
+    cursor: pointer;
+}
+.proto {
+    background: #b45309;
+    color: white;
+    padding: 1px 6px;
+    font-weight: bold;
+}
+.hint,
+.renders {
+    opacity: 0.7;
+}
+.renders {
+    margin-left: auto;
+}
+.errors {
+    padding: 6px 10px;
+    background: var(--vscode-inputValidation-errorBackground);
+    border-bottom: 1px solid var(--vscode-inputValidation-errorBorder);
+}
+.errors ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+.react-flow {
+    flex: 1;
+}
+.card {
+    width: 160px;
+    min-height: 60px;
+    padding: 6px 10px;
+    box-sizing: border-box;
+    border-radius: 6px;
+    background: var(--vscode-editorWidget-background);
+    border: 1px solid var(--vscode-editorWidget-border, #888);
+}
+.card.selected {
+    outline: 2px solid var(--vscode-focusBorder);
+}
+.card.type-start,
+.card.type-end {
+    width: 128px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+}
+.card .title {
+    font-weight: 600;
+}
+.card .sub {
+    opacity: 0.6;
+    font-size: 11px;
+}
+.card .ref {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--vscode-textLink-foreground);
+}
+.card .ref.bad {
+    color: var(--vscode-errorForeground);
+}
+.error-port {
+    background: #dc2626 !important;
+}
+.error-edge path {
+    stroke: #dc2626 !important;
+    stroke-dasharray: 4 3;
+}
